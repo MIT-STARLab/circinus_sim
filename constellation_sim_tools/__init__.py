@@ -1,2 +1,2 @@
 from .  import constellation_sim 
-from .  import agent_sim 
+from .  import sim_agents

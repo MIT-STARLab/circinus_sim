@@ -1,6 +1,10 @@
 import sys
 from multiprocessing import Process, Queue
 
+# from circinus_tools.scheduling.routing_objects import 
+
+EXPECTED_GP_OUTPUT_VER = '0.2'
+
 class GlobalPlannerWrapper:
     """wraps the global planner scheduling algorithm, makes it hopefully easy to call"""
 
@@ -25,8 +29,6 @@ class GlobalPlannerWrapper:
             "file_params":  {'new_pickle_file_name_pre': "const_sim_test_pickle"}
         }
 
-        # note the use of multiprocessing's Process means (I think) that we'll be making a copy of all the data in gp_inputs every time we call this, including the large (and unchanging!) data rates inputs. Not super great, but I don't think it'll be problematic.
-        # todo: figure out a way to avoid this, possibly with mp Pool that can keep a persistent worker
 
         sys.path.append ('/Users/ktikennedy/Dropbox (MIT)/MIT/Research/CIRCINUS/GlobalPlanner/python_runner')
         sys.path.append ('/Users/ktikennedy/Dropbox (MIT)/MIT/Research/CIRCINUS/GlobalPlanner')
@@ -37,7 +39,14 @@ class GlobalPlannerWrapper:
         gp_pr = GPPipelineRunner()
         gp_output = gp_pr.run(gp_inputs,verbose=True)
 
+        if not gp_output['version'] == EXPECTED_GP_OUTPUT_VER:
+            raise RuntimeWarning("Saw gp output version %s, expected %s"%(gp_output['version'],EXPECTED_GP_OUTPUT_VER))
+
+        scheduled_routes = gp_output['scheduled_routes']
+
         # if I want to make this a separate process at some point...
+        # note the use of multiprocessing's Process means (I think) that we'll be making a copy of all the data in gp_inputs every time we call this, including the large (and unchanging!) data rates inputs. Not super great, but I don't think it'll be problematic.
+        # todo: figure out a way to avoid this, possibly with mp Pool that can keep a persistent worker
         # import runner_gp
         # queue = Queue()
         # queue.put(gp_inputs)
@@ -47,4 +56,3 @@ class GlobalPlannerWrapper:
         # gp_output = queue.get()
         # p.join()
 
-        print(gp_output.keys())
