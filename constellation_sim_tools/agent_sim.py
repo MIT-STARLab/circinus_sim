@@ -3,22 +3,23 @@ SAT_STATE_JSON_VER = '0.1'
 class SimAgent:
     """Super class for simulation agents within constellation"""
 
-    def __init__(self, sim_params):
+    def __init__(self):
         pass
 
 
 class SimSatellite(SimAgent):
     """class for simulation satellites"""
     
-    def __init__(self,sim_params):
+    def __init__(self,sat_id):
         """initializes based on parameters
         
         initializes based on parameters
-        :param sim_params: global namespace parameters created from input files (possibly with some small non-structural modifications to params). The name spaces here should trace up all the way to the input files.
         :type params: dict
         """
 
-        super().__init__(sim_params)
+        super().__init__()
+
+        self.sat_id = sat_id
 
 class SimGroundStation(SimAgent):
     """class for simulation ground stations"""
@@ -27,11 +28,10 @@ class SimGroundStation(SimAgent):
         """initializes based on parameters
         
         initializes based on parameters
-        :param sim_params: global namespace parameters created from input files (possibly with some small non-structural modifications to params). The name spaces here should trace up all the way to the input files.
         :type params: dict
         """
 
-        super().__init__(sim_params)
+        super().__init__()
 
         self.ID = ID
         self.name = name
@@ -44,11 +44,10 @@ class SimGroundNetwork(SimAgent):
         """initializes based on parameters
         
         initializes based on parameters
-        :param sim_params: global namespace parameters created from input files (possibly with some small non-structural modifications to params). The name spaces here should trace up all the way to the input files.
         :type params: dict
         """
 
-        super().__init__(sim_params)
+        super().__init__()
 
         self.name = name
         self.gs_list = gs_list

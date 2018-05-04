@@ -1,4 +1,5 @@
 from .agent_sim import SimGroundNetwork,SimGroundStation,SimSatellite
+from .gp_wrapper import GlobalPlannerWrapper
 
 class ConstellationSim:
     """easy interface for running the global planner scheduling algorithm"""
@@ -37,27 +38,39 @@ class ConstellationSim:
         # if self.gp_inst_params['planning_end_dlnk_dt'] > self.scenario_params['end_utc_dt']:
         #     raise RuntimeError("GP instance dlnk end time (%s) is greater than scenario end time (%s)"%(self.gp_inst_params['planning_end_dlnk_dt'],self.scenario_params['end_utc']))
 
-        self.gs_network = SimGroundNetwork(self.gs_params['gs_network_name']) 
+        gs_network = SimGroundNetwork(self.gs_params['gs_network_name']) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
                 station['id'], 
                 station['name'], 
                 gs_network
             )
-            self.gs_network.gs_list.append(gs)
+            gs_network.gs_list.append(gs)
+        self.gs_network = gs_network
 
-        self.sats_by_id = {}
+        sats_by_id = {}
         for sat_id in self.sat_params['sat_id_order']:
             sat = SimSatellite(
-                sat_id,
-                sat_initial_state 
+                sat_id 
             )
-            self.sats_by_id[sat_id] = sat
+            sats_by_id[sat_id] = sat
+        self.sats_by_id = sats_by_id
 
     def run( self):
 
-        work on gp wrapper now...
+        gp_wrapper = GlobalPlannerWrapper(self.params)
 
+        gp_instance_params = {
+            "version": "0.2",
+            "planning_params": {
+                "_comment": "these are the bounds within which the beginning and end of activities must fall in order to be considered in current planning (route selection + scheduling) run",
+                "planning_start" :  "2016-02-14T04:00:00.000000Z",
+                "planning_end_obs_xlnk" :  "2016-02-14T06:00:00.000000Z",
+                "planning_end_dlnk" :  "2016-02-14T06:00:00.000000Z"
+            }
+        }
+
+        gp_wrapper.run_gp(gp_instance_params)
 
 
 

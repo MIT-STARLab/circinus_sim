@@ -5,22 +5,21 @@
 # @author Kit Kennedy
 #
 
-# import time
-# import os.path
-# import json
-# from datetime import datetime, timedelta
-# import sys
-# import argparse
+import time
+import os.path
+import json
+from datetime import datetime, timedelta
+import sys
+import argparse
 # import numpy as np
-# from copy import deepcopy
+from copy import deepcopy
 # from collections import OrderedDict
-# import multiprocessing as mp
-
 
 #  local repo includes. todo:  make this less hackey
 sys.path.append ('..')
 from circinus_tools  import time_tools as tt
 from circinus_tools  import io_tools
+from constellation_sim_tools import constellation_sim as const_sim
 from constellation_sim_tools import constellation_sim as const_sim
 
 # TODO: remove this line if not needed
@@ -39,6 +38,7 @@ class PipelineRunner:
 
         """
 
+        # deepcopy here because we're making changes for components that this function calls, and don't want to accidentally somehow step on toes somewhere down the call stack (before this function was called)
         orbit_prop_inputs = deepcopy( data['orbit_prop_inputs'])
         orbit_link_inputs = data['orbit_link_inputs']
         gp_general_params_inputs = data['gp_general_params_inputs']
@@ -49,6 +49,8 @@ class PipelineRunner:
         orbit_link_params = orbit_link_inputs
         gp_general_params = gp_general_params_inputs
         data_rates_params = data_rates_inputs
+
+        sim_other_params = {}
 
         if orbit_prop_inputs['version'] == "0.4":
             # do some useful transformations while preserving the structure of the inputs ( important for avoiding namespace clashes)
@@ -90,11 +92,12 @@ class PipelineRunner:
         sim_params['orbit_link_params'] = orbit_link_params
         sim_params['gp_general_params'] = gp_general_params
         sim_params['data_rates_params'] = data_rates_params
-        sim_params['other_params'] = other_params
+        sim_params['other_params'] = sim_other_params
         sim_runner = const_sim.ConstellationSim(sim_params)
-        viz_outputs= sim_runner.run ()
+        output = sim_runner.run ()
 
         # define orbit prop outputs json
+        # todo: add output here
         output_json = {}
         output_json['version'] = OUTPUT_JSON_VER
         output_json['update_time'] = datetime.utcnow().isoformat()
