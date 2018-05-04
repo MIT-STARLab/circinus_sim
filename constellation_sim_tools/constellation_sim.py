@@ -60,21 +60,7 @@ class ConstellationSim:
 
         gp_wrapper = GlobalPlannerWrapper(self.params)
 
-        gp_instance_params = {
-            "version": "0.4",
-            "planning_params": {
-                "_comment": "these are the bounds within which the beginning and end of activities must fall in order to be considered in current planning (route selection + scheduling) run",
-                "planning_start" :  "2016-02-14T04:00:00.000000Z",
-                "planning_end_obs_xlnk" :  "2016-02-14T06:00:00.000000Z",
-                "planning_end_dlnk" :  "2016-02-14T06:00:00.000000Z"
-            },
-            "activity_scheduling_params": {
-                "plot_activity_scheduling_results":   False
-            },
-            "gp_agent_ID": "gs_network"
-        }
-
-        gp_wrapper.run_gp(gp_instance_params)
+        gp_wrapper.run_gp()
 
 
 

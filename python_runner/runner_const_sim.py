@@ -20,7 +20,6 @@ sys.path.append ('..')
 from circinus_tools  import time_tools as tt
 from circinus_tools  import io_tools
 from constellation_sim_tools import constellation_sim as const_sim
-from constellation_sim_tools import constellation_sim as const_sim
 
 # TODO: remove this line if not needed
 # from gp_tools.custom_activity_window import ObsWindow
@@ -41,14 +40,16 @@ class PipelineRunner:
         # deepcopy here because we're making changes for components that this function calls, and don't want to accidentally somehow step on toes somewhere down the call stack (before this function was called)
         orbit_prop_inputs = deepcopy( data['orbit_prop_inputs'])
         orbit_link_inputs = data['orbit_link_inputs']
-        gp_general_params_inputs = data['gp_general_params_inputs']
         data_rates_inputs = data['data_rates_inputs']
+        gp_general_params_inputs = data['gp_general_params_inputs']
+        const_sim_params_inputs = data['const_sim_params_inputs']
 
         sim_params = {}
         orbit_prop_params = orbit_prop_inputs
         orbit_link_params = orbit_link_inputs
-        gp_general_params = gp_general_params_inputs
         data_rates_params = data_rates_inputs
+        gp_general_params = gp_general_params_inputs
+        const_sim_params = const_sim_params_inputs
 
         sim_other_params = {}
 
@@ -80,18 +81,24 @@ class PipelineRunner:
         else:
             raise NotImplementedError
 
-        #  check that it's the right version
-        if not gp_general_params['version'] == "0.2":
-            raise NotImplementedError
 
         #  check that it's the right version
         if not data_rates_inputs['version'] == "0.3":
+            raise NotImplementedError
+
+        #  check that it's the right version
+        if not gp_general_params_inputs['version'] == "0.2":
+            raise NotImplementedError
+
+        #  check that it's the right version
+        if not const_sim_params_inputs['version'] == "0.1":
             raise NotImplementedError
 
         sim_params['orbit_prop_params'] = orbit_prop_params
         sim_params['orbit_link_params'] = orbit_link_params
         sim_params['gp_general_params'] = gp_general_params
         sim_params['data_rates_params'] = data_rates_params
+        sim_params['const_sim_params'] = const_sim_params
         sim_params['other_params'] = sim_other_params
         sim_runner = const_sim.ConstellationSim(sim_params)
         output = sim_runner.run ()
@@ -127,6 +134,11 @@ if __name__ == "__main__":
                     default='crux/config/examples/gp_general_params_inputs_ex.json',
                     help='specify global planner general params file')
 
+    ap.add_argument('--const_sim_params_file',
+                    type=str,
+                    default='crux/config/examples/const_sim_params_ex.json',
+                    help='specify constellation simulation parameters file')
+
     args = ap.parse_args()
 
     pr = PipelineRunner()
@@ -144,11 +156,15 @@ if __name__ == "__main__":
     with open(os.path.join(REPO_BASE,args.gp_general_inputs_file),'r') as f:
         gp_general_params_inputs = json.load(f)
 
+    with open(os.path.join(REPO_BASE,args.const_sim_params_file),'r') as f:
+        const_sim_params_inputs = json.load(f)
+
     data = {
         "orbit_prop_inputs": orbit_prop_inputs,
         "orbit_link_inputs": orbit_link_inputs,
         "gp_general_params_inputs": gp_general_params_inputs,
-        "data_rates_inputs": data_rates_inputs
+        "data_rates_inputs": data_rates_inputs,
+        "const_sim_params_inputs": const_sim_params_inputs
     }
 
     a = time.time()
