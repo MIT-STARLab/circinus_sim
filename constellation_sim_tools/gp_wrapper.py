@@ -32,6 +32,8 @@ class GlobalPlannerWrapper:
         sys.path.append ('/Users/ktikennedy/Dropbox (MIT)/MIT/Research/CIRCINUS/GlobalPlanner')
         from runner_gp import PipelineRunner as GPPipelineRunner
 
+        print('Run GP')
+        print('note: running with local circinus_tools, not circinus_tools within GP repo')
         gp_pr = GPPipelineRunner()
         gp_output = gp_pr.run(gp_inputs,verbose=True)
 
@@ -40,7 +42,6 @@ class GlobalPlannerWrapper:
         # queue = Queue()
         # queue.put(gp_inputs)
         # verbose = True
-        # print('Run GP')
         # p = Process(target=runner_gp.remote_multiproc_run, args=(queue,verbose))
         # p.start()
         # gp_output = queue.get()
