@@ -1,7 +1,8 @@
 from random import normalvariate
 
-from .sim_agent_components import ScheduleArbiter, StateRecorder, PlanningInfoDB
 from circinus_tools  import io_tools
+from circinus_tools.scheduling.base_window  import find_window_in_wind_list
+from .sim_agent_components import ScheduleArbiter, StateRecorder, PlanningInfoDB
 
 class SatScheduleArbiter(ScheduleArbiter):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
@@ -11,23 +12,102 @@ class SatScheduleArbiter(ScheduleArbiter):
 
         self.plan_db = PlanningInfoDB()
 
+        self._schedule_updated = True
+
     def ingest_routes(self,rt_conts):
         self.plan_db.add_routes(rt_conts)
 
-    def get_scheduled_acts(self):
-        pass
+    @property
+    def schedule_updated():
+        return self._schedule_updated
+
+    def get_schedule(self):
+        self._schedule_updated = False
+
+        return []
+
 
 
 class SatExecutive:
     """Handles execution of scheduled activities, with the final on whether or not to adhere exactly to schedule or make changes necessitated by most recent state estimates """
 
-    def __init__(self):
-        pass
+    def __init__(self,sim_sat,start_time_dt):
+        # holds ref to the containing sim sat
+        self.sim_sat = sim_sat
+
+        self.schedule = []
+        self._current_act = None
+        self._current_act_windex = None
+        self.arbiter = ?
+
+        self.curr_time_dt = start_time_dt
+
+        # holds ref to SatStateSimulator, eventually
+        self.sat_state_sim = None
+        # holds ref to SatScheduleArbiter, eventually
+        self.sat_arbiter = None
+
+
+    def pull_schedule(self):
+
+        # if schedule updates are available, blow away what we had previously (assumption is that arbiter handles changes to schedule gracefully)
+        if self.sat_arbiter.schedule_updated:
+            self.schedule = self.sat_arbiter.get_schedule()
+        else:
+            return
+
+        # if we updated the schedule, need to deal with the consequences
+
+        # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
+        if not self._current_act is None:
+            try:
+                curr_act_indx = self.schedule.index(self._current_act)
+            except ValueError:
+                # todo: add cleanup?
+                # - what does it mean if current act is not in new sched? cancel current act?
+
+            self._current_act_windex = curr_act_indx
+
+        # if there are activities in the schedule, then assume we're starting from beginning of it
+        elif len(self.schedule) > 0:
+            self._current_act_windex = 0
+
+        # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
+        else:
+            # todo: no act, so what is index? Is the below correct?
+            self._current_act_windex = None
+
+    def update(new_time_dt):
+        """ Update state of the executive """
+
+        # update schedule if need be
+        self.pull_schedule()
+
+
+        # figure out current activity, index of that act in schedule (note this could return None)
+        self._current_act,self._current_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.schedule)
+
+        # todo: add some hysteresis here? That is, a cool down time after returning to nominal state before deciding to execute another act?
+        if not self.sat_state_sim.nominal_state_check():
+            self._current_act = None
+
+        self.curr_time_dt = new_time_dt
+
+    def get_act_at_time(self,time_dt):
+
+        if abs(time_dt - self.curr_time_dt) < self.sim_sat.time_epsilon_td:
+            return self._current_act
+        else:
+            raise NotImplementedError
+
 
 class SatStateSimulator:
-    """Simulates satellite state, holding internally any state variables needed for the process"""
+    """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
 
-    def __init__(self,start_time_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,sat_event_data):
+    def __init__(self,sim_sat,start_time_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,sat_event_data):
+        # holds ref to the containing sim sat
+        self.sim_sat = sim_sat
+
         self.ES_state = sat_initial_state['batt_e_Wh']
 
         self.sat_edot_by_mode,self.sat_batt_storage,power_units = io_tools.parse_power_consumption_params(sat_power_params)
@@ -43,30 +123,45 @@ class SatStateSimulator:
         self.es_update_add_noise = state_simulator_params['es_state_update']['add_noise']
         self.es_noise_params = state_simulator_params['es_state_update']['noise_params']
 
+        # we track eclipse windows here because they're not actually scheduled, they're just events that happen
         self.ecl_winds = sat_event_data['ecl_winds']
         self.ecl_winds.sort(key = lambda w: w.start)
-        self.curr_ecl_windex = 0
+        self._curr_ecl_windex = 0
 
-    def in_eclipse(self,curr_time_dt):
+        # holds ref to SatExecutive, eventually
+        self.sat_exec = None
+
+    def in_eclipse(self,time_dt):
         # move current eclipse window possibility forward if we're past it, and we're not yet at end of ecl winds
         # -1 so we only advance if we're not yet at the end
-        while self.curr_ecl_windex < len(self.ecl_winds)-1 and  curr_time_dt > self.ecl_winds[self.curr_ecl_windex].end:
-            self.curr_ecl_windex += 1
+        # while self._curr_ecl_windex < len(self.ecl_winds)-1 and  time_dt > self.ecl_winds[self._curr_ecl_windex].end:
+        #     self._curr_ecl_windex += 1
 
-        curr_ecl_wind = self.ecl_winds[self.curr_ecl_windex]
-        if self.curr_ecl_windex >= curr_ecl_wind.start and self.curr_ecl_windex <= curr_ecl_wind.end:
+        # curr_ecl_wind = self.ecl_winds[self._curr_ecl_windex]
+        # if self._curr_ecl_windex >= curr_ecl_wind.start and self._curr_ecl_windex <= curr_ecl_wind.end:
+        #     return True
+
+        curr_ecl_wind,self._curr_ecl_windex = find_window_in_wind_list(time_dt,self._curr_ecl_windex,self.ecl_winds)
+
+        if curr_ecl_wind:
             return True
 
-    def update_state(new_time_dt):
+    def update(new_time_dt):
+        """ Update state to new time by propagating state forward from last time to new time"""
+
+        if new_time_dt < self.curr_time_dt:
+            raise RuntimeWarning('Saw earlier time')
 
         # this is consistent with power units above
         delta_t_h = (new_time_dt - self.curr_time_dt).total_seconds()/3600
 
-        current_act = blah
+        current_act = self.sat_exec.get_act_at_time(self.curr_time_dt)
 
 
         ########################
         # Energy storage update
+
+        act_edot = ? fix this
 
         #  base-level satellite energy usage (not including additional activities)
         base_edot = model.par_sats_edot_by_mode[sat_indx]['base']
@@ -99,6 +194,9 @@ class SatStateSimulator:
             raise RuntimeWarning('ES_state went below 0 for sat %s'%(self))
 
 
+        # todo: add in DS stuff?
+
+
         self.curr_time_dt = new_time_dt
 
         # # Add to state history
@@ -109,6 +207,12 @@ class SatStateSimulator:
         #     # stored in megabytes and W-Hr (why did I do it that way? No idea)
         #     self.ES_state_history.append(self.ES_state/E_CONV_FACTOR)
 
+    def nominal_state_check(self):
+        # if we're below lower energy bound, state is off nominal
+        if self.ES_state < self.sat_batt_storage['e_min']:
+            return False
+
+        return True
 
 class SatStateRecorder(StateRecorder):
 

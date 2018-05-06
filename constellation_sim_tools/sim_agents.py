@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from .sim_sat_components import SatScheduleArbiter,SatExecutive,SatStateSimulator,SatStateRecorder
 
 SAT_STATE_JSON_VER = '0.1'
@@ -24,11 +26,22 @@ class SimSatellite(SimAgent):
         self.curr_time_dt = start_dt
 
         self.sat_id = sat_id
-        self.sched_arbiter = SatScheduleArbiter()
-        self.exec = SatExecutive()
-        self.state_sim = SatStateSimulator(start_dt,sim_satellite_params['state_simulator'],sat_scenario_params['power_params'],sat_scenario_params['data_storage_params'],sat_scenario_params['initial_state'],sat_event_data)
+        self.arbiter = SatScheduleArbiter()
+        self.exec = SatExecutive(self,start_dt)
+        self.state_sim = SatStateSimulator(self,start_dt,sim_satellite_params['state_simulator'],sat_scenario_params['power_params'],sat_scenario_params['data_storage_params'],sat_scenario_params['initial_state'],sat_event_data)
         self.state_recorder = SatStateRecorder()
 
+        # adds references between sat sim objects
+        self.state_sim.sat_exec = self.exec
+        self.exec.sat_state_sim = self.state_sim
+        self.exec.sat_arbiter = self.arbiter
+
+        self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
+
+
+    def state_update_step(new_time_dt):
+        self.state_sim.update(new_time_dt)
+        self.exec.update(new_time_dt)
 
 class SimGroundStation(SimAgent):
     """class for simulation ground stations"""
