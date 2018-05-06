@@ -1,3 +1,4 @@
+import os.path
 import sys
 from multiprocessing import Process, Queue
 from copy import copy
@@ -50,9 +51,10 @@ class GlobalPlannerWrapper:
             "file_params":  {'new_pickle_file_name_pre': "const_sim_test_pickle"}
         }
 
-
-        sys.path.append ('/Users/ktikennedy/Dropbox (MIT)/MIT/Research/CIRCINUS/GlobalPlanner/python_runner')
-        sys.path.append ('/Users/ktikennedy/Dropbox (MIT)/MIT/Research/CIRCINUS/GlobalPlanner')
+        # path to runner_gp
+        sys.path.append (os.path.join(self.gp_wrapper_params['gp_path'],'python_runner'))
+        # path to gp_tools
+        sys.path.append (self.gp_wrapper_params['gp_path'])
         from runner_gp import PipelineRunner as GPPipelineRunner
 
         # unpickle gp outputs if desired
