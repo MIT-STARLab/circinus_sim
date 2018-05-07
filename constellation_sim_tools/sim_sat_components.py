@@ -2,21 +2,21 @@ from random import normalvariate
 
 from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_window_in_wind_list
-from .sim_agent_components import ScheduleArbiter, StateRecorder, PlanningInfoDB
+from .sim_agent_components import Scheduler, StateRecorder, PlanningInfoDB
 
-class SatScheduleArbiter(ScheduleArbiter):
+class SatScheduleArbiter(PlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
 
-    def __init__(self,sim_sat,start_time_dt):
+    def __init__(self,sim_sat,sim_start_dt,sim_end_dt):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
-        self.plan_db = PlanningInfoDB()
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
 
         self._schedule_updated = False
         self._schedule_cache = []
 
-        self.curr_time_dt = start_time_dt
+        self.curr_time_dt = sim_start_dt
 
         super().__init__()
 
@@ -25,11 +25,13 @@ class SatScheduleArbiter(ScheduleArbiter):
         return self._schedule_updated
 
     def ingest_routes(self,rt_conts):
-        self.plan_db.add_routes(rt_conts)
+        #  add to database
+        self.plan_db.update(rt_conts)
 
     def update_schedule(self):
-
-        rt_conts = self.plan_db.get_sim_routes(self.curr_time_dt)
+        #  todo:  should this go elsewhere?
+        #  todo:  add comments
+        rt_conts = self.plan_db.get_sim_routes(self.curr_time_dt,filter_opt='partially_within')
 
         all_executable_winds = []
         for rt_cont in rt_conts:
@@ -53,7 +55,7 @@ class SatScheduleArbiter(ScheduleArbiter):
 class SatExecutive:
     """Handles execution of scheduled activities, with the final on whether or not to adhere exactly to schedule or make changes necessitated by most recent state estimates """
 
-    def __init__(self,sim_sat,start_time_dt):
+    def __init__(self,sim_sat,sim_start_dt):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
@@ -61,7 +63,7 @@ class SatExecutive:
         self._current_act = None
         self._current_act_windex = None
 
-        self.curr_time_dt = start_time_dt
+        self.curr_time_dt = sim_start_dt
 
         # holds ref to SatStateSimulator, eventually
         self.sat_state_sim = None
@@ -132,7 +134,7 @@ class SatExecutive:
 class SatStateSimulator:
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
 
-    def __init__(self,sim_sat,start_time_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,sat_event_data):
+    def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,sat_event_data):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
@@ -146,7 +148,7 @@ class SatStateSimulator:
             raise NotImplementedError
 
         # todo: should current time only be stored on sat agent simulator?
-        self.curr_time_dt = start_time_dt
+        self.curr_time_dt = sim_start_dt
 
         self.es_update_add_noise = state_simulator_params['es_state_update']['add_noise']
         self.es_noise_params = state_simulator_params['es_state_update']['noise_params']
@@ -197,6 +199,7 @@ class SatStateSimulator:
         #  base-level satellite energy usage (not including additional activities)
         base_edot = self.sat_edot_by_mode['base']
 
+        #  check if where an eclipse in which case were not charging
         charging = True
         if self.in_eclipse(self.curr_time_dt):
             charging = False

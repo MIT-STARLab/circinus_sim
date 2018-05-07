@@ -24,8 +24,9 @@ class ConstellationSim:
         self.sat_params = self.params['orbit_prop_params']['sat_params']
         self.gs_params = self.params['orbit_prop_params']['gs_params']
         self.const_sim_params = sim_params['const_sim_params']
+        self.sim_run_params = sim_params['const_sim_params']['sim_run_params']
 
-        self.sim_tick = timedelta(seconds=self.const_sim_params['sim_run_params']['sim_tick_s'])
+        self.sim_tick = timedelta(seconds=self.sim_run_params['sim_tick_s'])
 
         self.sim_start_dt = self.scenario_params['start_utc_dt']
         self.sim_end_dt = self.scenario_params['end_utc_dt']
@@ -33,6 +34,9 @@ class ConstellationSim:
         self.io_proc =SchedIOProcessor(self.params)
 
         self._init_data_structs()
+
+        # this feels a little dirty, but go ahead and create the GP wrapper here, where params is accessible
+        self._gp_wrapper = GlobalPlannerWrapper(self.params)
 
     def _init_data_structs(self):
         # dirty hack! I want to prevent these eclipse windows from sharing IDs with any windows returned from GP, so making them all negative. 
@@ -44,7 +48,7 @@ class ConstellationSim:
             raise RuntimeWarning('Saw positive window ID for ecl window hack')
 
         # create ground network
-        gs_network = SimGroundNetwork(self.gs_params['gs_network_name'],self.sim_start_dt) 
+        gs_network = SimGroundNetwork('gsn',self.gs_params['gs_network_name'],self.sim_start_dt,self._gp_wrapper) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
                 station['id'], 
@@ -77,13 +81,22 @@ class ConstellationSim:
             sat = SimSatellite(
                 sat_id,
                 sat_indx,
-                start_dt=self.sim_start_dt,
+                sim_start_dt=self.sim_start_dt,
+                sim_end_dt=self.sim_end_dt,
                 sat_scenario_params=sat_id_scenario_params,
                 sim_satellite_params=sat_id_sim_satellite_params,
                 sat_event_data = sat_id_event_data
             )
             sats_by_id[sat_id] = sat
         self.sats_by_id = sats_by_id
+
+    def _initialize_sim_run(self,all_sats):
+        # start all the satellites with a first round of GP schedules, if so desired
+        if self.sim_run_params['sat_schedule_hotstart']:
+            self.gs_network.replan_step()
+            for sat in all_sats:
+                todo update this
+                # sat.state_update_step(global_time)
 
     def run( self):
 
@@ -94,7 +107,9 @@ class ConstellationSim:
 
         all_sats = list(self.sats_by_id.values())
 
-        print('hi')
+        self._initialize_sim_run(all_sats)
+
+        print('Starting sim loop')
 
         # Simulation loop
         while global_time < sim_end_dt:
@@ -122,8 +137,8 @@ class ConstellationSim:
             #####################
             # Replanning
 
-            for sat in all_sats:
-                sat.replan_step()
+            # for sat in all_sats:
+            #     sat.replan_step()
 
             gs_network.replan_step()
 
@@ -132,7 +147,6 @@ class ConstellationSim:
 
         # move this!
         # gp_wrapper = GlobalPlannerWrapper(self.params)
-
         # gp_wrapper.run_gp()
 
 
