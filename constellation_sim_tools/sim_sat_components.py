@@ -7,25 +7,47 @@ from .sim_agent_components import ScheduleArbiter, StateRecorder, PlanningInfoDB
 class SatScheduleArbiter(ScheduleArbiter):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self,sim_sat,start_time_dt):
+        # holds ref to the containing sim sat
+        self.sim_sat = sim_sat
 
         self.plan_db = PlanningInfoDB()
 
-        self._schedule_updated = True
+        self._schedule_updated = False
+        self._schedule_cache = []
+
+        self.curr_time_dt = start_time_dt
+
+        super().__init__()
+
+    @property
+    def schedule_updated(self):
+        return self._schedule_updated
 
     def ingest_routes(self,rt_conts):
         self.plan_db.add_routes(rt_conts)
 
-    @property
-    def schedule_updated():
-        return self._schedule_updated
+    def update_schedule(self):
 
-    def get_schedule(self):
+        rt_conts = self.plan_db.get_sim_routes(self.curr_time_dt)
+
+        all_executable_winds = []
+        for rt_cont in rt_conts:
+            all_executable_winds += simrc.get_winds_executable()
+
+        executable_winds = []
+        for wind in all_executable_winds:
+            if wind.has_sat_indx(self.sim_sat.sat_indx):
+                executable_winds.append(wind)
+
+        executable_winds.sort(key = lambda wind: wind.executable_start)
+
+        self._schedule_updated = True
+
+    def get_scheduled_acts(self):
         self._schedule_updated = False
 
-        return []
-
+        return self._schedule_cache
 
 
 class SatExecutive:
@@ -35,10 +57,9 @@ class SatExecutive:
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
-        self.schedule = []
+        self.scheduled_acts = []
         self._current_act = None
         self._current_act_windex = None
-        self.arbiter = ?
 
         self.curr_time_dt = start_time_dt
 
@@ -52,7 +73,7 @@ class SatExecutive:
 
         # if schedule updates are available, blow away what we had previously (assumption is that arbiter handles changes to schedule gracefully)
         if self.sat_arbiter.schedule_updated:
-            self.schedule = self.sat_arbiter.get_schedule()
+            self.scheduled_acts = self.sat_arbiter.get_scheduled_acts()
         else:
             return
 
@@ -61,15 +82,16 @@ class SatExecutive:
         # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
         if not self._current_act is None:
             try:
-                curr_act_indx = self.schedule.index(self._current_act)
+                curr_act_indx = self.scheduled_acts.index(self._current_act)
             except ValueError:
                 # todo: add cleanup?
                 # - what does it mean if current act is not in new sched? cancel current act?
+                raise NotImplementedError("Haven't yet implemented schedule changes mid-activity")
 
             self._current_act_windex = curr_act_indx
 
         # if there are activities in the schedule, then assume we're starting from beginning of it
-        elif len(self.schedule) > 0:
+        elif len(self.scheduled_acts) > 0:
             self._current_act_windex = 0
 
         # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
@@ -77,15 +99,21 @@ class SatExecutive:
             # todo: no act, so what is index? Is the below correct?
             self._current_act_windex = None
 
-    def update(new_time_dt):
+    @staticmethod
+    def executable_time_accessor(wind,time_prop):
+        if time_prop == 'start':
+            return wind.executable_start
+        elif time_prop == 'end':
+            return wind.executable_end
+
+    def update(self,new_time_dt):
         """ Update state of the executive """
 
         # update schedule if need be
         self.pull_schedule()
 
-
         # figure out current activity, index of that act in schedule (note this could return None)
-        self._current_act,self._current_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.schedule)
+        self._current_act,self._current_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.scheduled_acts,self.executable_time_accessor)
 
         # todo: add some hysteresis here? That is, a cool down time after returning to nominal state before deciding to execute another act?
         if not self.sat_state_sim.nominal_state_check():
@@ -146,7 +174,7 @@ class SatStateSimulator:
         if curr_ecl_wind:
             return True
 
-    def update(new_time_dt):
+    def update(self,new_time_dt):
         """ Update state to new time by propagating state forward from last time to new time"""
 
         if new_time_dt < self.curr_time_dt:
@@ -161,10 +189,13 @@ class SatStateSimulator:
         ########################
         # Energy storage update
 
-        act_edot = ? fix this
+        act_edot = 0
+        if current_act:
+            sat_indx = self.sim_sat.sat_indx
+            act_edot = current_act.get_code(sat_indx) if type(current_act) == XlnkWindow else current_act.get_code()
 
         #  base-level satellite energy usage (not including additional activities)
-        base_edot = model.par_sats_edot_by_mode[sat_indx]['base']
+        base_edot = self.sat_edot_by_mode['base']
 
         charging = True
         if self.in_eclipse(self.curr_time_dt):
@@ -172,7 +203,7 @@ class SatStateSimulator:
 
         # add in charging energy contribution (if present)
         # assume charging is constant in sunlight
-        charging_edot = model.par_sats_edot_by_mode[sat_indx]['orbit_insunlight_average_charging'] if charging else 0
+        charging_edot = self.sat_edot_by_mode['orbit_insunlight_average_charging'] if charging else 0
 
         noise_mult = 1.0
         # update states based on resource usage rate in current activity

@@ -28,7 +28,7 @@ class ConstellationSim:
         self.sim_tick = timedelta(seconds=self.const_sim_params['sim_run_params']['sim_tick_s'])
 
         self.sim_start_dt = self.scenario_params['start_utc_dt']
-        self.sim_end_dt = self.scenario_params['start_utc_dt']
+        self.sim_end_dt = self.scenario_params['end_utc_dt']
 
         self.io_proc =SchedIOProcessor(self.params)
 
@@ -76,6 +76,7 @@ class ConstellationSim:
 
             sat = SimSatellite(
                 sat_id,
+                sat_indx,
                 start_dt=self.sim_start_dt,
                 sat_scenario_params=sat_id_scenario_params,
                 sim_satellite_params=sat_id_sim_satellite_params,
@@ -93,12 +94,14 @@ class ConstellationSim:
 
         all_sats = list(self.sats_by_id.values())
 
+        print('hi')
+
         # Simulation loop
         while global_time < sim_end_dt:
 
             global_time = global_time+self.sim_tick
 
-            print_verbose('global_time: %s'%(global_time.iso_format()),verbose)
+            print_verbose('global_time: %s'%(global_time.isoformat()),verbose)
 
             # todo: add checkpoint pickling?
 

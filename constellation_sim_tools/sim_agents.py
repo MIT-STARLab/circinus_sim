@@ -14,7 +14,7 @@ class SimAgent:
 class SimSatellite(SimAgent):
     """class for simulation satellites"""
     
-    def __init__(self,sat_id,start_dt,sat_scenario_params,sim_satellite_params,sat_event_data):
+    def __init__(self,sat_id,sat_indx,start_dt,sat_scenario_params,sim_satellite_params,sat_event_data):
         """initializes based on parameters
         
         initializes based on parameters
@@ -26,7 +26,8 @@ class SimSatellite(SimAgent):
         self.curr_time_dt = start_dt
 
         self.sat_id = sat_id
-        self.arbiter = SatScheduleArbiter()
+        self.sat_indx = sat_indx
+        self.arbiter = SatScheduleArbiter(self,start_dt)
         self.exec = SatExecutive(self,start_dt)
         self.state_sim = SatStateSimulator(self,start_dt,sim_satellite_params['state_simulator'],sat_scenario_params['power_params'],sat_scenario_params['data_storage_params'],sat_scenario_params['initial_state'],sat_event_data)
         self.state_recorder = SatStateRecorder()
@@ -39,7 +40,7 @@ class SimSatellite(SimAgent):
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
 
-    def state_update_step(new_time_dt):
+    def state_update_step(self,new_time_dt):
         self.state_sim.update(new_time_dt)
         self.exec.update(new_time_dt)
 
