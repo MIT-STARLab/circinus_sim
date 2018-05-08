@@ -1,8 +1,13 @@
 
 class PlannerScheduler:
 
-    def __init__(self):
-        pass
+    def __init__(self,sim_start_dt,sim_end_dt):
+        
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
+
+    def get_plan_db(self):
+        return self.plan_db
+
 
 class StateRecorder:
 
@@ -15,11 +20,12 @@ class PlanningInfoDB:
 
     def __init__(self,sim_start_dt,sim_end_dt):
         # todo: make this a dictionary by sat index? Could be a bit faster
+        # todo: should add distinction between active and old routes
         self.sim_rt_conts_by_id = {}
         self.sim_start_dt = sim_start_dt
         self.sim_end_dt = sim_end_dt
 
-    def update(self,rt_conts):
+    def update_routes(self,rt_conts):
         for rt_cont in rt_conts:
             if rt_cont.ID in self.sim_rt_conts_by_id.keys()
                 # todo: is this the way to always do updates?
@@ -28,7 +34,7 @@ class PlanningInfoDB:
             else:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
 
-    def get_sim_routes(self,start_time_dt,end_time_dt=None,filter_opt='partially_within'):
+    def get_filtered_sim_routes(self,start_time_dt,end_time_dt=None,filter_opt='partially_within'):
 
         if not end_time_dt:
             end_time_dt = self.sim_end_dt
@@ -51,4 +57,9 @@ class PlanningInfoDB:
                 all_rt_conts.append(rt_cont)
 
         return all_rt_conts
+
+    def push_planning_info(self,other):
+        """ Update other with planning information from self"""
+
+        other.update_routes(self.sim_rt_conts_by_id.values())
 

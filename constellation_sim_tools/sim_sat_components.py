@@ -11,44 +11,56 @@ class SatScheduleArbiter(PlannerScheduler):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
+        #  this records whether or not the information in the planning database has been updated. we use this planning information to derive a schedule.  we assume that we start with no planning information available, so this is false for now ( we can't yet derive a schedule from the planning info)
+        self._planning_info_updated = False
 
+        #  whether or not schedule instance has been updated since it was last grabbed by executive
         self._schedule_updated = False
         self._schedule_cache = []
 
         self.curr_time_dt = sim_start_dt
 
-        super().__init__()
+        super().__init__(sim_start_dt,sim_end_dt)
 
     @property
     def schedule_updated(self):
         return self._schedule_updated
 
-    def ingest_routes(self,rt_conts):
-        #  add to database
-        self.plan_db.update(rt_conts)
+    def flag_planning_info_update():
+        self._planning_info_updated = True
+
+    # def ingest_routes(self,rt_conts):
+    #     #  add to database
+    #     self.plan_db.update_routes(rt_conts)
 
     def update_schedule(self):
-        #  todo:  should this go elsewhere?
-        #  todo:  add comments
-        rt_conts = self.plan_db.get_sim_routes(self.curr_time_dt,filter_opt='partially_within')
+        #  if planning info has not been updated in the schedule has already been updated, then there is no reason to update schedule
+        if not self._planning_info_updated and self._schedule_updated:
+            return
 
+        #  get relevant sim route containers for deriving a schedule
+        rt_conts = self.plan_db.get_filtered_sim_routes(self.curr_time_dt,filter_opt='partially_within')
+
+        #  get all the windows that are executable from all of the route containers
         all_executable_winds = []
         for rt_cont in rt_conts:
             all_executable_winds += simrc.get_winds_executable()
 
+        #  for all executable windows in all those routes, including in schedule if they're relevant for this satellite
         executable_winds = []
         for wind in all_executable_winds:
             if wind.has_sat_indx(self.sim_sat.sat_indx):
                 executable_winds.append(wind)
 
+        # sort executable windows by start time
         executable_winds.sort(key = lambda wind: wind.executable_start)
 
         self._schedule_updated = True
+        self._planning_info_updated = False
+        self._schedule_cache = executable_winds
 
     def get_scheduled_acts(self):
         self._schedule_updated = False
-
         return self._schedule_cache
 
 

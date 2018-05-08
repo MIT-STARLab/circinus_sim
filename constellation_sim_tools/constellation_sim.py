@@ -39,6 +39,8 @@ class ConstellationSim:
         self._gp_wrapper = GlobalPlannerWrapper(self.params)
 
     def _init_data_structs(self):
+        """ initialize data structures used in the simulation """
+
         # dirty hack! I want to prevent these eclipse windows from sharing IDs with any windows returned from GP, so making them all negative. 
         # todo: this is not a long term solution. Need to incorporate mechanism to share window ID namespace across const sim, GP
         window_uid = -9999
@@ -48,7 +50,7 @@ class ConstellationSim:
             raise RuntimeWarning('Saw positive window ID for ecl window hack')
 
         # create ground network
-        gs_network = SimGroundNetwork('gsn',self.gs_params['gs_network_name'],self.sim_start_dt,self._gp_wrapper) 
+        gs_network = SimGroundNetwork('gsn',self.gs_params['gs_network_name'],self.sim_start_dt,self.sim_end_dt,self._gp_wrapper) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
                 station['id'], 
@@ -91,14 +93,16 @@ class ConstellationSim:
         self.sats_by_id = sats_by_id
 
     def _initialize_sim_run(self,all_sats):
+        """ Put constellation and desired state for starting the simulation run"""
+
         # start all the satellites with a first round of GP schedules, if so desired
         if self.sim_run_params['sat_schedule_hotstart']:
             self.gs_network.replan_step()
             for sat in all_sats:
-                todo update this
-                # sat.state_update_step(global_time)
+                self.gs_network.send_planning_info(sat)
 
     def run( self):
+        """ run the simulation """
 
         verbose = True
 

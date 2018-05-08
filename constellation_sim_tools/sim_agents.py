@@ -11,6 +11,30 @@ class SimAgent:
     def __init__(self):
         pass
 
+    def get_plan_db(self):
+        """ get planning info database used by this agent """
+
+        #  intended to be a virtual method
+        raise NotImplementedError
+
+    def send_planning_info(self,other):
+        """ send planning info from one agent to another """
+
+        # todo: is it bad that this cuts through layers of abstraction to grab the planning db?
+
+        #  get the planning info databases
+        my_plan_db = self.get_plan_db()
+        other_plan_db = other.get_plan_db()
+
+        #  push data from self to the other
+        my_plan_db.push_planning_info(other_plan_db)
+
+        other.post_planning_info_rx()
+
+    def post_planning_info_rx(self):
+        """ perform any actions required after receiving new planning information"""
+        pass
+
 
 class SimSatellite(SimAgent):
     """class for simulation satellites"""
@@ -44,6 +68,14 @@ class SimSatellite(SimAgent):
         self.state_sim.update(new_time_dt)
         self.exec.update(new_time_dt)
 
+    def get_plan_db(self):
+        return self.arbiter.get_plan_db()
+
+    def post_planning_info_rx(self):
+        """ perform any actions required after receiving new planning information (satellite-specific)"""
+        self.arbiter.flag_planning_info_update()
+
+
 class SimGroundStation(SimAgent):
     """class for simulation ground stations"""
     
@@ -60,10 +92,11 @@ class SimGroundStation(SimAgent):
         self.name = name
         self.gs_network = gs_network
 
+
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
     
-    def __init__(self,ID,name,sim_start_dt,gp_wrapper,gs_list=[]):
+    def __init__(self,ID,name,sim_start_dt,sim_end_dt,gp_wrapper,gs_list=[]):
         """initializes based on parameters
         
         initializes based on parameters
@@ -76,7 +109,7 @@ class SimGroundNetwork(SimAgent):
 
         self.curr_time_dt = sim_start_dt
 
-        self.scheduler = GroundNetworkPS(self,sim_start_dt,gp_wrapper)
+        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,gp_wrapper)
 
         super().__init__()
 
@@ -84,3 +117,6 @@ class SimGroundNetwork(SimAgent):
         # todo: add checking for right time to do replanning
 
         self.scheduler.do_plan_and_sched()
+
+    def get_plan_db(self):
+        return self.scheduler.get_plan_db()
