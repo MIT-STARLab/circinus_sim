@@ -20,23 +20,24 @@ class ConstellationSim:
         """
 
         self.params = sim_params
-        self.scenario_params = self.params['orbit_prop_params']['scenario_params']
+        # self.scenario_params = self.params['orbit_prop_params']['scenario_params']
         self.sat_params = self.params['orbit_prop_params']['sat_params']
         self.gs_params = self.params['orbit_prop_params']['gs_params']
-        self.const_sim_params = sim_params['const_sim_params']
-        self.sim_run_params = sim_params['const_sim_params']['sim_run_params']
+        self.const_sim_inst_params = sim_params['const_sim_inst_params']
+        self.sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
+        self.num_sats=self.sat_params['num_sats']
 
         self.sim_tick = timedelta(seconds=self.sim_run_params['sim_tick_s'])
 
-        self.sim_start_dt = self.scenario_params['start_utc_dt']
-        self.sim_end_dt = self.scenario_params['end_utc_dt']
+        self.sim_start_dt = self.sim_run_params['start_utc_dt']
+        self.sim_end_dt = self.sim_run_params['end_utc_dt']
 
         self.io_proc =SchedIOProcessor(self.params)
 
         self._init_data_structs()
 
         # this feels a little dirty, but go ahead and create the GP wrapper here, where params is accessible
-        self._gp_wrapper = GlobalPlannerWrapper(self.params)
+        self.gp_wrapper = GlobalPlannerWrapper(self.params)
 
     def _init_data_structs(self):
         """ initialize data structures used in the simulation """
@@ -49,13 +50,27 @@ class ConstellationSim:
         if window_uid >= 0:
             raise RuntimeWarning('Saw positive window ID for ecl window hack')
 
+        sat_id_order = self.sat_params['sat_id_order']
+        sats_event_data = {
+            "sat_id_order": sat_id_order,
+            "ecl_winds_by_sat_id": {sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
+        }
+
         # create ground network
-        gs_network = SimGroundNetwork('gsn',self.gs_params['gs_network_name'],self.sim_start_dt,self.sim_end_dt,self._gp_wrapper) 
+        gs_network = SimGroundNetwork(
+            'gsn',
+            self.gs_params['gs_network_name'],
+            self.sim_start_dt,
+            self.sim_end_dt,
+            self.gp_wrapper,
+            self.const_sim_inst_params['sim_gs_network_params'],
+            sats_event_data = sats_event_data
+        ) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
                 station['id'], 
                 station['name'], 
-                gs_network
+                gs_network,
             )
             gs_network.gs_list.append(gs)
         self.gs_network = gs_network
@@ -74,11 +89,7 @@ class ConstellationSim:
             }
 
             # assuming same for every sat. todo: make unique for each sat?
-            sat_id_sim_satellite_params = self.const_sim_params['sim_satellite_params']
-
-            sat_id_event_data = {
-                "ecl_winds": ecl_winds[sat_indx]
-            }
+            sat_id_sim_satellite_params = self.const_sim_inst_params['sim_satellite_params']
 
             sat = SimSatellite(
                 sat_id,
@@ -87,7 +98,7 @@ class ConstellationSim:
                 sim_end_dt=self.sim_end_dt,
                 sat_scenario_params=sat_id_scenario_params,
                 sim_satellite_params=sat_id_sim_satellite_params,
-                sat_event_data = sat_id_event_data
+                sats_event_data = sats_event_data
             )
             sats_by_id[sat_id] = sat
         self.sats_by_id = sats_by_id
@@ -97,7 +108,7 @@ class ConstellationSim:
 
         # start all the satellites with a first round of GP schedules, if so desired
         if self.sim_run_params['sat_schedule_hotstart']:
-            self.gs_network.replan_step()
+            self.gs_network.update(new_time_dt=None)
             for sat in all_sats:
                 self.gs_network.send_planning_info(sat)
 
@@ -128,30 +139,34 @@ class ConstellationSim:
             #####################
             # State update
 
+            # todo
+            # add tracking, plotting of sat state
+            # add sending of sat state to GP
+
             for sat in all_sats:
                 sat.state_update_step(global_time)
 
+            gs_network.state_update_step(global_time)
 
             #####################
             # Activity execution
 
-            for sat in all_sats:
-                sat.execution_step()
+            # todo: add back in!
+            # for sat in all_sats:
+            #     sat.execution_step()
+
+            # todo: this is a testing hack.  remove!
+            if gs_network.scheduler.plans_updated:
+                for sat in all_sats:
+                    self.gs_network.send_planning_info(sat)
+                gs_network.scheduler.plans_updated = False
 
             #####################
             # Replanning
 
+            # todo: this should be added back in when the local planner is included
             # for sat in all_sats:
             #     sat.replan_step()
-
-            gs_network.replan_step()
-
-
-
-
-        # move this!
-        # gp_wrapper = GlobalPlannerWrapper(self.params)
-        # gp_wrapper.run_gp()
 
 
 

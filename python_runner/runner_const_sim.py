@@ -42,14 +42,14 @@ class PipelineRunner:
         orbit_link_inputs = data['orbit_link_inputs']
         data_rates_inputs = data['data_rates_inputs']
         gp_general_params_inputs = data['gp_general_params_inputs']
-        const_sim_params_inputs = data['const_sim_params_inputs']
+        const_sim_inst_params_inputs = data['const_sim_inst_params_inputs']
 
         sim_params = {}
         orbit_prop_params = orbit_prop_inputs
         orbit_link_params = orbit_link_inputs
         data_rates_params = data_rates_inputs
         gp_general_params = gp_general_params_inputs
-        const_sim_params = const_sim_params_inputs
+        const_sim_inst_params = const_sim_inst_params_inputs
 
         sim_other_params = {}
 
@@ -91,14 +91,17 @@ class PipelineRunner:
             raise NotImplementedError
 
         #  check that it's the right version
-        if not const_sim_params_inputs['version'] == "0.1":
+        if const_sim_inst_params_inputs['version'] == "0.1":
+            const_sim_inst_params['sim_run_params']['start_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_run_params']['start_utc'])
+            const_sim_inst_params['sim_run_params']['end_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_run_params']['end_utc'])
+        else:
             raise NotImplementedError
 
         sim_params['orbit_prop_params'] = orbit_prop_params
         sim_params['orbit_link_params'] = orbit_link_params
         sim_params['gp_general_params'] = gp_general_params
         sim_params['data_rates_params'] = data_rates_params
-        sim_params['const_sim_params'] = const_sim_params
+        sim_params['const_sim_inst_params'] = const_sim_inst_params
         sim_params['other_params'] = sim_other_params
         sim_runner = const_sim.ConstellationSim(sim_params)
         output = sim_runner.run ()
@@ -164,7 +167,7 @@ if __name__ == "__main__":
         "orbit_link_inputs": orbit_link_inputs,
         "gp_general_params_inputs": gp_general_params_inputs,
         "data_rates_inputs": data_rates_inputs,
-        "const_sim_params_inputs": const_sim_params_inputs
+        "const_sim_inst_params_inputs": const_sim_params_inputs
     }
 
     a = time.time()

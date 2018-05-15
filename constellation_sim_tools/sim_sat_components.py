@@ -7,7 +7,7 @@ from .sim_agent_components import Scheduler, StateRecorder, PlanningInfoDB
 class SatScheduleArbiter(PlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
 
-    def __init__(self,sim_sat,sim_start_dt,sim_end_dt):
+    def __init__(self,sim_sat,sim_start_dt,sim_end_dt,sats_event_data):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
@@ -20,7 +20,7 @@ class SatScheduleArbiter(PlannerScheduler):
 
         self.curr_time_dt = sim_start_dt
 
-        super().__init__(sim_start_dt,sim_end_dt)
+        super().__init__(sim_start_dt,sim_end_dt,sats_event_data)
 
     @property
     def schedule_updated(self):
@@ -77,10 +77,12 @@ class SatExecutive:
 
         self.curr_time_dt = sim_start_dt
 
-        # holds ref to SatStateSimulator, eventually
+        # holds ref to SatStateSimulator
         self.sat_state_sim = None
-        # holds ref to SatScheduleArbiter, eventually
+        # holds ref to SatScheduleArbiter
         self.sat_arbiter = None
+        # holds ref to SatStateRecorder
+        self.state_recorder = None
 
 
     def pull_schedule(self):
@@ -127,8 +129,16 @@ class SatExecutive:
         self.pull_schedule()
 
         # figure out current activity, index of that act in schedule (note this could return None)
-        self._current_act,self._current_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.scheduled_acts,self.executable_time_accessor)
+        self.next_act,self.next_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.scheduled_acts,self.executable_time_accessor)
 
+        #  if we've changed from last activity, then we should add that activity to the history
+        if next_act != self._current_act and self._current_act is not None:
+            self.state_recorder.add_act_hist(self._current_act)
+
+        self._current_act = next_act
+        self._current_act_windex = next_act_windex
+
+        #  if our state is off-nominal,  then we should protect ourselves by electing not to perform any activity
         # todo: add some hysteresis here? That is, a cool down time after returning to nominal state before deciding to execute another act?
         if not self.sat_state_sim.nominal_state_check():
             self._current_act = None
@@ -146,7 +156,7 @@ class SatExecutive:
 class SatStateSimulator:
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
 
-    def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,sat_event_data):
+    def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,sats_event_data):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
@@ -166,27 +176,16 @@ class SatStateSimulator:
         self.es_noise_params = state_simulator_params['es_state_update']['noise_params']
 
         # we track eclipse windows here because they're not actually scheduled, they're just events that happen
-        self.ecl_winds = sat_event_data['ecl_winds']
+        self.ecl_winds = sats_event_data['ecl_winds'][self.sim_sat.sat_indx]
         self.ecl_winds.sort(key = lambda w: w.start)
         self._curr_ecl_windex = 0
 
-        # holds ref to SatExecutive, eventually
+        # holds ref to SatExecutive
         self.sat_exec = None
+        # holds ref to SatStateRecorder
+        self.state_recorder = None
 
-    def in_eclipse(self,time_dt):
-        # move current eclipse window possibility forward if we're past it, and we're not yet at end of ecl winds
-        # -1 so we only advance if we're not yet at the end
-        # while self._curr_ecl_windex < len(self.ecl_winds)-1 and  time_dt > self.ecl_winds[self._curr_ecl_windex].end:
-        #     self._curr_ecl_windex += 1
-
-        # curr_ecl_wind = self.ecl_winds[self._curr_ecl_windex]
-        # if self._curr_ecl_windex >= curr_ecl_wind.start and self._curr_ecl_windex <= curr_ecl_wind.end:
-        #     return True
-
-        curr_ecl_wind,self._curr_ecl_windex = find_window_in_wind_list(time_dt,self._curr_ecl_windex,self.ecl_winds)
-
-        if curr_ecl_wind:
-            return True
+        self._first_step + True 
 
     def update(self,new_time_dt):
         """ Update state to new time by propagating state forward from last time to new time"""
@@ -194,13 +193,18 @@ class SatStateSimulator:
         if new_time_dt < self.curr_time_dt:
             raise RuntimeWarning('Saw earlier time')
 
+        if self._first_step:
+            self.state_recorder.add_ES_hist(self.curr_time_dt,self.ES_state)
+            # todo: add whatever else needed
+            self._first_step = False
+
         # this is consistent with power units above
         delta_t_h = (new_time_dt - self.curr_time_dt).total_seconds()/3600
 
         current_act = self.sat_exec.get_act_at_time(self.curr_time_dt)
 
 
-        ########################
+       ##############################
         # Energy storage update
 
         act_edot = 0
@@ -245,13 +249,11 @@ class SatStateSimulator:
 
         self.curr_time_dt = new_time_dt
 
-        # # Add to state history
-        # # Decmiated by STATE_HIST_DEC_FACTOR
-        # if self.state_history_count == 0:
-        #     self.time_history.append(self.time)
+       ##############################
+       # update state recorder
 
-        #     # stored in megabytes and W-Hr (why did I do it that way? No idea)
-        #     self.ES_state_history.append(self.ES_state/E_CONV_FACTOR)
+       self.state_recorder.add_ES_hist(self.curr_time_dt,self.ES_state)
+        # todo: add whatever else needed
 
     def nominal_state_check(self):
         # if we're below lower energy bound, state is off nominal
@@ -260,9 +262,41 @@ class SatStateSimulator:
 
         return True
 
+    def in_eclipse(self,time_dt):
+        # move current eclipse window possibility forward if we're past it, and we're not yet at end of ecl winds
+        # -1 so we only advance if we're not yet at the end
+        # while self._curr_ecl_windex < len(self.ecl_winds)-1 and  time_dt > self.ecl_winds[self._curr_ecl_windex].end:
+        #     self._curr_ecl_windex += 1
+
+        # curr_ecl_wind = self.ecl_winds[self._curr_ecl_windex]
+        # if self._curr_ecl_windex >= curr_ecl_wind.start and self._curr_ecl_windex <= curr_ecl_wind.end:
+        #     return True
+
+        curr_ecl_wind,self._curr_ecl_windex = find_window_in_wind_list(time_dt,self._curr_ecl_windex,self.ecl_winds)
+
+        if curr_ecl_wind:
+            return True
+
 class SatStateRecorder(StateRecorder):
+    """Convenient interface for storing state history for satellites"""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self,sim_start_dt,state_recorder_params):
+        self.base_time = sim_start_dt
+        self.ES_state_hist = []
+        self.DS_state_hist = []
+        self.act_hist = []
 
-        pass
+        super().__init__()    
+
+    def add_ES_hist(t_dt,val):
+        # todo: add decimation?
+        t_s = (t_dt - self.base_time).total_seconds()
+        self.ES_state_hist.append((t_s,val))
+
+    def add_act_hist(act):
+        self.act_hist.append(act)
+
+
+
+
+

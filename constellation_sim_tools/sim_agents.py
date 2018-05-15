@@ -39,7 +39,7 @@ class SimAgent:
 class SimSatellite(SimAgent):
     """class for simulation satellites"""
     
-    def __init__(self,sat_id,sat_indx,sim_start_dt,sim_end_dt,sat_scenario_params,sim_satellite_params,sat_event_data):
+    def __init__(self,sat_id,sat_indx,sim_start_dt,sim_end_dt,sat_scenario_params,sim_satellite_params,sats_event_data):
         """initializes based on parameters
         
         initializes based on parameters
@@ -50,15 +50,24 @@ class SimSatellite(SimAgent):
 
         self.sat_id = sat_id
         self.sat_indx = sat_indx
-        self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt)
+        self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt,sats_event_data)
         self.exec = SatExecutive(self,sim_start_dt)
-        self.state_sim = SatStateSimulator(self,sim_start_dt,sim_satellite_params['state_simulator'],sat_scenario_params['power_params'],sat_scenario_params['data_storage_params'],sat_scenario_params['initial_state'],sat_event_data)
-        self.state_recorder = SatStateRecorder()
+        self.state_sim = SatStateSimulator(self,
+            sim_start_dt,
+            sim_satellite_params['state_simulator'],
+            sat_scenario_params['power_params'],
+            sat_scenario_params['data_storage_params'],
+            sat_scenario_params['initial_state'],
+            sats_event_data
+        )
+        self.state_recorder = SatStateRecorder(sim_start_dt,sim_satellite_params['state_recorder'])
 
         # adds references between sat sim objects
         self.state_sim.sat_exec = self.exec
+        self.state_sim.state_recorder = self.state_recorder
         self.exec.sat_state_sim = self.state_sim
         self.exec.sat_arbiter = self.arbiter
+        self.exec.state_recorder = self.state_recorder
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
@@ -86,17 +95,17 @@ class SimGroundStation(SimAgent):
         :type params: dict
         """
 
-        super().__init__()
-
         self.ID = ID
         self.name = name
         self.gs_network = gs_network
+
+        super().__init__()
 
 
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
     
-    def __init__(self,ID,name,sim_start_dt,sim_end_dt,gp_wrapper,gs_list=[]):
+    def __init__(self,ID,name,sim_start_dt,sim_end_dt,gp_wrapper,sim_gs_network_params):
         """initializes based on parameters
         
         initializes based on parameters
@@ -105,18 +114,16 @@ class SimGroundNetwork(SimAgent):
 
         self.ID = ID
         self.name = name
-        self.gs_list = gs_list
+        self.gs_list = []
 
         self.curr_time_dt = sim_start_dt
 
-        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,gp_wrapper)
+        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,gp_wrapper,sim_gs_network_params['gsn_ps_params'],sats_event_data)
 
         super().__init__()
 
-    def replan_step(self):
-        # todo: add checking for right time to do replanning
-
-        self.scheduler.do_plan_and_sched()
+    def state_update_step(self,new_time_dt):
+        self.scheduler.update(new_time_dt)
 
     def get_plan_db(self):
         return self.scheduler.get_plan_db()

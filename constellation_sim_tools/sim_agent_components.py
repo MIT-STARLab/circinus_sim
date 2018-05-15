@@ -1,9 +1,10 @@
+from collections import namedtuple
 
 class PlannerScheduler:
 
-    def __init__(self,sim_start_dt,sim_end_dt):
+    def __init__(self,sim_start_dt,sim_end_dt,sats_event_data):
         
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sats_event_data)
 
     def get_plan_db(self):
         return self.plan_db
@@ -14,16 +15,28 @@ class StateRecorder:
     def __init__(self):
         pass
 
+#  record of satellite state. update_dt is the date time at which this state was valid.
+SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
+
 class PlanningInfoDB:
 
     filter_opts = ['totally_within','partially_within']
 
-    def __init__(self,sim_start_dt,sim_end_dt):
+    def __init__(self,sim_start_dt,sim_end_dt,sats_event_data):
         # todo: make this a dictionary by sat index? Could be a bit faster
         # todo: should add distinction between active and old routes
-        self.sim_rt_conts_by_id = {}
+        self.sim_rt_conts_by_id = {}  # The id here is the Sim route container 
         self.sim_start_dt = sim_start_dt
         self.sim_end_dt = sim_end_dt
+        self.sat_state_by_id = {}  # the id here is the satellite
+
+        #  contains information about events that happen on satellites ( outside of scheduled activities), as well as other general satellite specific information needed for keeping track of planning info
+        self.sat_events = {}
+        self.sat_events['ecl_winds_by_sat_id'] = sats_event_data['ecl_winds_by_sat_id']
+
+        # todo: should this be initialized?
+        for sat_id in sats_event_data['sat_id_order']:
+            self.sat_state_by_id[sat_id] = []
 
     def update_routes(self,rt_conts):
         for rt_cont in rt_conts:
@@ -62,4 +75,23 @@ class PlanningInfoDB:
         """ Update other with planning information from self"""
 
         other.update_routes(self.sim_rt_conts_by_id.values())
+
+    def get_sat_states(curr_time_dt):
+
+        curr_sat_state_by_id = {}
+
+        for sat_id in sats_event_data['sat_id_order']:
+            curr_sat_state = {}
+            # known_sat_state is a SatStateEntry type
+            known_sat_state = self.sat_state_by_id[sat_id][-1]
+
+            as todo: add this function, somewhere...
+            need scheduled activities too for this...
+            should this be done in GP?
+            curr_sat_state['batt_e_Wh'] = propagate_sat_ES(known_sat_state.update_dt,curr_time_dt,known_sat_state.state_info['batt_e_Wh'])
+
+            curr_sat_state_by_id[sat_id] = curr_sat_state
+
+        return curr_sat_state_by_id
+
 
