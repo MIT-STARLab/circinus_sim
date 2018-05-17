@@ -1,3 +1,7 @@
+#   wraps the global planner, providing an API for use within simulation components
+#
+# @author Kit Kennedy
+
 import os.path
 import sys
 from multiprocessing import Process, Queue
@@ -10,6 +14,12 @@ from circinus_tools.scheduling.routing_objects import SimRouteContainer
 # from circinus_tools.scheduling.routing_objects import 
 
 EXPECTED_GP_OUTPUT_VER = '0.2'
+
+def datetime_to_iso8601(dt):
+    """ Converts a Python datetime object into an ISO8601 string. (including trailing Z)"""
+    #  better than datetime's built-in isoformat() function, because sometimes that leaves off the microseconds ( which of course, is stupid)
+
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 class GlobalPlannerWrapper:
     """wraps the global planner scheduling algorithm, makes it hopefully easy to call"""
@@ -28,8 +38,8 @@ class GlobalPlannerWrapper:
     def run_gp(self,curr_time_dt,existing_sim_rt_conts,gp_agent_ID,latest_gp_route_uid,sat_state_by_id):
 
         def get_input_time(time_dt,param_mins):
-            new_time = curr_time_dt + timedelta(minutes=self.gp_params['planning_past_horizon_mins'])
-            return new_time.isoformat()
+            new_time = curr_time_dt + timedelta(minutes=param_mins)
+            return datetime_to_iso8601(new_time)
 
         ##############################
         #  set up GP inputs
@@ -41,7 +51,8 @@ class GlobalPlannerWrapper:
             "planning_params": {
                 "planning_start" :  get_input_time(curr_time_dt,self.gp_params['planning_past_horizon_mins']),
                 "planning_fixed_end" :  get_input_time(curr_time_dt,self.gp_params['planning_horizon_fixed_mins']),
-                "planning_end_obs_xlnk" :  get_input_time(curr_time_dt,self.gp_params['planning_horizon_obs_xlnk_mins']),
+                "planning_end_obs" :  get_input_time(curr_time_dt,self.gp_params['planning_horizon_obs_mins']),
+                "planning_end_xlnk" :  get_input_time(curr_time_dt,self.gp_params['planning_horizon_xlnk_mins']),
                 "planning_end_dlnk" :  get_input_time(curr_time_dt,self.gp_params['planning_horizon_dlnk_mins'])
             },
             "activity_scheduling_params": {
@@ -52,10 +63,12 @@ class GlobalPlannerWrapper:
         }
 
         esrcs = existing_sim_rt_conts
+        # esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_sim_rt_conts}
         existing_route_data = {}
-        existing_route_data['existing_routes'] = [dmr for esrc in esrcs for dmr in esrc.data_routes]
+        existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
+        existing_route_data['existing_routes'] = existing_routes
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
-        existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.dv_utilization_by_dr[dmr] for esrc in esrcs for dmr in esrc.data_routes}
+        existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.dv_utilization_by_dr_id[dmr.ID] for esrc in esrcs for dmr in esrc.get_routes()}
         existing_route_data['latest_gp_route_uid'] = latest_gp_route_uid
 
         
@@ -73,7 +86,7 @@ class GlobalPlannerWrapper:
         }
 
         ##############################
-        #  run the G
+        #  run the GP
 
         #  do some funny business to get access to the global planner code
         # path to runner_gp
@@ -82,10 +95,13 @@ class GlobalPlannerWrapper:
         sys.path.append (self.gp_wrapper_params['gp_path'])
         from runner_gp import PipelineRunner as GPPipelineRunner
 
+        # todo:  update pickle stuff
         # unpickle gp outputs if desired (instead of running)
         if self.gp_wrapper_params['restore_gp_output_from_pickle']:
             print('Load GP output pickle')
             gp_output = pickle.load (open ( self.gp_wrapper_params['gp_output_pickle_to_restore'],'rb'))
+            # HACKKKKKKKK
+            self.gp_wrapper_params['restore_gp_output_from_pickle'] = False
         # run gp
         else:
             print('Run GP')
@@ -114,8 +130,15 @@ class GlobalPlannerWrapper:
 
         sim_routes = []
         for dmr in scheduled_routes:
+            dmr_t_util,dmr_dv_util = dmr.get_sched_utilization()
+
+            # if dmr in existing_routes:
+            #     #  note that the global planner is allowed to change the scheduled data volume for route, but the ID for that route and all of its windows will stay the same
+            #     #  store none for the update time -  we will update this when we release the plans
+            #     esrcs_by_id[dmr.ID].update_route(dmr,dmr_t_util,dmr_dv_util,update_dt=None)
+            # else:
             sim_routes.append(
-                SimRouteContainer(None,None,dmr,1.0,update_dt,ro_ID=copy(dmr.ID))
+                SimRouteContainer(dmr.ID,dmr,dmr_t_util,dmr_dv_util,update_dt)
             )
 
         return sim_routes, latest_gp_route_uid

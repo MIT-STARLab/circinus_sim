@@ -87,7 +87,7 @@ class PipelineRunner:
             raise NotImplementedError
 
         #  check that it's the right version
-        if not gp_general_params_inputs['version'] == "0.2":
+        if not gp_general_params_inputs['version'] == "0.5":
             raise NotImplementedError
 
         #  check that it's the right version

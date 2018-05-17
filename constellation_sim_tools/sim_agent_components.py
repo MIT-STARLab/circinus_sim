@@ -1,10 +1,17 @@
+#  Contains objects for different software components running on agents. these are intended to be components that are used across both satellites and ground stations
+#
+# @author Kit Kennedy
+
 from collections import namedtuple
+
+from circinus_tools import io_tools
+from circinus_tools.sat_state_tools import propagate_sat_ES
 
 class PlannerScheduler:
 
-    def __init__(self,sim_start_dt,sim_end_dt,sats_event_data):
+    def __init__(self,sim_start_dt,sim_end_dt):
         
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sats_event_data)
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
 
     def get_plan_db(self):
         return self.plan_db
@@ -21,52 +28,83 @@ SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
 class PlanningInfoDB:
 
     filter_opts = ['totally_within','partially_within']
+    expected_state_info = {'batt_e_Wh'}  #  this is set notation
 
-    def __init__(self,sim_start_dt,sim_end_dt,sats_event_data):
+    def __init__(self,sim_start_dt,sim_end_dt):
         # todo: make this a dictionary by sat index? Could be a bit faster
         # todo: should add distinction between active and old routes
         self.sim_rt_conts_by_id = {}  # The id here is the Sim route container 
         self.sim_start_dt = sim_start_dt
         self.sim_end_dt = sim_end_dt
-        self.sat_state_by_id = {}  # the id here is the satellite
 
+        #  holds list of satellite IDs in order
+        self.sat_id_order = None
+
+        #  contains state information history for every satellite
+        self.sat_state_hist_by_id = {}  # the id here is the satellite
         #  contains information about events that happen on satellites ( outside of scheduled activities), as well as other general satellite specific information needed for keeping track of planning info
         self.sat_events = {}
-        self.sat_events['ecl_winds_by_sat_id'] = sats_event_data['ecl_winds_by_sat_id']
+        #  holds power parameters for each satellite ID,  after parsing
+        self.parsed_power_params_by_sat_id = {}
 
-        # todo: should this be initialized?
-        for sat_id in sats_event_data['sat_id_order']:
-            self.sat_state_by_id[sat_id] = []
+    def initialize(self,plan_db_inputs):
+        self.sat_id_order = plan_db_inputs['sat_id_order']
+        self.resource_delta_t_s = plan_db_inputs['resource_delta_t_s']
+        self.sat_events['ecl_winds_by_sat_id'] = {}
+
+        for sat_id in self.sat_id_order:
+            #  store eclipse windows for each satellite ID
+            self.sat_events['ecl_winds_by_sat_id'][sat_id] = plan_db_inputs['ecl_winds_by_sat_id'][sat_id]
+
+            state_keys_input = plan_db_inputs['initial_state_by_sat_id'][sat_id].keys()
+            #  ensure that the set of expected state info keys is a subset of the provided keys ( everything expected is there)
+            assert(self.expected_state_info < set(state_keys_input))
+
+            #  store first state history element for each satellite ID. this needs to be time tagged because it will be updated throughout the sim
+            self.sat_state_hist_by_id[sat_id] = []
+            self.sat_state_hist_by_id[sat_id].append(SatStateEntry(update_dt=self.sim_start_dt, state_info=plan_db_inputs['initial_state_by_sat_id'][sat_id]))
+
+            self.parsed_power_params_by_sat_id[sat_id] = {}
+            sat_edot_by_mode,sat_batt_storage,power_units = io_tools.parse_power_consumption_params(plan_db_inputs['power_params_by_sat_id'][sat_id])
+            self.parsed_power_params_by_sat_id[sat_id] = {
+                "sat_edot_by_mode": sat_edot_by_mode,
+                "sat_batt_storage": sat_batt_storage,
+                "power_units": power_units,
+            } 
 
     def update_routes(self,rt_conts):
         for rt_cont in rt_conts:
-            if rt_cont.ID in self.sim_rt_conts_by_id.keys()
+            if rt_cont.ID in self.sim_rt_conts_by_id.keys():
                 # todo: is this the way to always do updates?
                 if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
                     self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
             else:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
 
-    def get_filtered_sim_routes(self,start_time_dt,end_time_dt=None,filter_opt='partially_within'):
+    def get_filtered_sim_routes(self,filter_start_dt,filter_end_dt=None,filter_opt='partially_within',sat_id=None):
+        if not filter_end_dt:
+            filter_end_dt = self.sim_end_dt
 
-        if not end_time_dt:
-            end_time_dt = self.sim_end_dt
-
-        if not filter_opt in filter_opts:
+        if not filter_opt in self.filter_opts:
             raise NotImplementedError
 
-        passes_filter(rt_cont):
+        def do_filter(rt_cont):
+            if sat_id is not None:
+                #  check if the route container includes the satellite ID
+                if not rt_cont.has_sat_indx(self.sat_id_order.index(sat_id)): 
+                    return False
+
             if filter_opt == 'totally_within':
-                if (rt_cont.start < start_time_dt or rt_cont.end > end_time_dt):
+                if (rt_cont.start < filter_start_dt or rt_cont.end > filter_end_dt):
                     return False
             if filter_opt == 'partially_within':
-                if (rt_cont.end < start_filt_dt or rt_cont.start > end_time_dt):
+                if (rt_cont.end < filter_start_dt or rt_cont.start > filter_end_dt):
                     return False
             return True
 
         all_rt_conts = []
         for rt_cont in self.sim_rt_conts_by_id.values():
-            if passes_filter(rt_cont):
+            if do_filter(rt_cont):
                 all_rt_conts.append(rt_cont)
 
         return all_rt_conts
@@ -76,22 +114,41 @@ class PlanningInfoDB:
 
         other.update_routes(self.sim_rt_conts_by_id.values())
 
-    def get_sat_states(curr_time_dt):
+    def get_sat_states(self, curr_time_dt):
+        """ get satellite states at the input time. Propagates each satellite's state forward from its last known state to the current time. Includes any known scheduled activities in this propagation"""
 
         curr_sat_state_by_id = {}
 
-        for sat_id in sats_event_data['sat_id_order']:
-            curr_sat_state = {}
-            # known_sat_state is a SatStateEntry type
-            known_sat_state = self.sat_state_by_id[sat_id][-1]
 
-            as todo: add this function, somewhere...
-            need scheduled activities too for this...
-            should this be done in GP?
-            curr_sat_state['batt_e_Wh'] = propagate_sat_ES(known_sat_state.update_dt,curr_time_dt,known_sat_state.state_info['batt_e_Wh'])
+        for sat_indx,sat_id in enumerate(self.sat_id_order):
+            curr_sat_state = {}
+
+            #  get most recent update of satellite state. known_sat_state is a SatStateEntry type
+            known_sat_state = self.sat_state_hist_by_id[sat_id][-1]
+            last_update_dt = known_sat_state.update_dt
+
+            # get scheduled/executable activities between state update time and current time but have the satellite ID somewhere along the route
+            rt_conts = self.get_filtered_sim_routes(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,filter_opt='partially_within',sat_id=sat_id)
+            #  get all the windows that are executable from all of the route containers, filtered for this satellite ( also filtering on the relevant time window)
+            # using a set to ensure unique windows ( there can be duplicate windows across route containers)
+            executable_acts = set() 
+            for rt_cont in rt_conts:
+                executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx))
+            # sort executable windows by start time
+            executable_acts = list(executable_acts)
+            executable_acts.sort(key = lambda wind: wind.executable_start)
+
+            # get eclipse Windows
+            ecl_winds = self.sat_events['ecl_winds_by_sat_id'][sat_id]
+
+            curr_ES_state = known_sat_state.state_info['batt_e_Wh']
+            curr_sat_state['batt_e_Wh'],ES_state_went_below_min = propagate_sat_ES(last_update_dt,curr_time_dt,sat_indx,curr_ES_state,executable_acts,ecl_winds,self.parsed_power_params_by_sat_id[sat_id],self.resource_delta_t_s)
 
             curr_sat_state_by_id[sat_id] = curr_sat_state
 
         return curr_sat_state_by_id
+
+    def get_ecl_winds(self, sat_id):
+        return self.sat_events['ecl_winds_by_sat_id'][sat_id]
 
 

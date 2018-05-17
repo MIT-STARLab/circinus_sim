@@ -34,10 +34,11 @@ class ConstellationSim:
 
         self.io_proc =SchedIOProcessor(self.params)
 
-        self._init_data_structs()
-
         # this feels a little dirty, but go ahead and create the GP wrapper here, where params is accessible
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
+
+        self._init_data_structs()
+
 
     def _init_data_structs(self):
         """ initialize data structures used in the simulation """
@@ -51,9 +52,15 @@ class ConstellationSim:
             raise RuntimeWarning('Saw positive window ID for ecl window hack')
 
         sat_id_order = self.sat_params['sat_id_order']
-        sats_event_data = {
+        ecl_winds_by_sat_id = {sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
+
+        #  note: use sim tick as resource delta T.
+        plan_db_inputs = {
             "sat_id_order": sat_id_order,
-            "ecl_winds_by_sat_id": {sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
+            "initial_state_by_sat_id": self.sat_params['initial_state_by_sat_id'],
+            "ecl_winds_by_sat_id": ecl_winds_by_sat_id,
+            "power_params_by_sat_id": self.sat_params['power_params_by_sat_id'],
+            "resource_delta_t_s": self.sim_run_params['sim_tick_s']
         }
 
         # create ground network
@@ -64,16 +71,19 @@ class ConstellationSim:
             self.sim_end_dt,
             self.gp_wrapper,
             self.const_sim_inst_params['sim_gs_network_params'],
-            sats_event_data = sats_event_data
         ) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
                 station['id'], 
                 station['name'], 
-                gs_network,
+                gs_network
             )
             gs_network.gs_list.append(gs)
+        
+        #  initialize the planning info database
+        gs_network.get_plan_db().initialize(plan_db_inputs)
         self.gs_network = gs_network
+
 
         # create sats
         sats_by_id = {}
@@ -97,20 +107,15 @@ class ConstellationSim:
                 sim_start_dt=self.sim_start_dt,
                 sim_end_dt=self.sim_end_dt,
                 sat_scenario_params=sat_id_scenario_params,
-                sim_satellite_params=sat_id_sim_satellite_params,
-                sats_event_data = sats_event_data
+                sim_satellite_params=sat_id_sim_satellite_params
             )
             sats_by_id[sat_id] = sat
+
+            #  initialize the planning info database
+            sat.get_plan_db().initialize(plan_db_inputs)
+
         self.sats_by_id = sats_by_id
 
-    def _initialize_sim_run(self,all_sats):
-        """ Put constellation and desired state for starting the simulation run"""
-
-        # start all the satellites with a first round of GP schedules, if so desired
-        if self.sim_run_params['sat_schedule_hotstart']:
-            self.gs_network.update(new_time_dt=None)
-            for sat in all_sats:
-                self.gs_network.send_planning_info(sat)
 
     def run( self):
         """ run the simulation """
@@ -122,14 +127,13 @@ class ConstellationSim:
 
         all_sats = list(self.sats_by_id.values())
 
-        self._initialize_sim_run(all_sats)
+        #  used to alert special operations on first iteration of the loop
+        first_iter = True
 
         print('Starting sim loop')
 
         # Simulation loop
         while global_time < sim_end_dt:
-
-            global_time = global_time+self.sim_tick
 
             print_verbose('global_time: %s'%(global_time.isoformat()),verbose)
 
@@ -141,12 +145,19 @@ class ConstellationSim:
 
             # todo
             # add tracking, plotting of sat state
-            # add sending of sat state to GP
 
+            #  run ground network update step so that we can immediately share plans on first iteration of this loop
+            self.gs_network.state_update_step(global_time)
+
+             # start all the satellites with a first round of GP schedules, if so desired
+            if first_iter and self.sim_run_params['sat_schedule_hotstart']:
+                for sat in all_sats:
+                    self.gs_network.send_planning_info(sat)
+
+            # now update satellite state
             for sat in all_sats:
                 sat.state_update_step(global_time)
 
-            gs_network.state_update_step(global_time)
 
             #####################
             # Activity execution
@@ -155,11 +166,11 @@ class ConstellationSim:
             # for sat in all_sats:
             #     sat.execution_step()
 
-            # todo: this is a testing hack.  remove!
-            if gs_network.scheduler.plans_updated:
+            # todo: this is a testing hack.  remove! ( don't cross levels of abstraction like this either!)
+            if self.gs_network.scheduler.plans_updated:
                 for sat in all_sats:
                     self.gs_network.send_planning_info(sat)
-                gs_network.scheduler.plans_updated = False
+                self.gs_network.scheduler.plans_updated = False
 
             #####################
             # Replanning
@@ -169,4 +180,5 @@ class ConstellationSim:
             #     sat.replan_step()
 
 
-
+            global_time = global_time+self.sim_tick
+            first_iter = False
