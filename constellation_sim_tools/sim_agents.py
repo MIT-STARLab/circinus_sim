@@ -104,6 +104,12 @@ class SimSatellite(SimAgent):
     def get_ecl_winds(self):
         return self.get_plan_db().get_ecl_winds(self.sat_id)
 
+    def get_act_hist(self):
+        return self.state_recorder.act_hist
+    def get_ES_hist(self):
+        return self.state_recorder.ES_state_hist
+    def get_DS_hist(self):
+        return self.state_recorder.DS_state_hist
 
 class SimGroundStation(SimAgent):
     """class for simulation ground stations"""

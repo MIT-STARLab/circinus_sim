@@ -104,7 +104,8 @@ class PipelineRunner:
         sim_params['const_sim_inst_params'] = const_sim_inst_params
         sim_params['other_params'] = sim_other_params
         sim_runner = const_sim.ConstellationSim(sim_params)
-        output = sim_runner.run ()
+        sim_runner.run()
+        output = sim_runner.post_run()
 
         # define orbit prop outputs json
         # todo: add output here

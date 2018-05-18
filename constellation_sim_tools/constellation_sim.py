@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta
+import pickle
 
 from circinus_tools.scheduling.io_processing import SchedIOProcessor
+from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
+from .sim_plotting import SimPlotting
 
 def print_verbose(string,verbose=False):
     if verbose:
@@ -33,6 +36,7 @@ class ConstellationSim:
         self.sim_end_dt = self.sim_run_params['end_utc_dt']
 
         self.io_proc =SchedIOProcessor(self.params)
+        self.sim_plotter = SimPlotting(self.params)
 
         # this feels a little dirty, but go ahead and create the GP wrapper here, where params is accessible
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
@@ -116,6 +120,16 @@ class ConstellationSim:
 
         self.sats_by_id = sats_by_id
 
+    @staticmethod
+    def pickle_checkpoint(global_time,gs_network,sats_by_id):
+        pickle_name ='pickles/sim_checkpoint_%s' %(global_time.isoformat().replace (':','_'))
+        with open('%s.pkl' % ( pickle_name),'wb') as f:
+            pickle.dump( {"global_time":global_time, "gs_network": gs_network, "sats_by_id":sats_by_id},f)
+
+    @staticmethod
+    def unpickle_checkpoint(pickle_name):
+        p = pickle.load (open ( pickle_name,'rb'))
+        return p['global_time'],p['gs_network'],p['sats_by_id']
 
     def run( self):
         """ run the simulation """
@@ -124,21 +138,33 @@ class ConstellationSim:
 
         global_time = self.sim_start_dt
         sim_end_dt = self.sim_end_dt
-
-        all_sats = list(self.sats_by_id.values())
+        last_checkpoint_time = global_time
 
         #  used to alert special operations on first iteration of the loop
         first_iter = True
 
-        print('Starting sim loop')
+        # unpickle from a checkpoint if so desired
+        if self.sim_run_params['restore_from_checkpoint']:
+            global_time, self.gs_network, self.sats_by_id = self.unpickle_checkpoint(self.sim_run_params['restore_pkl_name'])
+            print_verbose('Unpickled checkpoint file %s'%(self.sim_run_params['restore_pkl_name']),verbose)
+            assert(global_time != self.sim_start_dt)
 
+
+        #######################
         # Simulation loop
+        #######################
+
+        print_verbose('Starting sim loop',verbose)
+
         while global_time < sim_end_dt:
 
             print_verbose('global_time: %s'%(global_time.isoformat()),verbose)
 
-            # todo: add checkpoint pickling?
-
+            # pickle checkpoint if so desired
+            if self.sim_run_params['pickle_checkpoints']:
+                if (global_time - last_checkpoint_time).total_seconds() >= self.sim_run_params['checkpoint_spacing_s']:
+                    self.pickle_checkpoint(global_time, self.gs_network, self.sats_by_id)
+                    last_checkpoint_time = global_time
 
             #####################
             # State update
@@ -151,11 +177,11 @@ class ConstellationSim:
 
              # start all the satellites with a first round of GP schedules, if so desired
             if first_iter and self.sim_run_params['sat_schedule_hotstart']:
-                for sat in all_sats:
+                for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
 
             # now update satellite state
-            for sat in all_sats:
+            for sat in self.sats_by_id.values():
                 sat.state_update_step(global_time)
 
 
@@ -163,12 +189,12 @@ class ConstellationSim:
             # Activity execution
 
             # todo: add back in!
-            # for sat in all_sats:
+            # for sat in self.sats_by_id.values():
             #     sat.execution_step()
 
             # todo: this is a testing hack.  remove! ( don't cross levels of abstraction like this either!)
             if self.gs_network.scheduler.plans_updated:
-                for sat in all_sats:
+                for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
                 self.gs_network.scheduler.plans_updated = False
 
@@ -176,9 +202,40 @@ class ConstellationSim:
             # Replanning
 
             # todo: this should be added back in when the local planner is included
-            # for sat in all_sats:
+            # for sat in self.sats_by_id.values():
             #     sat.replan_step()
 
 
             global_time = global_time+self.sim_tick
             first_iter = False
+
+    def post_run():
+
+        obs_exe = [[] for indx in range(self.num_sats)]
+        dlnks_exe = [[] for indx in range(self.num_sats)]
+        xlnks_exe = [[] for indx in range(self.num_sats)]
+        for sat_indx, (sat_id,sat) in enumerate(self.sats_by_id.items()):
+            sat_acts = sat.get_act_hist()
+            for act in sat_acts:
+                if type(act) == ObsWindow: obs_exe[sat_indx].append(act)
+                if type(act) == DlnkWindow: dlnks_exe[sat_indx].append(act)
+                if type(act) == XlnkWindow: xlnks_exe[sat_indx].append(act)
+
+
+        sim_plotter.sim_plot_all_sats_acts(
+            self.sat_params['sat_id_order'],
+            [],
+            obs_exe,
+            [],
+            dlnks_exe,
+            [],
+            xlnks_exe,
+            self.sim_start_dt,
+            self.sim_end_dt,
+            self.sim_start_dt
+        )
+        
+
+
+        return None
+

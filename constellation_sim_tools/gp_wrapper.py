@@ -97,27 +97,27 @@ class GlobalPlannerWrapper:
 
         # todo:  update pickle stuff
         # unpickle gp outputs if desired (instead of running)
-        if self.gp_wrapper_params['restore_gp_output_from_pickle']:
-            print('Load GP output pickle')
-            gp_output = pickle.load (open ( self.gp_wrapper_params['gp_output_pickle_to_restore'],'rb'))
-            # HACKKKKKKKK
-            self.gp_wrapper_params['restore_gp_output_from_pickle'] = False
+        # if self.gp_wrapper_params['restore_gp_output_from_pickle']:
+        #     print('Load GP output pickle')
+        #     gp_output = pickle.load (open ( self.gp_wrapper_params['gp_output_pickle_to_restore'],'rb'))
+        #     # HACKKKKKKKK
+        #     self.gp_wrapper_params['restore_gp_output_from_pickle'] = False
         # run gp
-        else:
-            print('Run GP')
-            print('note: running with local circinus_tools, not circinus_tools within GP repo')
-            gp_pr = GPPipelineRunner()
-            gp_output = gp_pr.run(gp_inputs,verbose=True)
+        # else:
+        print('Run GP')
+        print('note: running with local circinus_tools, not circinus_tools within GP repo')
+        gp_pr = GPPipelineRunner()
+        gp_output = gp_pr.run(gp_inputs,verbose=True)
 
 
         ##############################
         # handle output
 
         # pickle gp outputs if desired
-        if self.gp_wrapper_params['pickle_gp_output'] and not self.gp_wrapper_params['restore_gp_output_from_pickle']:
-            pickle_name ='pickles/gp_output_%s' %(datetime.utcnow().isoformat().replace (':','_'))
-            with open('%s.pkl' % ( pickle_name),'wb') as f:
-                pickle.dump(  gp_output,f)
+        # if self.gp_wrapper_params['pickle_gp_output'] and not self.gp_wrapper_params['restore_gp_output_from_pickle']:
+        #     pickle_name ='pickles/gp_output_%s' %(datetime.utcnow().isoformat().replace (':','_'))
+        #     with open('%s.pkl' % ( pickle_name),'wb') as f:
+        #         pickle.dump(  gp_output,f)
 
 
         if not gp_output['version'] == EXPECTED_GP_OUTPUT_VER:
