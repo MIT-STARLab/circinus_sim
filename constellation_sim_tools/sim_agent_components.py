@@ -6,6 +6,7 @@ from collections import namedtuple
 
 from circinus_tools import io_tools
 from circinus_tools.sat_state_tools import propagate_sat_ES
+from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
 
 class PlannerScheduler:
 
@@ -131,11 +132,15 @@ class PlanningInfoDB:
             rt_conts = self.get_filtered_sim_routes(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,filter_opt='partially_within',sat_id=sat_id)
             #  get all the windows that are executable from all of the route containers, filtered for this satellite ( also filtering on the relevant time window)
             # using a set to ensure unique windows ( there can be duplicate windows across route containers)
-            executable_acts = set() 
-            for rt_cont in rt_conts:
-                executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx))
-            # sort executable windows by start time
-            executable_acts = list(executable_acts)
+            # executable_acts = set() 
+            # for rt_cont in rt_conts:
+            #     executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx))
+            # # sort executable windows by start time
+            # executable_acts = list(executable_acts)
+    
+            #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
+            executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx)
+
             executable_acts.sort(key = lambda wind: wind.executable_start)
 
             # get eclipse Windows

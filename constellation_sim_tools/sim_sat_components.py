@@ -15,6 +15,7 @@ from random import normalvariate
 
 from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_window_in_wind_list
+from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
 from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB
 
 class SatStateSimulator:
@@ -184,12 +185,16 @@ class SatScheduleArbiter(PlannerScheduler):
 
         #  get all the windows that are executable from all of the route containers, filtered for this satellite
         # using a set to ensure unique windows ( there can be duplicate windows across route containers)
-        executable_acts = set()
-        for rt_cont in rt_conts:
-            executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=self._curr_time_dt,sat_indx=self.sim_sat.sat_indx))
+        # todo: Need to do a better job here of handling different t utilization numbers for windows from each route -  what if two routes expect different start and end times for the window based on utilization?
+        # executable_acts = set()
+        # for rt_cont in rt_conts:
+            # executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=self._curr_time_dt,sat_indx=self.sim_sat.sat_indx))
+
+        #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,sat_indx=self.sim_sat.sat_indx)
 
         # sort executable windows by start time
-        executable_acts = list(executable_acts)
+        # executable_acts = list(executable_acts)
         executable_acts.sort(key = lambda wind: wind.executable_start)
 
         self._schedule_updated = True

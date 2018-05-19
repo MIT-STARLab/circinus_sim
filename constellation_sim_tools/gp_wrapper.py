@@ -65,9 +65,11 @@ class GlobalPlannerWrapper:
         esrcs = existing_sim_rt_conts
         # esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_sim_rt_conts}
         existing_route_data = {}
+        # todo: do we need to deepcopy all the routes here for safety?
         existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
         existing_route_data['existing_routes'] = existing_routes
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
+        
         existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.dv_utilization_by_dr_id[dmr.ID] for esrc in esrcs for dmr in esrc.get_routes()}
         existing_route_data['latest_gp_route_uid'] = latest_gp_route_uid
 
@@ -95,15 +97,6 @@ class GlobalPlannerWrapper:
         sys.path.append (self.gp_wrapper_params['gp_path'])
         from runner_gp import PipelineRunner as GPPipelineRunner
 
-        # todo:  update pickle stuff
-        # unpickle gp outputs if desired (instead of running)
-        # if self.gp_wrapper_params['restore_gp_output_from_pickle']:
-        #     print('Load GP output pickle')
-        #     gp_output = pickle.load (open ( self.gp_wrapper_params['gp_output_pickle_to_restore'],'rb'))
-        #     # HACKKKKKKKK
-        #     self.gp_wrapper_params['restore_gp_output_from_pickle'] = False
-        # run gp
-        # else:
         print('Run GP')
         print('note: running with local circinus_tools, not circinus_tools within GP repo')
         gp_pr = GPPipelineRunner()
@@ -112,13 +105,6 @@ class GlobalPlannerWrapper:
 
         ##############################
         # handle output
-
-        # pickle gp outputs if desired
-        # if self.gp_wrapper_params['pickle_gp_output'] and not self.gp_wrapper_params['restore_gp_output_from_pickle']:
-        #     pickle_name ='pickles/gp_output_%s' %(datetime.utcnow().isoformat().replace (':','_'))
-        #     with open('%s.pkl' % ( pickle_name),'wb') as f:
-        #         pickle.dump(  gp_output,f)
-
 
         if not gp_output['version'] == EXPECTED_GP_OUTPUT_VER:
             raise RuntimeWarning("Saw gp output version %s, expected %s"%(gp_output['version'],EXPECTED_GP_OUTPUT_VER))
@@ -131,6 +117,7 @@ class GlobalPlannerWrapper:
         sim_routes = []
         for dmr in scheduled_routes:
             dmr_t_util,dmr_dv_util = dmr.get_sched_utilization()
+
 
             # if dmr in existing_routes:
             #     #  note that the global planner is allowed to change the scheduled data volume for route, but the ID for that route and all of its windows will stay the same
