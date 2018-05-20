@@ -3,6 +3,7 @@
 # @author Kit Kennedy
 
 from collections import namedtuple
+from datetime import timedelta
 
 from .sim_agent_components import PlannerScheduler
 
@@ -58,7 +59,7 @@ class GroundNetworkPS(PlannerScheduler):
         replan_required = False
         if self._last_replan_time_dt is None:
             replan_required = True
-        elif (self._curr_time_dt - self._last_replan_time_dt).total_seconds() > self.replan_interval_s:
+        elif (self._curr_time_dt - self._last_replan_time_dt).total_seconds() >= self.replan_interval_s:
             replan_required = True
         #  if we already have plans waiting to be released
         if len(self._replan_release_q) > 0:
@@ -97,10 +98,11 @@ class GroundNetworkPS(PlannerScheduler):
 
             #  if it's not the first time and there is a wait required
             else:
-                self._replan_release_q.append(self.ReplanQEntry(time_dt=self._curr_time_dt,rt_conts=new_rt_conts))
+                # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
+                self._replan_release_q.append(self.ReplanQEntry(time_dt=self._curr_time_dt+timedelta(seconds=self.replan_release_wait_time_s),rt_conts=new_rt_conts))
 
         #  release any ripe plans from the queue
-        while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt < self._curr_time_dt:
+        while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
             q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
             #  mark all of the route containers with their release time
             set_update_times(q_entry.rt_conts,self._curr_time_dt)
