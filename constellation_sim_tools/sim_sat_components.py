@@ -16,6 +16,7 @@ from random import normalvariate
 from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_window_in_wind_list
 from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
+from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB
 
 class SatStateSimulator:
@@ -341,7 +342,29 @@ class SatStateRecorder(StateRecorder):
 
         self.act_hist.append(act)
 
+    def get_act_hist(self):
+        obs_exe = []
+        xlnks_exe = []
+        dlnks_exe = []
+        for act in self.act_hist:
+            if type(act) == ObsWindow: obs_exe.append(act)
+            if type(act) == XlnkWindow: xlnks_exe.append(act)
+            if type(act) == DlnkWindow: dlnks_exe.append(act)
 
+        return obs_exe,dlnks_exe,xlnks_exe
+
+    def get_ES_hist(self,out_units='minutes'):
+
+        if not out_units == 'minutes':
+            raise NotImplementedError
+
+        t = []
+        e = []
+        for pt in self.ES_state_hist:
+            t.append(pt[0]/60.0) # converted to minutes
+            e.append(pt[1])
+
+        return t,e
 
 
 

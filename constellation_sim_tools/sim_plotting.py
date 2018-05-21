@@ -1,4 +1,5 @@
 from circinus_tools.plotting import plot_tools as pltl
+from circinus_tools  import io_tools
 
 class SimPlotting():
     def __init__(self,sim_params):
@@ -7,7 +8,18 @@ class SimPlotting():
         sat_params = sim_params['orbit_prop_params']['sat_params']
         # self.obs_params = gp_params['orbit_prop_params']['obs_params']
         self.sat_id_order = sat_params['sat_id_order']
-        self.plot_params = plot_params
+        self.input_plot_params = plot_params
+
+        #  holds power parameters for each satellite ID,  after parsing
+        self.parsed_power_params_by_sat_id = {}
+        for sat_id in self.sat_id_order:
+            self.parsed_power_params_by_sat_id[sat_id] = {}
+            sat_edot_by_mode,sat_batt_storage,power_units = io_tools.parse_power_consumption_params(sat_params['power_params_by_sat_id'][sat_id])
+            self.parsed_power_params_by_sat_id[sat_id] = {
+                "sat_edot_by_mode": sat_edot_by_mode,
+                "sat_batt_storage": sat_batt_storage,
+                "power_units": power_units,
+            }
 
         # self.plot_fig_extension=plot_params['plot_fig_extension']
         # self.time_units=plot_params['time_units']
@@ -46,14 +58,14 @@ class SimPlotting():
 
         plot_params['plot_title'] = 'Executed and Planned Sat Acts'
         plot_params['plot_size_inches'] = (18,12)
-        plot_params['plot_include_labels'] = self.plot_params['sat_acts_plot']['include_labels']
+        plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_original_times_regular'] = False
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/sim_exec_planned_acts.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['time_units'] = self.plot_params['sat_acts_plot']['time_units']
+        plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
         plot_params['sat_id_order'] = self.sat_id_order
 
         plot_params['plot_xlnks_choices'] = True
@@ -75,4 +87,41 @@ class SimPlotting():
             sats_dlnk_winds, 
             sats_xlnk_winds_choices,
             sats_xlnk_winds,
+            plot_params)
+
+
+    def sim_plot_all_sats_energy_usage(self,
+            sats_ids_list,
+            energy_usage,
+            ecl_winds,
+            plot_start_dt,
+            plot_end_dt,
+            base_time_dt):
+
+
+        plot_params = {}
+        plot_params['route_ids_by_wind'] = None
+        plot_params['plot_start_dt'] = plot_start_dt
+        plot_params['plot_end_dt'] = plot_end_dt
+        plot_params['base_time_dt'] = base_time_dt
+
+        plot_params['plot_title'] = 'Energy Storage Utilization - Constellation Sim'
+        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
+        plot_params['show'] = False
+        plot_params['fig_name'] = 'plots/const_sim_energy.pdf'
+        plot_params['plot_fig_extension'] = 'pdf'
+
+        plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
+        plot_params['sat_id_order'] = self.sat_id_order
+
+        plot_params['sats_emin_Wh'] = [self.parsed_power_params_by_sat_id[sat_id]['sat_batt_storage']['e_min'] for sat_id in self.sat_id_order]
+        plot_params['sats_emax_Wh'] = [self.parsed_power_params_by_sat_id[sat_id]['sat_batt_storage']['e_max'] for sat_id in self.sat_id_order]
+
+        plot_params['energy_usage_plot_params'] = self.input_plot_params['energy_usage_plot']
+
+        pltl.plot_energy_usage(
+            sats_ids_list,
+            energy_usage,
+            ecl_winds,
             plot_params)

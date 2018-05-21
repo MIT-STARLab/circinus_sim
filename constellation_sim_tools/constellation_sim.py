@@ -57,6 +57,7 @@ class ConstellationSim:
             raise RuntimeWarning('Saw positive window ID for ecl window hack')
 
         ecl_winds_by_sat_id = {self.sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
+        self.ecl_winds = ecl_winds
 
         #  note: use sim tick as resource delta T.
         plan_db_inputs = {
@@ -211,21 +212,23 @@ class ConstellationSim:
 
     def post_run(self):
 
+        # Get the activities executed for all the satellites
         obs_exe = [[] for indx in range(self.num_sats)]
         dlnks_exe = [[] for indx in range(self.num_sats)]
         xlnks_exe = [[] for indx in range(self.num_sats)]
+        energy_usage = {'time_mins': [[] for indx in range(self.num_sats)], 'e_sats': [[] for indx in range(self.num_sats)]}
         for sat_id in self.sat_id_order:
             sat = self.sats_by_id[sat_id]
             sat_indx = sat.sat_indx
-            sat_acts = sat.get_act_hist()
-            for act in sat_acts:
-                if type(act) == ObsWindow: obs_exe[sat_indx].append(act)
-                if type(act) == DlnkWindow: dlnks_exe[sat_indx].append(act)
-                if type(act) == XlnkWindow: xlnks_exe[sat_indx].append(act)
+            obs_exe[sat_indx],dlnks_exe[sat_indx],xlnks_exe[sat_indx] = sat.get_act_hist()
+            t,e = sat.get_ES_hist()
+            energy_usage['time_mins'][sat_indx] = t
+            energy_usage['e_sats'][sat_indx] = e
 
-
+        #  get scheduled activities as planned by ground network
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_act_hists()
 
+        #  plot scheduled and executed activities
         self.sim_plotter.sim_plot_all_sats_acts(
             self.sat_id_order,
             obs_gsn_sched,
@@ -234,6 +237,16 @@ class ConstellationSim:
             dlnks_exe,
             xlnks_gsn_sched,
             xlnks_exe,
+            self.sim_start_dt,
+            self.sim_end_dt,
+            self.sim_start_dt
+        )
+
+        #  plot satellite energy usage
+        self.sim_plotter.sim_plot_all_sats_energy_usage(
+            self.sat_id_order,
+            energy_usage,
+            self.ecl_winds,
             self.sim_start_dt,
             self.sim_end_dt,
             self.sim_start_dt
