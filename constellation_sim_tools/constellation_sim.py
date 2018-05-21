@@ -29,6 +29,7 @@ class ConstellationSim:
         self.const_sim_inst_params = sim_params['const_sim_inst_params']
         self.sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
         self.num_sats=self.sat_params['num_sats']
+        self.sat_id_order = self.sat_params['sat_id_order']
 
         self.sim_tick = timedelta(seconds=self.sim_run_params['sim_tick_s'])
 
@@ -55,12 +56,11 @@ class ConstellationSim:
         if window_uid >= 0:
             raise RuntimeWarning('Saw positive window ID for ecl window hack')
 
-        sat_id_order = self.sat_params['sat_id_order']
-        ecl_winds_by_sat_id = {sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
+        ecl_winds_by_sat_id = {self.sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
 
         #  note: use sim tick as resource delta T.
         plan_db_inputs = {
-            "sat_id_order": sat_id_order,
+            "sat_id_order": self.sat_id_order,
             "initial_state_by_sat_id": self.sat_params['initial_state_by_sat_id'],
             "ecl_winds_by_sat_id": ecl_winds_by_sat_id,
             "power_params_by_sat_id": self.sat_params['power_params_by_sat_id'],
@@ -73,6 +73,7 @@ class ConstellationSim:
             self.gs_params['gs_network_name'],
             self.sim_start_dt,
             self.sim_end_dt,
+            self.num_sats,
             self.gp_wrapper,
             self.const_sim_inst_params['sim_gs_network_params'],
         ) 
@@ -91,8 +92,7 @@ class ConstellationSim:
 
         # create sats
         sats_by_id = {}
-        for sat_id in self.sat_params['sat_id_order']:
-            sat_indx = self.sat_params['sat_id_order'].index(sat_id)
+        for sat_indx,sat_id in enumerate(self.sat_id_order):
 
             # these params come from orbit prop inputs file
             sat_id_scenario_params = {
@@ -209,12 +209,14 @@ class ConstellationSim:
             global_time = global_time+self.sim_tick
             first_iter = False
 
-    def post_run():
+    def post_run(self):
 
         obs_exe = [[] for indx in range(self.num_sats)]
         dlnks_exe = [[] for indx in range(self.num_sats)]
         xlnks_exe = [[] for indx in range(self.num_sats)]
-        for sat_indx, (sat_id,sat) in enumerate(self.sats_by_id.items()):
+        for sat_id in self.sat_id_order:
+            sat = self.sats_by_id[sat_id]
+            sat_indx = sat.sat_indx
             sat_acts = sat.get_act_hist()
             for act in sat_acts:
                 if type(act) == ObsWindow: obs_exe[sat_indx].append(act)
@@ -222,13 +224,15 @@ class ConstellationSim:
                 if type(act) == XlnkWindow: xlnks_exe[sat_indx].append(act)
 
 
-        sim_plotter.sim_plot_all_sats_acts(
-            self.sat_params['sat_id_order'],
-            [],
+        obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_act_hists()
+
+        self.sim_plotter.sim_plot_all_sats_acts(
+            self.sat_id_order,
+            obs_gsn_sched,
             obs_exe,
-            [],
+            dlnks_gsn_sched,
             dlnks_exe,
-            [],
+            xlnks_gsn_sched,
             xlnks_exe,
             self.sim_start_dt,
             self.sim_end_dt,

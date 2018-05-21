@@ -5,7 +5,7 @@
 from datetime import timedelta
 
 from .sim_sat_components import SatScheduleArbiter,SatExecutive,SatStateSimulator,SatStateRecorder
-from .sim_gs_components import GroundNetworkPS
+from .sim_gs_components import GroundNetworkPS,GroundNetworkStateRecorder
 
 SAT_STATE_JSON_VER = '0.1'
 
@@ -131,7 +131,7 @@ class SimGroundStation(SimAgent):
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
     
-    def __init__(self,ID,name,sim_start_dt,sim_end_dt,gp_wrapper,sim_gs_network_params):
+    def __init__(self,ID,name,sim_start_dt,sim_end_dt,num_sats,gp_wrapper,sim_gs_network_params):
         """initializes based on parameters
         
         initializes based on parameters
@@ -146,6 +146,9 @@ class SimGroundNetwork(SimAgent):
         self._curr_time_dt = sim_start_dt
 
         self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,gp_wrapper,sim_gs_network_params['gsn_ps_params'])
+        self.state_recorder = GroundNetworkStateRecorder(sim_start_dt,num_sats)
+
+        self.scheduler.state_recorder = self.state_recorder
 
         super().__init__()
 
@@ -159,3 +162,6 @@ class SimGroundNetwork(SimAgent):
 
     def get_plan_db(self):
         return self.scheduler.get_plan_db()
+
+    def get_all_sats_act_hists(self):
+        return self.state_recorder.get_all_sats_act_hists()

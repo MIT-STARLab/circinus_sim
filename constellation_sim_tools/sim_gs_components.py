@@ -5,7 +5,11 @@
 from collections import namedtuple
 from datetime import timedelta
 
-from .sim_agent_components import PlannerScheduler
+from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
+from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
+from .sim_agent_components import PlannerScheduler,StateRecorder
+
+from circinus_tools import debug_tools
 
 class GroundNetworkPS(PlannerScheduler):
     """Handles calling of the GP, and ingestion of plan and state updates from satellites"""
@@ -43,6 +47,9 @@ class GroundNetworkPS(PlannerScheduler):
 
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
+
+        # holds ref to GroundNetworkStateRecorder
+        self.state_recorder = None
 
         super().__init__(sim_start_dt,sim_end_dt)
 
@@ -111,6 +118,12 @@ class GroundNetworkPS(PlannerScheduler):
             self.plans_updated = True
 
 
+        rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
+        # debug_tools.debug_breakpt()
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt)
+        for act in executable_acts:
+            self.state_recorder.add_act_hist(act)
+
         #  time update
         self._curr_time_dt = new_time_dt
 
@@ -132,3 +145,41 @@ class GroundNetworkPS(PlannerScheduler):
 
         return new_rt_conts
 
+class GroundNetworkStateRecorder(StateRecorder):
+    """Convenient interface for storing state history for ground network"""
+    # todo: is "state" the right word here?
+
+    def __init__(self,sim_start_dt,num_sats):
+        # store all these activities in a dictionary indexed by the ID, so that we can update activities later
+        self.act_hist_by_wind_id = {}
+        self.num_sats = num_sats
+
+        super().__init__()    
+
+    def add_act_hist(self,act):
+        # Todo: include correct execution times
+
+        #  note: implicitly update any entry that might've been in this dictionary before for this activity
+        self.act_hist_by_wind_id[act.window_ID] = act
+
+    def get_all_sats_act_hists(self):
+        # all_sats_act_hists = []
+        sats_obs = [[] for indx in range(self.num_sats)]
+        sats_dlnks = [[] for indx in range(self.num_sats)]
+        sats_xlnks = [[] for indx in range(self.num_sats)]
+
+        for act in self.act_hist_by_wind_id.values():
+            if type(act) == ObsWindow:
+                sats_obs[act.sat_indx].append(act)
+            elif type(act) == DlnkWindow:
+                sats_dlnks[act.sat_indx].append(act)
+            elif type(act) == XlnkWindow:
+                sats_xlnks[act.sat_indx].append(act)
+                sats_xlnks[act.xsat_indx].append(act)
+
+        for sat_indx in range(self.num_sats):
+            sats_obs[sat_indx].sort(key= lambda wind: wind.start)
+            sats_dlnks[sat_indx].sort(key= lambda wind: wind.start)
+            sats_xlnks[sat_indx].sort(key= lambda wind: wind.start)
+
+        return sats_obs,sats_dlnks,sats_xlnks

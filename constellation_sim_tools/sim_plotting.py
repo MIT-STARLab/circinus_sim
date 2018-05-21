@@ -1,3 +1,5 @@
+from circinus_tools.plotting import plot_tools as pltl
+
 class SimPlotting():
     def __init__(self,sim_params):
 
