@@ -13,6 +13,8 @@ from circinus_tools.scheduling.routing_objects import SimRouteContainer
 
 # from circinus_tools.scheduling.routing_objects import 
 
+from circinus_tools import debug_tools
+
 EXPECTED_GP_OUTPUT_VER = '0.2'
 
 def datetime_to_iso8601(dt):
@@ -70,7 +72,7 @@ class GlobalPlannerWrapper:
         }
 
         esrcs = existing_sim_rt_conts
-        # esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_sim_rt_conts}
+        esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_sim_rt_conts}
         existing_route_data = {}
         existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
         #  we need to copy all of the existing routes here, because we update the schedule data volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the data route objects that satellites have in their Sim route containers ( and effectively propagating information instantaneously to the satellites - double plus ungood!). 
@@ -128,9 +130,6 @@ class GlobalPlannerWrapper:
         all_updated_routes = gp_output['all_updated_routes']
         latest_gp_route_uid = gp_output['latest_dr_uid']
 
-        #  set this to a false date for now, because we need to put an actual value in here when we release the Sim routes
-        update_dt = datetime(1900,1,1)  
-
         scheduled_routes_set = set(scheduled_routes)
         existing_routes_set = set(existing_routes)
         sim_routes = []
@@ -141,10 +140,18 @@ class GlobalPlannerWrapper:
 
             dmr_dv_util = dmr.get_sched_utilization()
 
+
+            # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
+            # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
+            old_esrc = esrcs_by_id.get(dmr.ID,None)
+            creation_dt = old_esrc.creation_dt if old_esrc else None
+            update_dt = old_esrc.update_dt if (old_esrc and old_esrc.not_updated_check(dmr,dmr_dv_util)) else None
+
             # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
             #   note only one Sim route container per DMR
+            # honestly we probably could just use a copy() here...
             sim_routes.append(
-                SimRouteContainer(dmr.ID,dmr,dmr_dv_util,update_dt)
+                SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt)
             )
 
         return sim_routes, latest_gp_route_uid

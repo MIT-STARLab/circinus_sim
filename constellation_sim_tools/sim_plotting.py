@@ -100,14 +100,12 @@ class SimPlotting():
 
 
         plot_params = {}
-        plot_params['route_ids_by_wind'] = None
         plot_params['plot_start_dt'] = plot_start_dt
         plot_params['plot_end_dt'] = plot_end_dt
         plot_params['base_time_dt'] = base_time_dt
 
         plot_params['plot_title'] = 'Energy Storage Utilization - Constellation Sim'
         plot_params['plot_size_inches'] = (18,12)
-        plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/const_sim_energy.pdf'
         plot_params['plot_fig_extension'] = 'pdf'

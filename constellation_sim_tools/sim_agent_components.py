@@ -140,14 +140,15 @@ class PlanningInfoDB:
     
             #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
             executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx)
-
-            executable_acts.sort(key = lambda wind: wind.executable_start)
+            #  strip out the executable activity objects and leave just the windows
+            executable_acts_just_winds = [exec_act.act for exec_act in executable_acts]
+            executable_acts_just_winds.sort(key = lambda wind: wind.executable_start)
 
             # get eclipse Windows
             ecl_winds = self.sat_events['ecl_winds_by_sat_id'][sat_id]
 
             curr_ES_state = known_sat_state.state_info['batt_e_Wh']
-            curr_sat_state['batt_e_Wh'],ES_state_went_below_min = propagate_sat_ES(last_update_dt,curr_time_dt,sat_indx,curr_ES_state,executable_acts,ecl_winds,self.parsed_power_params_by_sat_id[sat_id],self.resource_delta_t_s)
+            curr_sat_state['batt_e_Wh'],ES_state_went_below_min = propagate_sat_ES(last_update_dt,curr_time_dt,sat_indx,curr_ES_state,executable_acts_just_winds,ecl_winds,self.parsed_power_params_by_sat_id[sat_id],self.resource_delta_t_s)
 
             curr_sat_state_by_id[sat_id] = curr_sat_state
 

@@ -147,6 +147,8 @@ class SatScheduleArbiter(PlannerScheduler):
 
         #  whether or not schedule instance has been updated since it was last grabbed by executive
         self._schedule_updated = False
+
+        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
         self._schedule_cache = []
 
         # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
@@ -192,11 +194,11 @@ class SatScheduleArbiter(PlannerScheduler):
             # executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=self._curr_time_dt,sat_indx=self.sim_sat.sat_indx))
 
         #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
+        #  the list elements are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
         executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,sat_indx=self.sim_sat.sat_indx)
 
-        # sort executable windows by start time
-        # executable_acts = list(executable_acts)
-        executable_acts.sort(key = lambda wind: wind.executable_start)
+        # sort executable activities by start time
+        executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
 
         self._schedule_updated = True
         self._planning_info_updated = False
@@ -204,7 +206,7 @@ class SatScheduleArbiter(PlannerScheduler):
 
         self._curr_time_dt = new_time_dt
 
-    def get_scheduled_acts(self):
+    def get_scheduled_executable_acts(self):
         self._schedule_updated = False
         return self._schedule_cache
 
@@ -217,10 +219,11 @@ class SatExecutive:
         self.sim_sat = sim_sat
 
         #  scheduled activities list- a sorted list of the activities for satellite to perform ( obtained from schedule arbiter)
-        self.scheduled_acts = []
+        #  these are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
+        self.scheduled_exec_acts = []
 
         # these keep track of which activity we are currently executing. The windox index (windex)  is the location within the scheduled activities list
-        self._current_act = None
+        self._current_exec_act = None
         self._current_act_windex = None
 
         #  maintains a record of of whether or not the current activity is canceled ( say, due to an off nominal condition)
@@ -243,17 +246,18 @@ class SatExecutive:
 
         # if schedule updates are available, blow away what we had previously (assumption is that arbiter handles changes to schedule gracefully)
         if self.sat_arbiter.schedule_updated:
-            self.scheduled_acts = self.sat_arbiter.get_scheduled_acts()
+            self.scheduled_exec_acts = self.sat_arbiter.get_scheduled_executable_acts()
         else:
             return
 
         # if we updated the schedule, need to deal with the consequences
 
         # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
-        if not self._current_act is None:
+        if not self._current_exec_act is None:
             try:
-                curr_act_indx = self.scheduled_acts.index(self._current_act)
+                curr_act_indx = self.scheduled_exec_acts.index(self._current_exec_act)
             except ValueError:
+                # todo: i've seen funky behavior here before, not sure if totally resolved...
                 # todo: add cleanup?
                 # - what does it mean if current act is not in new sched? cancel current act?
                 raise NotImplementedError("Haven't yet implemented schedule changes mid-activity")
@@ -261,7 +265,7 @@ class SatExecutive:
             self._current_act_windex = curr_act_indx
 
         # if there are activities in the schedule, then assume we're starting from beginning of it
-        elif len(self.scheduled_acts) > 0:
+        elif len(self.scheduled_exec_acts) > 0:
             self._current_act_windex = 0
 
         # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
@@ -270,11 +274,11 @@ class SatExecutive:
             self._current_act_windex = None
 
     @staticmethod
-    def executable_time_accessor(wind,time_prop):
+    def executable_time_accessor(exec_act,time_prop):
         if time_prop == 'start':
-            return wind.executable_start
+            return exec_act.act.executable_start
         elif time_prop == 'end':
-            return wind.executable_end
+            return exec_act.act.executable_end
 
     def update(self,new_time_dt):
         """ Update state of the executive """
@@ -288,7 +292,7 @@ class SatExecutive:
         self.pull_schedule()
 
         # figure out current activity, index of that act in schedule (note this could return None)
-        next_act,next_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.scheduled_acts,self.executable_time_accessor)
+        next_exec_act,next_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.scheduled_exec_acts,self.executable_time_accessor)
 
         #  if first step, return after checking if we're currently in activity ( there's been no change in activity, so the later code is unnecessary for now)
         if self._first_step:
@@ -297,18 +301,18 @@ class SatExecutive:
 
         #  if our state is off-nominal,  then we should protect ourselves by electing not to perform any activity
         #  maintain a record of if we canceled an activity or not. if we previously canceled it, then don't try to perform it on a subsequent time step
-        act_is_cancelled = self._curr_cancelled_act and next_act and self._curr_cancelled_act == next_act
-        #  if the next_act ( activity at next time step) was already recorded as canceled, or it needs to be canceled
+        act_is_cancelled = self._curr_cancelled_act and next_exec_act and self._curr_cancelled_act == next_exec_act
+        #  if the next_exec_act ( activity at next time step) was already recorded as canceled, or it needs to be canceled
         if act_is_cancelled or not self.sat_state_sim.nominal_state_check():
-            if next_act: self._curr_cancelled_act = next_act
-            next_act = None
+            if next_exec_act: self._curr_cancelled_act = next_exec_act
+            next_exec_act = None
             #  note: do not overwrite next act window index, because we need to maintain that record
 
         #  if we've changed from last activity, then we should add that activity to the history
-        if (self._current_act is not None) and (next_act is None or next_act != self._current_act):
-            self.state_recorder.add_act_hist(self._current_act)
+        if (self._current_exec_act is not None) and (next_exec_act is None or next_exec_act != self._current_exec_act):
+            self.state_recorder.add_act_hist(self._current_exec_act.act)
 
-        self._current_act = next_act
+        self._current_exec_act = next_exec_act
         self._current_act_windex = next_act_windex
 
         self._curr_time_dt = new_time_dt
@@ -316,7 +320,10 @@ class SatExecutive:
     def get_act_at_time(self,time_dt):
 
         if abs(time_dt - self._curr_time_dt) < self.sim_sat.time_epsilon_td:
-            return self._current_act
+            if self._current_exec_act:
+                return self._current_exec_act.act
+            else:
+                return None
         else:
             raise NotImplementedError
 

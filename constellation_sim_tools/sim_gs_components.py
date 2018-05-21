@@ -72,10 +72,10 @@ class GroundNetworkPS(PlannerScheduler):
         if len(self._replan_release_q) > 0:
             replan_required = False
 
-        def set_update_times(rt_conts,update_dt):
+        def set_rt_cont_times(rt_conts,update_dt):
             """ set the update time on all of the route containers"""
             for rt_cont in rt_conts:
-                rt_cont.update_dt = update_dt
+                rt_cont.set_times_safe(update_dt)
 
         #  perform re-plan if required, and release or add to queue as appropriate
         if replan_required:
@@ -88,7 +88,7 @@ class GroundNetworkPS(PlannerScheduler):
             #  if we don't have to wait to release new plans
             if self.replan_release_wait_time_s == 0:
                 #  mark all of the route containers with their release time
-                set_update_times(new_rt_conts,self._curr_time_dt)
+                set_rt_cont_times(new_rt_conts,self._curr_time_dt)
                 # update plan database
                 self.plan_db.update_routes(new_rt_conts)
                 #  update replan time
@@ -98,7 +98,7 @@ class GroundNetworkPS(PlannerScheduler):
             #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
             elif self._first_step and self.release_first_plans_immediately:
                 #  mark all of the route containers with their release time
-                set_update_times(new_rt_conts,self._curr_time_dt)
+                set_rt_cont_times(new_rt_conts,self._curr_time_dt)
                 self.plan_db.update_routes(new_rt_conts)
                 self._last_replan_time_dt = self._curr_time_dt
                 self.plans_updated = True
@@ -112,17 +112,18 @@ class GroundNetworkPS(PlannerScheduler):
         while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
             q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
             #  mark all of the route containers with their release time
-            set_update_times(q_entry.rt_conts,self._curr_time_dt)
+            set_rt_cont_times(q_entry.rt_conts,self._curr_time_dt)
             self.plan_db.update_routes(q_entry.rt_conts)
             self._last_replan_time_dt = q_entry.time_dt
             self.plans_updated = True
 
 
+        #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
         rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
         # debug_tools.debug_breakpt()
         executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt)
-        for act in executable_acts:
-            self.state_recorder.add_act_hist(act)
+        for exec_act in executable_acts:
+            self.state_recorder.add_act_hist(exec_act.act)
 
         #  time update
         self._curr_time_dt = new_time_dt
@@ -138,6 +139,7 @@ class GroundNetworkPS(PlannerScheduler):
         sat_state_by_id = self.plan_db.get_sat_states(self._curr_time_dt)
 
         #  run the global planner
+        # debug_tools.debug_breakpt()
         new_rt_conts, latest_gp_route_uid = self.gp_wrapper.run_gp(self._curr_time_dt,existing_sim_rt_conts,self.sim_gsn.ID,self.latest_gp_route_indx,sat_state_by_id)
 
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
