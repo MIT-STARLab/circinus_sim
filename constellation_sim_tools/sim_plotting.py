@@ -38,6 +38,33 @@ class SimPlotting():
         # self.sats_dmin_Gb = [ds_params['data_storage_Gbit']['d_min'][ds_params['storage_option']] for ds_params in self.data_storage_params]
         # self.sats_dmax_Gb = [ds_params['data_storage_Gbit']['d_max'][ds_params['storage_option']] for ds_params in self.data_storage_params]
 
+    def get_label_getters(self):
+        def xlnk_label_getter(xlnk):
+            dr_id = None
+            if route_ids_by_wind:
+                dr_indcs = route_ids_by_wind.get(xlnk,None)
+                if not dr_indcs is None:
+                    dr_id = dr_indcs[xlnk_route_index_to_use]
+
+            other_sat_indx = xlnk.get_xlnk_partner(sat_indx)
+            if not dr_id is None:
+                label_text = "%d,%d" %(dr_id.get_indx(),other_sat_indx)
+                label_text = "%s" %(dr_indcs)
+            else:         
+                label_text = "%d" %(other_sat_indx)
+
+            return label_text
+
+        def dlnk_label_getter(dlnk):
+            # todo: scheduled data vol here is deprecated
+            return "t g%d,dv %d/%d"%(dlnk.gs_indx,dlnk.executable_data_vol,dlnk.data_vol) 
+
+        def obs_label_getter(obs):
+            # todo: scheduled data vol here is deprecated
+            return "t obs %d, dv %d/%d"%(obs.window_ID,obs.executable_data_vol,obs.data_vol)
+
+        return obs_label_getter,dlnk_label_getter,xlnk_label_getter
+
     def sim_plot_all_sats_acts(self,
             sats_ids_list,
             sats_obs_winds_choices,
@@ -60,7 +87,7 @@ class SimPlotting():
         plot_params['plot_size_inches'] = (18,12)
         plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
         plot_params['plot_original_times_choices'] = True
-        plot_params['plot_original_times_regular'] = False
+        plot_params['plot_executable_times_regular'] = True
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/sim_exec_planned_acts.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
@@ -78,6 +105,12 @@ class SimPlotting():
         plot_params['xlnk_route_index_to_use'] = 0
         plot_params['xlnk_color_rollover'] = 5
         plot_params['xlnk_colors'] = ['#FF0000','#FF3399','#990000','#990099','#FF9900']
+
+        obs_label_getter,dlnk_label_getter,xlnk_label_getter = self.get_label_getters()
+
+        plot_params['obs_label_getter_func'] = obs_label_getter
+        plot_params['dlnk_label_getter_func'] = dlnk_label_getter
+        plot_params['xlnk_label_getter_func'] = xlnk_label_getter
 
         pltl.plot_all_sats_acts(
             sats_ids_list,

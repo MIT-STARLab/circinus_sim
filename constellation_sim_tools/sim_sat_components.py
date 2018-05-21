@@ -345,8 +345,7 @@ class SatStateRecorder(StateRecorder):
         self.ES_state_hist.append((t_s,val))
 
     def add_act_hist(self,act):
-        # Todo: include correct execution times
-
+        # note that the execution times, dv for act are stored in attributes: executable_start,executable_end,executable_data_vol
         self.act_hist.append(act)
 
     def get_act_hist(self):
