@@ -57,13 +57,21 @@ class SimPlotting():
 
         def dlnk_label_getter(dlnk):
             # todo: scheduled data vol here is deprecated
-            return "t g%d,dv %d/%d"%(dlnk.gs_indx,dlnk.executable_data_vol,dlnk.data_vol) 
+            return "t g%d,dv %d/%d"%(dlnk.gs_indx,dlnk.executed_data_vol,dlnk.data_vol) 
 
         def obs_label_getter(obs):
             # todo: scheduled data vol here is deprecated
-            return "t obs %d, dv %d/%d"%(obs.window_ID,obs.executable_data_vol,obs.data_vol)
+            return "t obs %d, dv %d/%d"%(obs.window_ID,obs.executed_data_vol,obs.data_vol)
 
         return obs_label_getter,dlnk_label_getter,xlnk_label_getter
+
+    def get_time_getters(self):
+        def get_start(wind):
+            return wind.executed_start
+        def get_end(wind):
+            return wind.executed_end
+
+        return get_start,get_end
 
     def sim_plot_all_sats_acts(self,
             sats_ids_list,
@@ -87,7 +95,7 @@ class SimPlotting():
         plot_params['plot_size_inches'] = (18,12)
         plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
         plot_params['plot_original_times_choices'] = True
-        plot_params['plot_executable_times_regular'] = True
+        plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/sim_exec_planned_acts.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
@@ -107,10 +115,13 @@ class SimPlotting():
         plot_params['xlnk_colors'] = ['#FF0000','#FF3399','#990000','#990099','#FF9900']
 
         obs_label_getter,dlnk_label_getter,xlnk_label_getter = self.get_label_getters()
-
         plot_params['obs_label_getter_func'] = obs_label_getter
         plot_params['dlnk_label_getter_func'] = dlnk_label_getter
         plot_params['xlnk_label_getter_func'] = xlnk_label_getter
+
+        start_getter_reg,end_getter_reg = self.get_time_getters()
+        plot_params['start_getter_reg'] = start_getter_reg
+        plot_params['end_getter_reg'] = end_getter_reg
 
         pltl.plot_all_sats_acts(
             sats_ids_list,

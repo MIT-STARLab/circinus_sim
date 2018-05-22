@@ -18,6 +18,7 @@ from circinus_tools.scheduling.base_window  import find_window_in_wind_list
 from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB
+from .sim_routing_objects import SimDataContainer
 
 class SatStateSimulator:
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
@@ -223,8 +224,8 @@ class SatExecutive:
         self.scheduled_exec_acts = []
 
         # these keep track of which activity we are currently executing. The windox index (windex)  is the location within the scheduled activities list
-        self._current_exec_act = None
-        self._current_act_windex = None
+        self._curr_exec_act = None
+        self._curr_act_windex = None
 
         #  maintains a record of of whether or not the current activity is canceled ( say, due to an off nominal condition)
         self._curr_cancelled_act = None
@@ -238,11 +239,16 @@ class SatExecutive:
         self.sat_arbiter = None
         # holds ref to SatStateRecorder
         self.state_recorder = None
+        # holds ref to SatDataStore
+        self.data_store = None
+
+        # keeps track of the number of observations performed
+        self.curr_obs_indx = 0
 
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
 
-    def pull_schedule(self):
+    def _pull_schedule(self):
 
         # if schedule updates are available, blow away what we had previously (assumption is that arbiter handles changes to schedule gracefully)
         if self.sat_arbiter.schedule_updated:
@@ -253,25 +259,25 @@ class SatExecutive:
         # if we updated the schedule, need to deal with the consequences
 
         # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
-        if not self._current_exec_act is None:
+        if not self._curr_exec_act is None:
             try:
-                curr_act_indx = self.scheduled_exec_acts.index(self._current_exec_act)
+                curr_act_indx = self.scheduled_exec_acts.index(self._curr_exec_act)
             except ValueError:
                 # todo: i've seen funky behavior here before, not sure if totally resolved...
                 # todo: add cleanup?
                 # - what does it mean if current act is not in new sched? cancel current act?
                 raise NotImplementedError("Haven't yet implemented schedule changes mid-activity")
 
-            self._current_act_windex = curr_act_indx
+            self._curr_act_windex = curr_act_indx
 
         # if there are activities in the schedule, then assume we're starting from beginning of it
         elif len(self.scheduled_exec_acts) > 0:
-            self._current_act_windex = 0
+            self._curr_act_windex = 0
 
         # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
         else:
             # todo: no act, so what is index? Is the below correct?
-            self._current_act_windex = None
+            self._curr_act_windex = None
 
     @staticmethod
     def executable_time_accessor(exec_act,time_prop):
@@ -282,46 +288,221 @@ class SatExecutive:
 
     def update(self,new_time_dt):
         """ Update state of the executive """
+        #  todo: should add handling in here for executing multiple activities at one time
 
-        # If first step, check the time
+        # If first step, check the time (first step time should be the sim start time)
         if self._first_step:
             if new_time_dt != self._curr_time_dt:
                 raise RuntimeWarning('Saw wrong initial time')
 
+        ##############################
+        # execute current activity
+
+        # if it's not the first step, then we can execute current activity
+        if not self._first_step:
+            self._execute_curr_act(new_time_dt)
+
+        ##############################
+        # determine next activity
+
         # update schedule if need be
-        self.pull_schedule()
+        self._pull_schedule()
 
         # figure out current activity, index of that act in schedule (note this could return None)
-        next_exec_act,next_act_windex = find_window_in_wind_list(new_time_dt,self._current_act_windex,self.scheduled_exec_acts,self.executable_time_accessor)
+        next_exec_act,next_act_windex = find_window_in_wind_list(new_time_dt,self._curr_act_windex,self.scheduled_exec_acts,self.executable_time_accessor)
 
-        #  if first step, return after checking if we're currently in activity ( there's been no change in activity, so the later code is unnecessary for now)
-        if self._first_step:
-            self._first_step = False
-            return
+        # todo: probably need to add handling to avoid time-step sized gaps between activities
 
         #  if our state is off-nominal,  then we should protect ourselves by electing not to perform any activity
         #  maintain a record of if we canceled an activity or not. if we previously canceled it, then don't try to perform it on a subsequent time step
-        act_is_cancelled = self._curr_cancelled_act and next_exec_act and self._curr_cancelled_act == next_exec_act
+        act_is_cancelled = (self._curr_cancelled_act and next_exec_act) and self._curr_cancelled_act == next_exec_act
         #  if the next_exec_act ( activity at next time step) was already recorded as canceled, or it needs to be canceled
         if act_is_cancelled or not self.sat_state_sim.nominal_state_check():
             if next_exec_act: self._curr_cancelled_act = next_exec_act
             next_exec_act = None
             #  note: do not overwrite next act window index, because we need to maintain that record
 
-        #  if we've changed from last activity, then we should add that activity to the history
-        if (self._current_exec_act is not None) and (next_exec_act is None or next_exec_act != self._current_exec_act):
-            self.state_recorder.add_act_hist(self._current_exec_act.act)
+        #  if we've changed from last activity, then need to clean up the context for that activity
+        stopped_curr_act = (self._curr_exec_act is not None) and (next_exec_act is None or next_exec_act != self._curr_exec_act)
+        if stopped_curr_act:
+            self._cleanup_act_execution_context()
 
-        self._current_exec_act = next_exec_act
-        self._current_act_windex = next_act_windex
+        #  if we've started a new activity, then need to setup up the context for that activity
+        started_new_act = (next_exec_act is not None) and (self._curr_exec_act is None or next_exec_act != self._curr_exec_act)
+        if started_new_act:
+            self._initialize_act_execution_context(next_exec_act,new_time_dt)
+
+        self._curr_exec_act = next_exec_act
+        self._curr_act_windex = next_act_windex
 
         self._curr_time_dt = new_time_dt
+
+        # mark no longer first step
+        if self._first_step:
+            self._first_step = False
+
+    def _initialize_act_execution_context(self,next_exec_act,new_time_dt):
+        self._curr_execution_act = next_exec_act.act
+        #  using the dictionary here both to keep the number of attributes for self down, and to make extension to multiple current execution acts not terrible todo (hehe, sneaky todo there)
+        self._curr_exec_data = {}
+        self._curr_exec_data['start'] = new_time_dt
+        self._curr_exec_data['rx_data_conts'] = []
+        self._curr_exec_data['dv_used'] = 0
+        # self._curr_exec_data['cum_rx_dv'] = 0
+        # self._curr_exec_data['cum_tx_dv'] = 0
+        # self._curr_exec_data['rt_cont_queue'] = [rt_cont for rt_cont in self._curr_exec_act.rt_conts]
+        # self._curr_exec_data['curr_tx_rt_cont'] = self._curr_exec_data['rt_cont_queue'].pop(0)
+
+    def _cleanup_act_execution_context(self):
+        # self._curr_act_execution_start = None
+
+        self.data_store.add(self._curr_exec_data['rx_data_conts'])
+
+        curr_act_wind = self._curr_execution_act
+        end_time = self._curr_time_dt
+        curr_act_wind.set_executed_properties(self._curr_exec_data['start'],end_time,self._curr_exec_data['dv_used'])
+        self.state_recorder.add_act_hist(curr_act_wind)
+        
+        self._curr_execution_act = None
+        self._curr_exec_data = None
+
+        # self._curr_execution_act = self._curr_exec_act.act
+        # self._curr_execution_start = self._curr_time_dt
+        # self._curr_execution_cum_rx_dv = 0
+        # self._curr_execution_cum_tx_dv = 0
+
+    # def get_rt_conts_to_tx(self,tx_delta_dv):
+    #     while len(_curr_execution_rt_cont_queue) > 0 and tx_delta_dv > 0:
+    #         rt_cont = self._curr_exec_data['rt_cont_queue'][0]
+
+    #         tx_dv_rt_cont = rt_cont.
+
+    #         if tx_dv_by_rt_cont[rt_cont] 
+
+    #         tx_delta_dv = 
+
+
+    def _execute_curr_act(self,new_time_dt):
+        # todo: add support for temporally overlapping activities?
+        #  this execution code assumes constant average data rate for every activity, which is not necessarily true. In general this should be all right because the planner schedules from the center of every activity, but in future this code should probably be adapted to use the actual data rate at a given time
+
+
+        delta_t_s = (new_time_dt - self._curr_time_dt).total_seconds()
+
+        # # The actual current activity window
+        # curr_act_wind = None
+        # if self._curr_exec_act.act:
+        #     curr_act_wind = self._curr_exec_act.act
+
+        # #  if we haven't recorded an execution start time for the current activity, then we must just be starting to execute it
+        # if curr_act_wind and not self._curr_act_execution_cache:
+        #     self._curr_act_execution_cache = curr_act_wind
+        #     self._curr_act_execution_start = self._curr_time_dt
+        #     self._curr_act_execution_cum_rx_dv = 0
+        #     self._curr_exec_data{'cum_tx_dv'} = 0
+            # self._curr_act_execution_rt_cont_queue = [rt_cont for rt_cont in self._curr_exec_act.rt_conts]
+            # self._curr_execution_dv_by_rt_cont_id = {}
+            # self._curr_execution_rt_cont = self._curr_act_execution_rt_cont_queue.pop(0)
+
+        # delta_dv = curr_act_wind.ave_data_rate * delta_t_s
+
+        # rt_cont_id = self._curr_execution_rt_cont.ID
+        # rt_cont_remaining_dv = self._curr_execution_rt_cont.ID
+        # self._curr_execution_dv_by_rt_cont_id[rt_cont_id] += delta_dv
+
+        # if self._curr_execution_dv_by_rt_cont_id[rt_cont_id] > 
+
+        curr_act_wind = None
+        if curr_act_wind:
+            curr_act_wind = self._curr_exec_act.act
+
+        #  if it's an observation window, we are just receiving data
+        if type(curr_act_wind) == ObsWindow:
+            # if we just started this observation, then there are no data containers (packets). Make a new one and append
+            if len(self._curr_exec_data['rx_data_conts']) == 0:
+                curr_data_cont = SimDataContainer(self.sim_sat.sat_id,self.curr_obs_indx,route=curr_act_wind,dv=0)
+                self.curr_obs_indx += 1
+                self._curr_exec_data['rx_data_conts'].append(curr_data_cont)
+            else:
+                curr_data_cont = self._curr_exec_data['rx_data_conts'][0]
+
+            delta_dv += curr_act_wind.ave_data_rate * delta_t_s
+            # todo add delta dv to DS state
+
+            curr_data_cont.add_dv(delta_dv)
+
+
+
+
+        # if type(curr_act_wind) == XlnkWindow:
+
+        #     xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
+        #     xsat = self.blah[xsat_indx]
+        #     # xsat_is_executing = .check_act_execution(curr_act_wind)
+        #     # is_rx = curr_act_wind.is_rx(self.sim_sat.sat_indx)
+        #     is_tx = not curr_act_wind.is_rx(self.sim_sat.sat_indx)
+
+        #     # if is_rx:
+        #         # self._curr_exec_data{'cum_rx_dv'} += curr_act_wind.ave_data_rate * delta_t_s
+        #     else:
+        #         tx_delta_dv = curr_act_wind.ave_data_rate * delta_t_s
+        #         dv_txed = xsat.xlnk_receive_poll(self,self._curr_time_dt,curr_act_wind,tx_delta_dv)
+        #         self._curr_exec_data['cum_tx_dv'] += dv_txed
+        #         self._curr_exec_data['tx_dv_by_rt_cont'].set_default(rt_cont,0)
+        #         self._curr_exec_data['tx_dv_by_rt_cont'][rt_cont] += dv_txed
+
+
+        # if new_time_dt > self.curr_act_wind.executable_end:
+        #     add more cleanup
+        #     self._curr_act_execution_start = None
+        #     self._curr_act_execution_cum_rx_dv = 0
+        #     self._curr_exec_data{'cum_tx_dv'} = 0
+
+
+    # def xlnk_receive_poll(self,curr_time,proposed_act,proposed_dv):
+
+
+    #     #  check if the satellites have the same current time. if not it's problematic. note that will assume they are both using the same time step and so the transmitting satellite that is polling this satellite integrates its data rate over the same amount of time
+    #     # todo: verify this is okay
+    #     if not curr_time == self._curr_time_dt:
+    #         raise RuntimeWarning('time mismatch between satellites')
+
+    #     if not type(proposed_act) == XlnkWindow:
+    #         raise RuntimeWarning('saw a non-xlnk window')
+
+    #     # todo: need to add planning info exchange too
+    #     # todo: check that DS buffer not too full
+
+    #     received_dv = 0
+    #     #  if this satellite is not actually executing the activity, then it can't receive data
+    #     if not self._curr_exec_act.act == proposed_act:
+    #         received_dv = 0
+    #     else:
+    #         if not proposed_act.is_rx(self.sim_sat.sat_indx):
+    #             raise RuntimeWarning('cross-link attempt with non-receiver satellite')
+
+    #         received_dv = proposed_dv
+
+    #     self._curr_exec_data{'cum_rx_dv'} += received_dv
+
+    #     # todo: need to add recording of tlm, cmd update
+
+
+    #     return received_dv
+
+
+
+    # def is_executing(act_wind):
+    #     return self._curr_exec_act.act == act_wind
+
+    #     todo add markup that current ts performed already
+
 
     def get_act_at_time(self,time_dt):
 
         if abs(time_dt - self._curr_time_dt) < self.sim_sat.time_epsilon_td:
-            if self._current_exec_act:
-                return self._current_exec_act.act
+            if self._curr_exec_act:
+                return self._curr_exec_act.act
             else:
                 return None
         else:

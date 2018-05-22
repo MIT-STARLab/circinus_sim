@@ -4,6 +4,7 @@
 
 from datetime import timedelta
 
+from .sim_agent_components import DataStore
 from .sim_sat_components import SatScheduleArbiter,SatExecutive,SatStateSimulator,SatStateRecorder
 from .sim_gs_components import GroundNetworkPS,GroundNetworkStateRecorder
 
@@ -69,6 +70,7 @@ class SimSatellite(SimAgent):
         self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt)
         self.exec = SatExecutive(self,sim_start_dt)
         self.state_recorder = SatStateRecorder(sim_start_dt,sim_satellite_params['state_recorder'])
+        self.data_store = DataStore()
 
         # adds references between sat sim objects
         self.state_sim.sat_exec = self.exec
@@ -76,6 +78,7 @@ class SimSatellite(SimAgent):
         self.exec.sat_state_sim = self.state_sim
         self.exec.sat_arbiter = self.arbiter
         self.exec.state_recorder = self.state_recorder
+        self.exec.data_store = self.data_store
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
@@ -93,6 +96,9 @@ class SimSatellite(SimAgent):
         self.exec.update(new_time_dt)
 
         self._curr_time_dt = new_time_dt
+
+    def check_act_execution(self,act_wind):
+        return self.exec.is_executing(act_wind)
 
     def get_plan_db(self):
         return self.arbiter.get_plan_db()

@@ -23,6 +23,21 @@ class StateRecorder:
     def __init__(self):
         pass
 
+class DataStore:
+    def __init__(self):
+        pass
+
+        #  stores all of the data containers currently present on the agent
+        self.sim_data_conts = []
+
+    def add(self,data_conts):
+        """Add data containers (packets) to the data store"""
+
+        for dc in data_conts:
+            self.sim_data_conts.append(dc)
+
+
+
 #  record of satellite state. update_dt is the date time at which this state was valid.
 SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
 
