@@ -9,6 +9,7 @@ from circinus_tools.sat_state_tools import propagate_sat_ES
 from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
 
 class PlannerScheduler:
+    """ superclass for planning/scheduling elements running on ground and satellites"""
 
     def __init__(self,sim_start_dt,sim_end_dt):
         
@@ -19,29 +20,52 @@ class PlannerScheduler:
 
 
 class StateRecorder:
+    """ records state for an agent"""
 
     def __init__(self):
         pass
 
 class DataStore:
-    def __init__(self):
-        pass
+    """ Database for data containers (packets) stored on an agent"""
+    #  add tracking of data store history?
 
-        #  stores all of the data containers currently present on the agent
-        self.sim_data_conts = []
+    def __init__(self):
+
+        #  database for data containers currently within the data store
+        self.data_conts_by_id = {}
 
     def add(self,data_conts):
         """Add data containers (packets) to the data store"""
 
         for dc in data_conts:
-            self.sim_data_conts.append(dc)
+            if dc in self.data_conts_by_id.keys():
+                raise RuntimeWarning('Data container already exists within data store (%s)'%(dc))
 
+            self.data_conts_by_id[dc.ID] = dc
+
+    def cleanup(self,data_conts,dv_epsilon = 0.001):
+        """ remove any data containers that have effectively zero data volume"""
+
+        # dv_epsilon  assumed to be in Mb
+
+        for dc in data_conts:
+            if not dc.ID in self.data_conts_by_id.keys():
+                continue
+
+            if dc.data_vol < dv_epsilon:
+                del self.data_conts_by_id[dc.ID]
+
+
+    def get_curr_data_conts(self):
+        """ get the data containers currently in the database"""
+        return list(self.data_conts_by_id.values())
 
 
 #  record of satellite state. update_dt is the date time at which this state was valid.
 SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
 
 class PlanningInfoDB:
+    """database for information relevant for planning and scheduling on any agent"""
 
     filter_opts = ['totally_within','partially_within']
     expected_state_info = {'batt_e_Wh'}  #  this is set notation

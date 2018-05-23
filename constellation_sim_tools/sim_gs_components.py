@@ -117,7 +117,6 @@ class GroundNetworkPS(PlannerScheduler):
             self._last_replan_time_dt = q_entry.time_dt
             self.plans_updated = True
 
-
         #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
         rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
         # debug_tools.debug_breakpt()

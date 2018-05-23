@@ -12,13 +12,16 @@
 # A note on the state update steps: state is first updated using the current internal time, and then the current time is updated to the new (input) time.
 
 from random import normalvariate
+from collections import namedtuple
 
 from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_window_in_wind_list
 from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB
-from .sim_routing_objects import SimDataContainer
+from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
+
+from circinus_tools import debug_tools
 
 class SatStateSimulator:
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
@@ -245,8 +248,14 @@ class SatExecutive:
         # keeps track of which data container (data packet) we're on
         self.curr_dc_indx = 0
 
+        #  holds data structures that keep track of execution context for a given activity.  these are all of the data structures that keep track of what has been accomplished in the course of executing a given activity
+        self._execution_context_by_exec_act = {}
+
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
+
+        # the "effectively zero" data volume number
+        self.dv_epsilon = 0.1 # Mb
 
     def _pull_schedule(self):
 
@@ -289,6 +298,7 @@ class SatExecutive:
     def update(self,new_time_dt):
         """ Update state of the executive """
         #  todo: should add handling in here for executing multiple activities at one time
+        #  todo: this code should probably be moved around a bit at the same time, to make it more straightforward
 
         # If first step, check the time (first step time should be the sim start time)
         if self._first_step:
@@ -299,8 +309,8 @@ class SatExecutive:
         # execute current activity
 
         # if it's not the first step, then we can execute current activity
-        if not self._first_step:
-            self._execute_curr_act(new_time_dt)
+        if not self._first_step and self._curr_exec_act:
+            self._execute_act(self._curr_exec_act,new_time_dt)
 
         ##############################
         # determine next activity
@@ -325,7 +335,7 @@ class SatExecutive:
         #  if we've changed from last activity, then need to clean up the context for that activity
         stopped_curr_act = (self._curr_exec_act is not None) and (next_exec_act is None or next_exec_act != self._curr_exec_act)
         if stopped_curr_act:
-            self._cleanup_act_execution_context()
+            self._cleanup_act_execution_context(self._curr_exec_act)
 
         #  if we've started a new activity, then need to setup up the context for that activity
         started_new_act = (next_exec_act is not None) and (self._curr_exec_act is None or next_exec_act != self._curr_exec_act)
@@ -341,67 +351,91 @@ class SatExecutive:
         if self._first_step:
             self._first_step = False
 
-    def _initialize_act_execution_context(self,next_exec_act,new_time_dt):
-        act = next_exec_act.act
-        self._curr_execution_act = next_exec_act.act
+    def _initialize_act_execution_context(self,exec_act,new_time_dt):
+        act = exec_act.act
+
+        self._execution_context_by_exec_act[exec_act] = {}
+
+        curr_exec_context = self._execution_context_by_exec_act[exec_act]
+        curr_exec_context['act'] = exec_act.act
+
         #  using the dictionary here both to keep the number of attributes for self down, and to make extension to multiple current execution acts not terrible todo (hehe, sneaky todo there)
-        self._curr_exec_data = {}
-        self._curr_exec_data['start'] = new_time_dt
-        self._curr_exec_data['rx_data_conts'] = []
-        self._curr_exec_data['tx_data_conts'] = []
-        self._curr_exec_data['dv_used'] = 0
-        #  this stores the route containers (i.e. data routes) that are planned to be executed during this activity
-        # planned_route_conts_queue = [rt_cont for rt_cont in next_exec_act.rt_conts]
-        self._curr_exec_data['curr_route_cont'] = None
-        # self._curr_exec_data['planned_route_conts_queue'] = planned_route_conts_queue
+        #  the start time seen for this activity
+        curr_exec_context['start'] = new_time_dt
+        #  received data containers (packets) for this activity
+        curr_exec_context['rx_data_conts'] = []
+        #  transmitted data containers (packets) for this activity
+        curr_exec_context['tx_data_conts'] = []
+        #  total amount of data volume used for this activity
+        curr_exec_context['dv_used'] = 0
 
         #  get a lookup table of data containers to send for each route container, given that we are transmitting
+        curr_exec_context['executable_tx_data_conts_by_rt_cont'] = None
         is_tx = type(act) == DlnkWindow 
         is_tx |= type(act) == XlnkWindow and (not act.is_rx(self.sim_sat.sat_indx))
         if is_tx:
-            todo implement get_curr_data_conts
-            self._curr_exec_data['executable_tx_data_conts_by_rt_cont'] = self.get_tx_executable_routing_objs(act,self.sim_sat.sat_indx,next_exec_act.rt_conts,self.data_store.get_curr_data_conts())
-        else:
-            self._curr_exec_data['executable_tx_data_conts_by_rt_cont'] = None
+            exec_tx_dcs = self.get_tx_executable_routing_objs(
+                act,
+                self.sim_sat.sat_indx,
+                exec_act.rt_conts,
+                self.data_store.get_curr_data_conts(),
+                self.dv_epsilon
+            )
+            curr_exec_context['executable_tx_data_conts_by_rt_cont'] = exec_tx_dcs
 
+        if type(act) is XlnkWindow:
+            curr_exec_context['curr_xlnk_txsat_data_cont'] = None
 
-        # self._curr_exec_data['cum_rx_dv'] = 0
-        # self._curr_exec_data['cum_tx_dv'] = 0
-        # self._curr_exec_data['rt_cont_queue'] = [rt_cont for rt_cont in self._curr_exec_act.rt_conts]
-        # self._curr_exec_data['curr_tx_rt_cont'] = self._curr_exec_data['rt_cont_queue'].pop(0)
+    def _cleanup_act_execution_context(self,exec_act):
+
+        curr_exec_context = self._execution_context_by_exec_act[exec_act]
+
+        #  add/remove any updated data containers
+        self.data_store.add(curr_exec_context['rx_data_conts'])
+        self.data_store.cleanup(curr_exec_context['tx_data_conts'])
+
+        #  set the executed properties for the activity
+        curr_act_wind = curr_exec_context['act']
+        end_time = self._curr_time_dt
+        curr_act_wind.set_executed_properties(curr_exec_context['start'],end_time,curr_exec_context['dv_used'])
+        self.state_recorder.add_act_hist(curr_act_wind)
+        
+        # delete the current exec context, for safety
+        curr_exec_context = None
 
     @staticmethod
-    def get_tx_executable_routing_objs(act,sat_indx,rt_conts,data_conts):
+    def get_tx_executable_routing_objs(act,sat_indx,rt_conts,data_conts,dv_epsilon):
         """Given a set of planned routes (rt_conts) for act, determine which data packets (in data_conts) to actually transmit"""
 
-        # Dictionary of possible data packets for each route container, before we actually pick which packets to send
-        poss_data_conts_by_rt_cont = {}
-        #  dictionary of executable data packets for each route container, after de conflicting data packets across route containers
+        # dictionary of executable data packets for each route container, after de conflicting data packets across route containers
+        # each of the underlying objects is a ExecutableDataContainer
         executable_data_conts_by_rt_cont = {}
 
-        #  populate possible data packets
-        for rt_cont in rt_conts:
-            todo implement function
-            poss_data_conts_by_rt_cont[rt_cont] = rt_cont.find_matching_data_conts(data_conts)
+        # Dictionary of possible data packets for each route container, before we actually pick which packets to send
+        #  note that in general, the throughput in the route containers should be fully subscribed by existing data
+        poss_data_conts_by_rt_cont = {rt_cont:rt_cont.find_matching_data_conts(data_conts) for rt_cont in rt_conts}
+
+        #  sanity check that all of the route containers are meant to transmit data for this activity
+        for rt_cont in rt_conts: assert(rt_cont.contains_wind(act))
 
         #  remaining data volumes by containers
-        remaining_dv_by_data_cont = [dc.data_vol for dcs in poss_data_conts_by_rt_cont.values() for dc in dcs]
-        todo implement function
-        remaining_dv_by_rt_cont = [rc.data_vol_for_wind(act) for rc in rt_conts]
+        remaining_dv_by_data_cont = {dc:dc.data_vol for dcs in poss_data_conts_by_rt_cont.values() for dc in dcs}
+        remaining_dv_by_rt_cont = {rt_cont:rc.data_vol_for_wind(act) for rc in rt_conts}
 
         #  go through each route container ( in arbitrary order, shouldn't matter) and pick which data packets to send
         for curr_rc in rt_conts:
-            executable_data_conts_by_rt_cont.set_default(curr_rc,[])
+            executable_data_conts_by_rt_cont.setdefault(curr_rc,[])
             dcs = poss_data_conts_by_rt_cont[curr_rc]
 
+            #  look through the list of data containers for this route container and pick those that have data volume to send him
             while len(dcs) > 0 and remaining_dv_by_rt_cont[curr_rc] > dv_epsilon:
                 curr_dc = dcs.pop(0)
 
                 delta_dv = min(remaining_dv_by_data_cont[curr_dc],remaining_dv_by_rt_cont[curr_rc])
 
                 if delta_dv > dv_epsilon:
-                    executable_data_conts_by_rt_cont[curr_rc].append(curr_dc)
-                    todo need to add the data volume used by curr_dc
+                    execdc = ExecutableDataContainer(data_cont=curr_dc,remaining_dv=delta_dv)
+                    executable_data_conts_by_rt_cont[curr_rc].append(execdc)
 
                 remaining_dv_by_rt_cont[curr_rc] -= delta_dv
                 remaining_dv_by_data_cont[curr_dc] -= delta_dv 
@@ -412,113 +446,125 @@ class SatExecutive:
 
         return executable_data_conts_by_rt_cont
 
-
-
-
-
-
-
-    def _cleanup_act_execution_context(self):
-        # self._curr_act_execution_start = None
-
-        self.data_store.add(self._curr_exec_data['rx_data_conts'])
-        implement cleanup func
-        self.data_store.cleanup(self._curr_exec_data['tx_data_conts'])
-
-        curr_act_wind = self._curr_execution_act
-        end_time = self._curr_time_dt
-        curr_act_wind.set_executed_properties(self._curr_exec_data['start'],end_time,self._curr_exec_data['dv_used'])
-        self.state_recorder.add_act_hist(curr_act_wind)
-        
-        self._curr_execution_act = None
-        self._curr_exec_data = None
-
-    def _execute_curr_act(self,new_time_dt):
+    def _execute_act(self,exec_act,new_time_dt):
         # todo: add support for temporally overlapping activities?
         #  this execution code assumes constant average data rate for every activity, which is not necessarily true. In general this should be all right because the planner schedules from the center of every activity, but in future this code should probably be adapted to use the actual data rate at a given time
 
-        # todo: this probably needs to be adjusted based on actual activity length
-        delta_t_s = (new_time_dt - self._curr_time_dt).total_seconds()
+        curr_exec_context = self._execution_context_by_exec_act[exec_act]
+
 
         curr_act_wind = None
-        if curr_act_wind:
+        if self._curr_exec_act:
             curr_act_wind = self._curr_exec_act.act
         #  if there is no current activity going on then there's no reason to execute the rest of this code
         else:
             return
 
+
+        # todo: this probably needs to be adjusted based on actual activity length
+        # todo: this is kinda a band-aid for now - should be fixed in update() code above
+        time_forward_dt = min(new_time_dt,curr_act_wind.executable_end)
+        delta_t_s = (time_forward_dt - self._curr_time_dt).total_seconds()
+
+
         #  if it's an observation window, we are just receiving data
         if type(curr_act_wind) == ObsWindow:
+
             # if we just started this observation, then there are no data containers (packets). Make a new one and append
-            if len(self._curr_exec_data['rx_data_conts']) == 0:
-                curr_data_cont = SimDataContainer(self.sim_sat.sat_id,self.curr_dc_indx,route=curr_act_wind,dv=0)
+            if len(curr_exec_context['rx_data_conts']) == 0:
+                curr_data_cont = SimDataContainer(self.sim_sat.sat_id,self.sim_sat.sat_indx,self.curr_dc_indx,route=curr_act_wind,dv=0)
                 self.curr_dc_indx += 1
-                self._curr_exec_data['rx_data_conts'].append(curr_data_cont)
+                curr_exec_context['rx_data_conts'].append(curr_data_cont)
             else:
-                curr_data_cont = self._curr_exec_data['rx_data_conts'][-1]
+                curr_data_cont = curr_exec_context['rx_data_conts'][-1]
 
             delta_dv = curr_act_wind.ave_data_rate * delta_t_s
             # todo add delta dv to DS state
 
             curr_data_cont.add_dv(delta_dv)
-            self._curr_exec_data['dv_used'] += delta_dv
+            curr_exec_context['dv_used'] += delta_dv
 
         if type(curr_act_wind) == XlnkWindow:
+            # if self.sim_sat.sat_indx == 3:
 
             xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
-            xsat = self.TODO[xsat_indx]
-            # xsat_is_executing = .check_act_execution(curr_act_wind)
-            # is_rx = curr_act_wind.is_rx(self.sim_sat.sat_indx)
+            xsat_exec = self.sim_sat.get_sat_from_indx(xsat_indx).get_exec()
             is_tx = not curr_act_wind.is_rx(self.sim_sat.sat_indx)
 
-            # if is_rx:
-                # self._curr_exec_data{'cum_rx_dv'} += curr_act_wind.ave_data_rate * delta_t_s
-            else:
-                # tx_delta_dv = curr_act_wind.ave_data_rate * delta_t_s
-                # dv_txed = xsat.xlnk_receive_poll(self,self._curr_time_dt,curr_act_wind,tx_delta_dv)
-                # self._curr_exec_data['cum_tx_dv'] += dv_txed
-                # self._curr_exec_data['tx_dv_by_rt_cont'].set_default(rt_cont,0)
-                # self._curr_exec_data['tx_dv_by_rt_cont'][rt_cont] += dv_txed
-
+            #  if we're the transmitting satellite, then we have the responsibility to start the data transfer transaction
+            if is_tx:
+                debug_tools.debug_breakpt()
                 tx_delta_dv = curr_act_wind.ave_data_rate * delta_t_s
 
-                todo make dv_epsilon var
-                # while still delta dv
-                while tx_delta_dv > dv_epsilon:
+                # while we still have delta dv to transmit
+                while tx_delta_dv > self.dv_epsilon:
                 
                     # figure out data cont, amount of data to transmit
-                    tx_dc = None
-                    for rc,data_conts in self._curr_exec_data['executable_tx_data_conts_by_rt_cont']:
-                        for dc in data_conts:
-                            if self._curr_exec_data['remaining_tx_dv_by_data_cont'][dc] > dv_epsilon:
-                                tx_dc = dc
+                    tx_dc, dv_to_send = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
 
-                    dv_to_send = min(tx_delta_dv,self._curr_exec_data['remaining_tx_dv_by_data_cont'][tx_dc],tx_dc.data_vol)
+                    # send data to receiving satellite
+                    #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
+                    dv_txed,tx_success = xsat_exec.xlnk_receive_poll(self._curr_time_dt,curr_act_wind,self.sim_sat.sat_indx,tx_dc,dv_to_send)
 
-                    if self._curr_exec_data['remaining_tx_dv_by_data_cont'][tx_dc] > tx_dc.data_vol:
-                        raise RuntimeWarning('Thought there was more data to send than is actually present in data container')
-
-
-                    # send data cont (and cleanup)
-                    dv_txed,tx_success = xsat.xlnk_receive_poll(self._curr_time_dt,curr_act_wind,tx_dc,dv_to_send)
-
+                    #  if there was a successful reception of the data,
                     if tx_success:
                         tx_dc.remove_dv(dv_txed)
-                        if not tx_dc in self._curr_exec_data['tx_data_conts']:
-                            self._curr_exec_data['tx_data_conts'].append(tx_dc)
+                        # todo subtract delta dv from DS state
+                        if not tx_dc in curr_exec_context['tx_data_conts']:
+                            curr_exec_context['tx_data_conts'].append(tx_dc)
+
+                    #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
+                    else:
+                        # todo: added this temporarily for debugging purposes -  remove once functionality verified!
+                        raise RuntimeWarning('saw failure to receive')
+                        break
 
                     tx_delta_dv -= dv_txed
 
+                    curr_exec_context['dv_used'] += dv_txed
+
+    @staticmethod
+    def select_tx_data_cont(exec_data_conts_by_rt_cont,tx_dv_possible,dv_epsilon):
+        """Determines which data container (packet) to send based on plans (route containers) for given execution context"""
+
+        #  figure out which data container to send based upon planned data transmission
+        exec_dc_choice = None
+        for rc,exec_data_conts in exec_data_conts_by_rt_cont.items():
+            # each exec_dc is of type ExecutableDataContainer -  a record of how much data volume to transmit from a given data container for a given route container
+            for exec_dc in exec_data_conts:
+                #  if there is still remaining data volume for this data container, then choose it
+                if exec_dc.remaining_dv > dv_epsilon:
+                    exec_dc_choice = exec_dc
+                    break
+
+            if exec_dc_choice:
+                break
+
+        #  the amount of data volume to send is the minimum of how much we can send during current activity, how much we plan to send for a given data container, and how much data is available from that data container
+        dv_to_send = min(tx_dv_possible,exec_dc_choice.remaining_dv,exec_dc_choice.data_vol)
+
+        # sanity check -  if we had planned to send a certain amount of data volume from a data container, we should have that data volume present in the data container
+        if exec_dc_choice.remaining_dv > exec_dc_choice.data_vol:
+            raise RuntimeWarning('Thought there was more data to send than is actually present in data container')
+
+        #  this subtracts data volume from the executable data container ( not the data container itself!)
+        exec_dc_choice.remaining_dv -= dv_to_send
+
+        return exec_dc_choice.data_cont,dv_to_send
 
 
-    def xlnk_receive_poll(self,curr_time,proposed_act,xsat_indx,xsat_data_cont,proposed_dv):
-
-        # note: do not modify tx_data_cont in here!
-
+    def xlnk_receive_poll(self,curr_time,proposed_act,xsat_indx,txsat_data_cont,proposed_dv):
+        """Called by a transmitting satellite to see if we can receive data and if yes, handles the received data"""
+        # note: do not modify txsat_data_cont in here!
+        #  note that a key assumption about this function is that once it indicates a failure to receive data, subsequent calls at the current time step will not be successful ( and therefore the transmitter does not have to continue trying)
+        
         #  check if the satellites have the same current time. if not it's problematic. note that will assume they are both using the same time step and so the transmitting satellite that is polling this satellite integrates its data rate over the same amount of time
         # todo: verify this is okay
         if not curr_time == self._curr_time_dt:
             raise RuntimeWarning('time mismatch between satellites')
+
+        curr_exec_context = self._execution_context_by_exec_act[self._curr_exec_act]
+
 
         if not type(proposed_act) == XlnkWindow:
             raise RuntimeWarning('saw a non-xlnk window')
@@ -531,6 +577,7 @@ class SatExecutive:
         if not self._curr_exec_act.act == proposed_act:
             received_dv = 0
         else:
+            #  sanity check that we're actually receiving during this activity
             if not proposed_act.is_rx(self.sim_sat.sat_indx):
                 raise RuntimeWarning('cross-link attempt with non-receiver satellite')
 
@@ -539,30 +586,42 @@ class SatExecutive:
         # todo add delta dv to DS state
         # todo: add checking of how much dv we can receive based on DS state. The rest of the code should only happen if received dv still > 0
 
+        #  if we're not able to receive data, then return immediately
+        if received_dv < self.dv_epsilon:
+            rx_success = False
+            return received_dv,rx_success
 
-        if xsat_data_cont == self._curr_exec_data['curr_xlnk_xsat_data_cont']:
-            rx_dc = self._curr_exec_data['rx_data_conts'][-1]
-        else:
-            self._curr_exec_data['curr_xlnk_xsat_data_cont'] = xsat_data_cont
-            new_rx_dc = xsat_data_cont.fork(self.sim_sat.sat_id,new_dc_indx=self.curr_dc_indx)
-            self.curr_dc_indx += 1
-            new_rx_dc.add_to_route(proposed_act,xsat_indx)
-            self._curr_exec_data['rx_data_conts'].append(new_rx_dc)
-            rx_dc = new_rx_dc
+        #  check if the transmitted data container has changed or not
+        tx_data_cont_changed = False
+        if not txsat_data_cont == curr_exec_context['curr_xlnk_txsat_data_cont']:
+            curr_exec_context['curr_xlnk_txsat_data_cont'] = txsat_data_cont
+            tx_data_cont_changed = True
 
-        rx_dc.add_dv(received_dv)
+        #  ingest the data received into the appropriate destination
+        self.ingest_rx_data(curr_exec_context,txsat_data_cont,received_dv,tx_data_cont_changed)
 
-        self._curr_exec_data['dv_used'] += received_dv
+        #  Mark the data volume received
+        curr_exec_context['dv_used'] += received_dv
 
         # todo: need to add recording of tlm, cmd update
 
-        rx_success = False
-        if received_dv > dv_epsilon:
-            rx_success = True
-
         return received_dv,rx_success
 
+    def ingest_rx_data(self,curr_exec_context,txsat_data_cont,received_dv,tx_data_cont_changed):
+        """Ingest received data, and do the process of putting that data into its proper data container destination"""
 
+        #  if we've already been receiving data from this transmitted data container, then we should still receive into the same reception data container
+        if not tx_data_cont_changed:
+            rx_dc = curr_exec_context['rx_data_conts'][-1]
+        #  if the transmitted data container has changed, then we can make a new reception data container
+        else:
+            new_rx_dc = txsat_data_cont.fork(self.sim_sat.sat_id,new_dc_indx=self.curr_dc_indx)
+            self.curr_dc_indx += 1
+            new_rx_dc.add_to_route(proposed_act,xsat_indx)
+            curr_exec_context['rx_data_conts'].append(new_rx_dc)
+            rx_dc = new_rx_dc
+
+        rx_dc.add_dv(received_dv)
 
     # def is_executing(act_wind):
     #     return self._curr_exec_act.act == act_wind

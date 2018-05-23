@@ -59,6 +59,9 @@ class SimSatellite(SimAgent):
         #  the satellite index. this is used for indexing in internal data structures
         self.sat_indx = sat_indx
 
+        #  list of all simulation satellites (needed for inter-satellite transactions).  to be set after initialization.
+        self.all_sim_sats = None
+
         #  internal satellite simulation objects
         self.state_sim = SatStateSimulator(self,
             sim_start_dt,
@@ -96,6 +99,12 @@ class SimSatellite(SimAgent):
         self.exec.update(new_time_dt)
 
         self._curr_time_dt = new_time_dt
+
+    def get_sat_from_indx(self,sat_indx):
+        return self.all_sim_sats[sat_indx]
+
+    def get_exec(self):
+        return self.exec
 
     def check_act_execution(self,act_wind):
         return self.exec.is_executing(act_wind)

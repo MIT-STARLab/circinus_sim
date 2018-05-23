@@ -93,6 +93,7 @@ class ConstellationSim:
 
         # create sats
         sats_by_id = {}
+        all_sats = []
         for sat_indx,sat_id in enumerate(self.sat_id_order):
 
             # these params come from orbit prop inputs file
@@ -115,9 +116,14 @@ class ConstellationSim:
                 sim_satellite_params=sat_id_sim_satellite_params
             )
             sats_by_id[sat_id] = sat
+            all_sats.append(sat)
 
             #  initialize the planning info database
             sat.get_plan_db().initialize(plan_db_inputs)
+
+        #  set the simulation satellites list for every satellite
+        for sat in all_sats:
+            sat.all_sim_sats = all_sats
 
         self.sats_by_id = sats_by_id
 
