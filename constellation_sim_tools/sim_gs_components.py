@@ -6,7 +6,7 @@ from collections import namedtuple
 from datetime import timedelta
 
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
-from .sim_agent_components import PlannerScheduler,StateRecorder
+from .sim_agent_components import Executive,PlannerScheduler,StateRecorder
 from .schedule_tools  import synthesize_executable_acts
 
 from circinus_tools import debug_tools
@@ -145,6 +145,56 @@ class GroundNetworkPS(PlannerScheduler):
         self.latest_gp_route_indx = latest_gp_route_uid
 
         return new_rt_conts
+
+class GSExecutive(Executive):
+
+    def _initialize_act_execution_context(self,exec_act,new_time_dt):
+        """ sets up context dictionary for activity execution on the satellite"""
+
+        curr_exec_context = super._initialize_act_execution_context(exec_act,new_time_dt)
+
+        #  for receiving, we should keep track of which data container the transmitting satellite last sent
+        #  note: ground stations are currently assumed to be receivers only
+        curr_exec_context['curr_txsat_data_cont'] = None
+
+        #  returning this not because it's expected to be used, but to be consistent with superclass
+        return curr_exec_context
+
+    def execute_acts(self,new_time_dt):
+        """ execute current activities that the update step has chosen """
+
+        #  note: currently the ground station is not responsible for initiating any activities
+        pass
+
+    def dlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):
+        """Called by a transmitting satellite to see if this ground station can receive data and if yes, handles the received data
+        
+        [description]
+        :param ts_start_dt: the start time for this transmission, as calculated by the transmitting satellite
+        :type ts_start_dt: datetime
+        :param ts_end_dt: the end time for this transmission, as calculated by the transmitting satellite
+        :type ts_end_dt: datetime
+        :param proposed_act:  the activity which the transmitting satellite is executing
+        :type proposed_act: XlnkWindow
+        :param xsat_indx:  the index of the transmitting satellite
+        :type xsat_indx: int
+        :param txsat_data_cont:  the data container that the transmitting satellite is sending ( with route only up to the transmitting satellite)
+        :type txsat_data_cont: SimDataContainer
+        :param proposed_dv:  the data volume that the transmitting satellite is trying to send
+        :type proposed_dv: float
+        :returns:  data volume received, success flag
+        :rtype: {int,bool}
+        :raises: RuntimeWarning, RuntimeWarning, RuntimeWarning
+        """
+
+        # note: do not modify txsat_data_cont in here!
+        #  note that a key assumption about this function is that once it indicates a failure to receive data, subsequent calls at the current time step will not be successful ( and therefore the transmitter does not have to continue trying)
+
+        #  verify of the right type
+        if not type(proposed_act) == DlnkWindow:
+            raise RuntimeWarning('saw a non-dlnk window')
+
+        return self.receive_poll(tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv)
 
 class GroundNetworkStateRecorder(StateRecorder):
     """Convenient interface for storing state history for ground network"""

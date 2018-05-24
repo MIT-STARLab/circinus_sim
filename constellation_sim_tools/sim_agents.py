@@ -44,7 +44,7 @@ class SimAgent:
 class SimSatellite(SimAgent):
     """class for simulation satellites"""
     
-    def __init__(self,sat_id,sat_indx,sim_start_dt,sim_end_dt,sat_scenario_params,sim_satellite_params):
+    def __init__(self,ID,sat_indx,sim_start_dt,sim_end_dt,sat_scenario_params,sim_satellite_params):
         """initializes based on parameters
         
         initializes based on parameters
@@ -55,7 +55,7 @@ class SimSatellite(SimAgent):
         self._curr_time_dt = sim_start_dt
 
         #  the satellite ID ( not necessarily the same as the satellite index, and must be a string)
-        self.sat_id = sat_id
+        self.ID = ID
         #  the satellite index. this is used for indexing in internal data structures
         self.sat_indx = sat_indx
 
@@ -78,12 +78,16 @@ class SimSatellite(SimAgent):
         self.state_sim.sat_exec = self.exec
         self.state_sim.state_recorder = self.state_recorder
         self.exec.state_sim = self.state_sim
-        self.exec.arbiter = self.arbiter
+        self.exec.scheduler = self.arbiter
         self.exec.state_recorder = self.state_recorder
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
         super().__init__()
+
+    @property
+    def sat_id(self):
+        return self.ID
 
     def state_update_step(self,new_time_dt):
         """ update the state of the satellite using the new time"""
@@ -142,7 +146,6 @@ class SimGroundStation(SimAgent):
         self.gs_network = gs_network
 
         super().__init__()
-
 
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""

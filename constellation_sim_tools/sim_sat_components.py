@@ -17,8 +17,7 @@ from collections import namedtuple
 from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
-from circinus_tools.other_tools import index_from_key
-from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB,DataStore
+from .sim_agent_components import Executive,PlannerScheduler,StateRecorder,PlanningInfoDB,DataStore
 from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
 from .schedule_tools  import synthesize_executable_acts
 
@@ -273,157 +272,15 @@ class SatScheduleArbiter(PlannerScheduler):
         return self._schedule_cache
 
 
-class SatExecutive:
+class SatExecutive(Executive):
     """Handles execution of scheduled activities, with the final on whether or not to adhere exactly to schedule or make changes necessitated by most recent state estimates """
 
     def __init__(self,sim_sat,sim_start_dt,dv_epsilon=0.01):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
-        #  scheduled activities list- a sorted list of the activities for satellite to perform ( obtained from schedule arbiter)
-        #  these are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
-        self.scheduled_exec_acts = []
+        super().__init__(sim_sat,sim_start_dt,dv_epsilon)
 
-        # these keep track of which activity we are currently executing. The windox index (windex)  is the location within the scheduled activities list
-        self._curr_exec_acts = []
-        self._last_exec_act_windex = None
-
-        #  maintains a record of of whether or not the current activity is canceled ( say, due to an off nominal condition)
-        self._cancelled_acts = set()
-
-        # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
-        self._curr_time_dt = sim_start_dt
-        self._last_time_dt = sim_start_dt
-        #  keeps track of up to what time activities have been executed ( used as a check for timing)
-        self._last_act_execution_time_dt = sim_start_dt
-
-        # holds ref to SatStateSimulator
-        self.state_sim = None
-        # holds ref to SatScheduleArbiter
-        self.arbiter = None
-        # holds ref to SatStateRecorder
-        self.state_recorder = None
-
-        # keeps track of which data container (data packet) we're on
-        self.curr_dc_indx = 0
-
-        #  holds data structures that keep track of execution context for a given activity.  these are all of the data structures that keep track of what has been accomplished in the course of executing a given activity
-        self._execution_context_by_exec_act = {}
-
-        #  whether or not we're on the first step of the simulation
-        self._first_step = True 
-
-        # the "effectively zero" data volume number
-        self.dv_epsilon = dv_epsilon # Mb
-
-    def _pull_schedule(self):
-
-        scheduled_exec_acts_copy = self.scheduled_exec_acts
-
-        # if schedule updates are available, blow away what we had previously (assumption is that arbiter handles changes to schedule gracefully)
-        if self.arbiter.schedule_updated:
-            self.scheduled_exec_acts = self.arbiter.get_scheduled_executable_acts()
-        else:
-            return
-
-        # if we updated the schedule, need to deal with the consequences
-
-        # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
-        if len(self._curr_exec_acts) > 0:
-            # store most recent (by executable_start) exec act seen. 
-            latest_exec_act = scheduled_exec_acts_copy[self._last_exec_act_windex]
-            assert(latest_exec_act in self._curr_exec_acts)
-
-            try:
-                # search for current act in the scheduled acts
-                # curr_act_indx = index_from_key(self.scheduled_exec_acts,key= ea: ea.act,value=latest_exec_act.act)
-                # note that this searches by the activity window itself (the hash of the exec act)
-                curr_act_indx = self.scheduled_exec_acts.index(latest_exec_act)
-            except ValueError:
-                # todo: add cleanup?
-                # - what does it mean if current act is not in new sched? cancel current act?
-                raise RuntimeWarning("Couldn't find activity in new schedule: %s"%(self._curr_exec_act.act))
-
-            #  test if the routing plans for the current activity being executed have changed, we need to do something about that
-            updated_exec_act = self.scheduled_exec_acts[curr_act_indx]
-            if not latest_exec_act.plans_match(updated_exec_act):
-                raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
-
-            self._last_exec_act_windex = curr_act_indx
-
-        # if there are activities in the schedule and we're not currently executing anything, then assume for the moment we're starting from beginning of it (actual index will be resolved in update step)
-        elif len(self.scheduled_exec_acts) > 0:
-            self._last_exec_act_windex = 0
-
-        # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
-        else:
-            # todo: no act, so what is index? Is the below correct?
-            self._last_exec_act_windex = None
-
-    @staticmethod
-    def executable_time_accessor(exec_act,time_prop):
-        if time_prop == 'start':
-            return exec_act.act.executable_start
-        elif time_prop == 'end':
-            return exec_act.act.executable_end
-        else:
-            raise NotImplementedError
-
-    def update(self,new_time_dt):
-        """ Update state of the executive """
-
-        # If first step, check the time (first step time should be the sim start time)
-        if self._first_step:
-            if new_time_dt != self._curr_time_dt:
-                raise RuntimeWarning('Saw wrong initial time')
-
-        #  if we haven't yet executed the current activities, then we should not be updating activity choices
-        if not new_time_dt == self._last_act_execution_time_dt:
-            raise RuntimeWarning('Trying to update the executive before executing current activities')
-
-        ##############################
-        # determine next activity
-
-        # update schedule if need be
-        self._pull_schedule()
-
-        # figure out current activity, index of that act in schedule (note this could return None)
-        next_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_exec_act_windex,self.scheduled_exec_acts,self.executable_time_accessor)
-        self._last_exec_act_windex = exec_act_windices[1]
-
-        # sanity check that state sim has advanced to next timestep (new_time_dt) already
-        assert(self.state_sim._curr_time_dt == new_time_dt)
-        # if satellite state is not nominal at next timestep (new_time_dt), then that means the activities we are currently executing ( at current time step, self._curr_time_dt) have pushed our state over the edge. for that reason, we should not perform any activities at the next time step
-        #  note that once we have canceled an activity, it stays canceled
-        if not self.state_sim.nominal_state_check():
-            for exec_act in next_exec_acts:
-                self._cancelled_acts.add(exec_act)
-            #  in this case, remove all of the next acts
-            next_exec_acts = []
-
-
-        # handle execution context setup/takedown
-        
-        added_exec_acts = set(next_exec_acts) - set(self._curr_exec_acts)
-        removed_exec_acts = set(self._curr_exec_acts) - set(next_exec_acts)
-
-        # Deal with any activities that have stopped
-        for exec_act in removed_exec_acts:
-            self._cleanup_act_execution_context(exec_act,new_time_dt)
-
-        #  set up execution context for any activities that are just beginning
-        #  note that we want to clean up before we initialize, because during initialization data structures are set up that may be dependent on an activity that ends in the time step for this new one. If at some point in the future we want to allow two ongoing activities to handle the same data (i.e. second activity grabs data from a first activity while the first is still ongoing), this initialization and cleanup approach will have to be changed. for the time being though, we assume that activities that execute at the same time handle mutually exclusive data
-        for exec_act in added_exec_acts:
-            self._initialize_act_execution_context(exec_act,new_time_dt)
-
-        self._curr_exec_acts = next_exec_acts        
-
-        self._last_time_dt = self._curr_time_dt
-        self._curr_time_dt = new_time_dt
-
-        # mark no longer first step
-        if self._first_step:
-            self._first_step = False
 
     def execute_acts(self,new_time_dt):
         """ execute current activities that the update step has chosen """
@@ -441,29 +298,14 @@ class SatExecutive:
                 self._execute_act(exec_act,new_time_dt)
 
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
+        """ sets up context dictionary for activity execution on the satellite"""
+
+        curr_exec_context = super()._initialize_act_execution_context(exec_act,new_time_dt)
+
         act = exec_act.act
 
-        if exec_act in self._execution_context_by_exec_act.keys():
-            raise RuntimeWarning('trying to re-initialize context for an executive act')
-
-        self._execution_context_by_exec_act[exec_act] = {}
-
-        curr_exec_context = self._execution_context_by_exec_act[exec_act]
-        curr_exec_context['act'] = exec_act.act
-
-        # note that if we want to allow activities to begin at a time different from their actual start, need to update code here
-        #  the start time seen for this activity - new_time_dt is the time when the executive notices that we start executing the activity, but we want that account for the fact that the act can start in between timesteps for the executive
-        curr_exec_context['start_dt'] = min(exec_act.act.executable_start,new_time_dt)
-
-        # assume for now act ends at the expected end
-        curr_exec_context['end_dt'] = exec_act.act.executable_end
-
-        #  received data containers (packets) for this activity
-        curr_exec_context['rx_data_conts'] = []
-        #  transmitted data containers (packets) for this activity
+        #  transmitted data containers (packets) for this activity ( if transmitting)
         curr_exec_context['tx_data_conts'] = []
-        #  total amount of data volume used for this activity
-        curr_exec_context['dv_used'] = 0
 
         #  get a lookup table of data containers to send for each route container, given that we are transmitting
         curr_exec_context['executable_tx_data_conts_by_rt_cont'] = None
@@ -479,8 +321,12 @@ class SatExecutive:
             )
             curr_exec_context['executable_tx_data_conts_by_rt_cont'] = exec_tx_dcs
 
-        if type(act) is XlnkWindow:
-            curr_exec_context['curr_xlnk_txsat_data_cont'] = None
+        #  for receiving, we should keep track of which data container the transmitting satellite last sent
+        if type(act) is XlnkWindow and not is_tx:
+            curr_exec_context['curr_txsat_data_cont'] = None
+
+        #  returning this not because it's expected to be used, but to be consistent with superclass
+        return curr_exec_context
 
     def _cleanup_act_execution_context(self,exec_act,new_time_dt):
 
@@ -489,18 +335,7 @@ class SatExecutive:
         # flag any empty data conts that we transmitted for removal
         self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'])
 
-        #  set the executed properties for the activity
-        #  note that we will actually set these twice for cross-links ( TX and RX sat), but that's okay
-
-        curr_act_wind = curr_exec_context['act']
-
-        #  this function is called when we choose to stop the activity. if we stop before the actual end of the activity, then we need to record that new end time.  for now we assume that the activity ends at the new time (as opposed to self._curr_time_dt), because the state simulator update step runs before the executive update step, and has already propagated state to new_time_dt assuming the activity executes until then. See SatStateSimulator.update().  if the state simulator is not run before the executive, this will need to be changed
-        curr_exec_context['end_dt'] = new_time_dt
-        curr_act_wind.set_executed_properties(curr_exec_context['start_dt'],curr_exec_context['end_dt'],curr_exec_context['dv_used'])
-        self.state_recorder.add_act_hist(curr_act_wind)
-        
-        # delete the current exec context, for safety
-        self._execution_context_by_exec_act[exec_act] = None
+        super()._cleanup_act_execution_context(exec_act,new_time_dt)
 
     @staticmethod
     def get_tx_executable_routing_objs(act,sat_indx,rt_conts,data_conts,dv_epsilon):
@@ -545,32 +380,10 @@ class SatExecutive:
 
         return executable_data_conts_by_rt_cont
 
-    @staticmethod
-    def find_act_start_end_times(act_start_dt,act_end_dt,last_time_dt,curr_time_dt,next_time_dt):
-        """ find the start and end time to use during this time step, accounting for activity start and end bound boundary conditions"""
-
-        #  in order to allow relatively large time steps (to save computation time), we need to consider if the start/end of an activity falls between time steps for the executive
-
-        # deal with the fact that the start might not fall exactly on a timepoint. If the start occurred between last time and current time, pick that instead of the current time
-        assert(act_start_dt <= curr_time_dt)
-        if act_start_dt > last_time_dt:
-            ts_start_dt = act_start_dt
-        else:
-            ts_start_dt = curr_time_dt
-
-        assert(act_end_dt >= curr_time_dt)
-        #  deal with the fact that the end might not fall exactly on time point. if the end comes before the new time, use the end time
-        if act_end_dt <= next_time_dt:
-            #  we check the executable end here
-            ts_end_dt = act_end_dt
-        else:
-            ts_end_dt = next_time_dt
-
-        return ts_start_dt, ts_end_dt
-
-
 
     def _execute_act(self,exec_act,new_time_dt):
+        """ Execute the executable activity input, taking any actions that this satellite is responsible for initiating """
+
         #  this execution code assumes constant average data rate for every activity, which is not necessarily true. In general this should be all right because the planner schedules from the center of every activity, but in future this code should probably be adapted to use the actual data rate at a given time
 
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
@@ -660,6 +473,40 @@ class SatExecutive:
 
         elif type(curr_act_wind) == DlnkWindow:
             pass
+            # gs_indx = curr_act_wind.gs_indx
+            # gs_exec = self.sim_sat.get_gs_from_indx(gs_indx).get_exec()
+
+            # # note that sat is always transmitting, if it's a downlink. So sat has responsibility to start the data transfer transaction
+            # tx_delta_dv = delta_dv
+
+            # # while we still have delta dv to transmit
+            # while tx_delta_dv > self.dv_epsilon:
+            
+            #     # figure out data cont, amount of data to transmit
+            #     tx_dc, dv_to_send = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+
+            #     # send data to receiving satellite
+            #     #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
+            #     dv_txed,tx_success = gs_exec.dlnk_receive_poll(ts_start_dt,ts_end_dt,new_time_dt,curr_act_wind,self.sim_sat.sat_indx,tx_dc,dv_to_send)
+
+            #     #  if there was a successful reception of the data,
+            #     if tx_success:
+            #         tx_dc.remove_dv(dv_txed)
+            #         if not tx_dc in curr_exec_context['tx_data_conts']:
+            #             curr_exec_context['tx_data_conts'].append(tx_dc)
+
+            #     #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
+            #     else:
+            #         # todo: added this temporarily for debugging purposes -  remove once functionality verified!
+            #         raise RuntimeWarning('saw failure to receive')
+            #         break
+
+            #     tx_delta_dv -= dv_txed
+
+            #     curr_exec_context['dv_used'] += dv_txed
+
+            #     #  because  we are transmitting, we are losing data volume
+            #     executed_delta_dv -= dv_txed
 
         #  otherwise, we don't know what to do with this activity type
         else:
@@ -699,7 +546,7 @@ class SatExecutive:
         return exec_dc_choice.data_cont,dv_to_send
 
 
-    def xlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,xsat_indx,txsat_data_cont,proposed_dv):
+    def xlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):
         """Called by a transmitting satellite to see if we can receive data and if yes, handles the received data
         
         [description]
@@ -727,100 +574,11 @@ class SatExecutive:
         if not type(proposed_act) == XlnkWindow:
             raise RuntimeWarning('saw a non-xlnk window')
 
-        #  if this satellite is not actually executing the activity, then it can't receive data
-        # note that both satellites have to be referring to the same activity 
-        if not proposed_act in [exec_act.act for exec_act in self._curr_exec_acts]:
-            received_dv = 0
-            rx_success = False
-            return received_dv,rx_success
-
         #  sanity check that we're actually a receiver during this activity
         if not proposed_act.is_rx(self.sim_sat.sat_indx):
             raise RuntimeWarning('cross-link attempt with non-receiver satellite')
             
-        #############
-        # Figure out time window for reception execution, determine how much data can be received
-
-        # get this sat's version of the executable activity
-        self_exec_act = self._curr_exec_acts[index_from_key(self._curr_exec_acts,key=lambda ea:ea.act,value=proposed_act)]
-        curr_exec_context = self._execution_context_by_exec_act[self_exec_act]
-
-        act_start_dt = curr_exec_context['start_dt']
-        act_end_dt = curr_exec_context['end_dt'] 
-        rx_ts_start_dt, rx_ts_end_dt = self.find_act_start_end_times(act_start_dt, act_end_dt, self._last_time_dt, self._curr_time_dt,new_time_dt)
-
-        ts_start_dt = max(tx_ts_start_dt,rx_ts_start_dt)
-        ts_end_dt = min(tx_ts_end_dt,rx_ts_end_dt)
-
-        #  if this is not true, that means the two time periods for the satellites are not overlapping, and the executives likely have different current times. that should not be allowed in the simulation. Note that will assume they are both using the same time step and so the transmitting satellite that is polling this satellite integrates its data rate over the same amount of time
-        if not ts_end_dt >= ts_start_dt:
-            raise RuntimeWarning('time mismatch between satellites')
-
-        rx_delta_dv = proposed_act.ave_data_rate * (ts_end_dt-ts_start_dt).total_seconds()
-
-        #  reduce this number by any restrictions due to data volume storage availability
-        #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
-        rx_delta_dv = min(rx_delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
-
-        received_dv = min(proposed_dv,rx_delta_dv)
-
-
-        # todo: need to add planning info exchange too
-        # todo: need to add recording of tlm, cmd update
-
-        #  if we're not able to receive data, then return immediately
-        if received_dv < self.dv_epsilon:
-            rx_success = False
-            return received_dv,rx_success
-
-        #############
-        # Store the incoming data in the appropriate place
-
-        #  check if the transmitted data container has changed or not
-        tx_data_cont_changed = False
-        if not txsat_data_cont == curr_exec_context['curr_xlnk_txsat_data_cont']:
-            curr_exec_context['curr_xlnk_txsat_data_cont'] = txsat_data_cont
-            tx_data_cont_changed = True
-
-        #  ingest the data received into the appropriate destination
-        self.curr_dc_indx = self.ingest_rx_data(
-            curr_exec_context['rx_data_conts'],
-            proposed_act,
-            txsat_data_cont,
-            received_dv,
-            self.sim_sat.sat_id,
-            xsat_indx,
-            self.curr_dc_indx,
-            tx_data_cont_changed
-        )
-
-
-        #  Mark the data volume received
-        curr_exec_context['dv_used'] += received_dv
-
-        #  factor this executed Delta into the total data volume Delta for this time step
-        self.state_sim.add_to_data_storage(received_dv,curr_exec_context['rx_data_conts'],self._curr_time_dt)
-
-        return received_dv,True
-
-    @staticmethod
-    def ingest_rx_data(rx_data_conts_list,act,txsat_data_cont,received_dv,rx_id,tx_sat_indx,dc_indx,tx_data_cont_changed):
-        """Ingest received data, and do the process of putting that data into its proper data container destination"""
-
-        #  if we've already been receiving data from this transmitted data container, then we should still receive into the same reception data container
-        if not tx_data_cont_changed:
-            rx_dc = rx_data_conts_list[-1]
-        #  if the transmitted data container has changed, then we can make a new reception data container
-        else:
-            new_rx_dc = txsat_data_cont.fork(rx_id,new_dc_indx=dc_indx)
-            dc_indx += 1
-            new_rx_dc.add_to_route(act,tx_sat_indx)
-            rx_data_conts_list.append(new_rx_dc)
-            rx_dc = new_rx_dc
-
-        rx_dc.add_dv(received_dv)
-
-        return dc_indx
+        return self.receive_poll(tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv)
 
     def get_acts_at_time(self,time_dt):
 
