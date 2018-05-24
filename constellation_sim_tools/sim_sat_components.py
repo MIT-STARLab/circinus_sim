@@ -904,7 +904,7 @@ class SatStateRecorder(StateRecorder):
         d = []
         for pt in self.DS_state_hist:
             t.append(pt[0]/60.0) # converted to minutes
-            d.append(pt[1]/1000.0) # converted to Gb
+            d.append(pt[1]) # converted to Gb
 
         return t,d
 
