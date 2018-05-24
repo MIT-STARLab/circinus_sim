@@ -7,6 +7,8 @@ from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .sim_plotting import SimPlotting
 
+from circinus_tools import debug_tools
+
 def print_verbose(string,verbose=False):
     if verbose:
         print(string)
@@ -173,11 +175,18 @@ class ConstellationSim:
                     self.pickle_checkpoint(global_time, self.gs_network, self.sats_by_id)
                     last_checkpoint_time = global_time
 
+
+            #####################
+            # Activity execution
+
+            #  execute activities at this time step before updating state to the next time step
+
+            for sat in self.sats_by_id.values():
+                sat.execution_step(global_time)
+
+
             #####################
             # State update
-
-            # todo
-            # add tracking, plotting of sat state
 
             #  run ground network update step so that we can immediately share plans on first iteration of this loop
             self.gs_network.state_update_step(global_time)
@@ -192,14 +201,8 @@ class ConstellationSim:
                 sat.state_update_step(global_time)
 
 
-            #####################
-            # Activity execution
 
-            # todo: add back in!
-            # for sat in self.sats_by_id.values():
-            #     sat.execution_step()
-
-            # todo: this is a testing hack.  remove! ( don't cross levels of abstraction like this either!)
+            # todo: this is a testing HACK.  remove! ( don't cross levels of abstraction like this either!)
             if self.gs_network.scheduler.plans_updated:
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)

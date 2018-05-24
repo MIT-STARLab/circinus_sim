@@ -1,6 +1,8 @@
 from circinus_tools.plotting import plot_tools as pltl
 from circinus_tools  import io_tools
 
+from circinus_tools import debug_tools
+
 class SimPlotting():
     def __init__(self,sim_params):
 
@@ -122,6 +124,8 @@ class SimPlotting():
         start_getter_reg,end_getter_reg = self.get_time_getters()
         plot_params['start_getter_reg'] = start_getter_reg
         plot_params['end_getter_reg'] = end_getter_reg
+
+
 
         pltl.plot_all_sats_acts(
             sats_ids_list,

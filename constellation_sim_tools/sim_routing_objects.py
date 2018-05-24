@@ -1,3 +1,4 @@
+from copy import copy
 
 from circinus_tools.scheduling.custom_window import ObsWindow
 from circinus_tools.scheduling.routing_objects import DataRoute, RoutingObjectID
@@ -49,9 +50,11 @@ class SimDataContainer:
     def add_to_route(self,wind,window_start_sat_indx):
         self.dr.append_wind_to_route(wind, window_start_sat_indx)
 
-    def fork(self,new_sat_id,new_dc_indx):
+    def fork(self,new_sat_id,new_dc_indx,dv=0):
         newone = SimDataContainer(new_sat_id, None, new_dc_indx, copy(self.dr))
+        newone.dr.data_vol = dv
         newone.add_to_id_hist(self.ID)
+        return newone
 
 class ExecutableDataContainer:
     def __init__(self,data_cont,remaining_dv):

@@ -100,6 +100,9 @@ class SimSatellite(SimAgent):
 
         self._curr_time_dt = new_time_dt
 
+    def execution_step(self,new_time_dt):
+        self.exec.execute_acts(new_time_dt)
+
     def get_sat_from_indx(self,sat_indx):
         return self.all_sim_sats[sat_indx]
 
