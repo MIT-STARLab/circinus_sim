@@ -6,8 +6,8 @@ from collections import namedtuple
 from datetime import timedelta
 
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
-from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
 from .sim_agent_components import PlannerScheduler,StateRecorder
+from .schedule_tools  import synthesize_executable_acts
 
 from circinus_tools import debug_tools
 

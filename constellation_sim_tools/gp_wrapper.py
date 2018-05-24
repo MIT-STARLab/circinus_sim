@@ -9,7 +9,7 @@ from copy import copy
 import pickle
 from datetime import datetime,timedelta
 
-from circinus_tools.scheduling.routing_objects import SimRouteContainer
+from .sim_routing_objects import SimRouteContainer
 
 # from circinus_tools.scheduling.routing_objects import 
 

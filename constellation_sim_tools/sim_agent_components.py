@@ -6,7 +6,7 @@ from collections import namedtuple
 
 from circinus_tools import io_tools
 from circinus_tools.sat_state_tools import propagate_sat_ES
-from circinus_tools.scheduling.schedule_tools  import synthesize_executable_acts
+from .schedule_tools  import synthesize_executable_acts
 
 class PlannerScheduler:
     """ superclass for planning/scheduling elements running on ground and satellites"""
