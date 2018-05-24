@@ -9,6 +9,8 @@ from .sim_plotting import SimPlotting
 
 from circinus_tools import debug_tools
 
+# debug_tools.debug_breakpt()
+
 def print_verbose(string,verbose=False):
     if verbose:
         print(string)
@@ -240,8 +242,6 @@ class ConstellationSim:
 
         #  get scheduled activities as planned by ground network
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_act_hists()
-
-        debug_tools.debug_breakpt()
 
         #  plot scheduled and executed activities
         self.sim_plotter.sim_plot_all_sats_acts(

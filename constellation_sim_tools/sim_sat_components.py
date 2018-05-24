@@ -138,9 +138,6 @@ class SatStateSimulator:
             raise RuntimeWarning('ES_state went below 0 for sat %s'%(self))
 
 
-        # todo: add in DS stuff?
-
-
         self._curr_time_dt = new_time_dt
 
         ##############################
@@ -374,8 +371,6 @@ class SatExecutive:
 
     def update(self,new_time_dt):
         """ Update state of the executive """
-        #  todo: should add handling in here for executing multiple activities at one time
-        #  todo: this code should probably be moved around a bit at the same time, to make it more straightforward
 
         # If first step, check the time (first step time should be the sim start time)
         if self._first_step:
@@ -455,8 +450,6 @@ class SatExecutive:
 
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
         curr_exec_context['act'] = exec_act.act
-
-        #  using the dictionary here both to keep the number of attributes for self down, and to make extension to multiple current execution acts not terrible todo (hehe, sneaky todo there)
 
         # note that if we want to allow activities to begin at a time different from their actual start, need to update code here
         #  the start time seen for this activity - new_time_dt is the time when the executive notices that we start executing the activity, but we want that account for the fact that the act can start in between timesteps for the executive
@@ -578,7 +571,6 @@ class SatExecutive:
 
 
     def _execute_act(self,exec_act,new_time_dt):
-        # todo: add support for temporally overlapping activities?
         #  this execution code assumes constant average data rate for every activity, which is not necessarily true. In general this should be all right because the planner schedules from the center of every activity, but in future this code should probably be adapted to use the actual data rate at a given time
 
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
@@ -620,9 +612,6 @@ class SatExecutive:
             else:
                 curr_data_cont = curr_exec_context['rx_data_conts'][-1]
 
-            # delta_dv = curr_act_wind.ave_data_rate * delta_t_s
-            # todo add delta dv to DS state
-
             curr_data_cont.add_dv(delta_dv)
             curr_exec_context['dv_used'] += delta_dv
             executed_delta_dv += delta_dv
@@ -653,7 +642,6 @@ class SatExecutive:
                     #  if there was a successful reception of the data,
                     if tx_success:
                         tx_dc.remove_dv(dv_txed)
-                        # todo subtract delta dv from DS state
                         if not tx_dc in curr_exec_context['tx_data_conts']:
                             curr_exec_context['tx_data_conts'].append(tx_dc)
 
@@ -779,9 +767,6 @@ class SatExecutive:
 
         # todo: need to add planning info exchange too
         # todo: need to add recording of tlm, cmd update
-        # todo: check that DS buffer not too full
-        # todo add delta dv to DS state
-        # todo: add checking of how much dv we can receive based on DS state. The rest of the code should only happen if received dv still > 0
 
         #  if we're not able to receive data, then return immediately
         if received_dv < self.dv_epsilon:
