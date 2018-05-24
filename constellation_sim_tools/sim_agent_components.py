@@ -38,10 +38,8 @@ class DataStore:
         """Add data containers (packets) to the data store"""
 
         for dc in data_conts:
-            if dc in self.data_conts_by_id.keys():
-                raise RuntimeWarning('Data container already exists within data store (%s)'%(dc))
-
-            self.data_conts_by_id[dc.ID] = dc
+            # only add if it's not present yet
+            self.data_conts_by_id.setdefault(dc.ID,dc)
 
     def cleanup(self,data_conts,dv_epsilon = 0.001):
         """ remove any data containers that have effectively zero data volume"""
@@ -59,6 +57,10 @@ class DataStore:
     def get_curr_data_conts(self):
         """ get the data containers currently in the database"""
         return list(self.data_conts_by_id.values())
+
+    def get_total_dv(self):
+        """Get the total amount of data volume stored currently"""
+        return sum(dc.data_vol for dc in self.data_conts_by_id.values())
 
 
 #  record of satellite state. update_dt is the date time at which this state was valid.

@@ -18,7 +18,7 @@ from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from circinus_tools.other_tools import index_from_key
-from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB
+from .sim_agent_components import PlannerScheduler,StateRecorder,PlanningInfoDB,DataStore
 from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
 from .schedule_tools  import synthesize_executable_acts
 
@@ -27,7 +27,7 @@ from circinus_tools import debug_tools
 class SatStateSimulator:
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
 
-    def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state):
+    def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,dv_epsilon=0.01):
         #  should probably add more robust physical units checking
 
         # holds ref to the containing sim sat
@@ -71,6 +71,12 @@ class SatStateSimulator:
         self.sat_exec = None
         # holds ref to SatStateRecorder
         self.state_recorder = None
+        # holds ref to SatDataStore
+        # note that we include the data_store in the simulator because we may want, in future, to simulate data corruptions or various other time dependent phenomena in the data store. So, we wrap it within this sim layer. Also it's convenient to be able to store DS_state here alongside ES_state
+        self.data_store = DataStore()
+
+        # the "effectively zero" data volume number
+        self.dv_epsilon = dv_epsilon # Mb
 
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
@@ -167,13 +173,19 @@ class SatStateSimulator:
         if not time_dt == self._curr_time_dt:
             raise RuntimeWarning('Attempting to get available data volume from state sim off-timestep')
 
+        # sanity check to make sure we are recording the same amount of dv as is actually in the data store
+        assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
+
         return self.DS_max - self.DS_state
 
-    def add_to_data_storage(self,delta_dv,time_dt):
+    def add_to_data_storage(self,delta_dv,data_conts,time_dt):
         """ add an amount of data volume to data storage state"""
 
         if not time_dt == self._curr_time_dt:
             raise RuntimeWarning('Attempting to add data volume to state sim off-timestep')
+
+        # add any data containers that the data store doesn't know about yet
+        self.data_store.add(data_conts)
 
         new_DS_state = self.DS_state + delta_dv
 
@@ -184,6 +196,15 @@ class SatStateSimulator:
 
         self.DS_state = new_DS_state
 
+        # sanity check to make sure we are recording the same amount of dv as is actually in the data store
+        assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
+
+
+    def get_curr_data_conts(self):
+        return self.data_store.get_curr_data_conts()
+
+    def cleanup_data_conts(self,data_conts):
+        self.data_store.cleanup(data_conts)
 
 
 class SatScheduleArbiter(PlannerScheduler):
@@ -258,7 +279,7 @@ class SatScheduleArbiter(PlannerScheduler):
 class SatExecutive:
     """Handles execution of scheduled activities, with the final on whether or not to adhere exactly to schedule or make changes necessitated by most recent state estimates """
 
-    def __init__(self,sim_sat,sim_start_dt):
+    def __init__(self,sim_sat,sim_start_dt,dv_epsilon=0.01):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
@@ -279,17 +300,12 @@ class SatExecutive:
         #  keeps track of up to what time activities have been executed ( used as a check for timing)
         self._last_act_execution_time_dt = sim_start_dt
 
-        #  this keeps track of, across all executed activities how much data volume is added to (subtracted from) data storage
-        self._curr_timestep_delta_dv = 0
-
         # holds ref to SatStateSimulator
-        self.sat_state_sim = None
+        self.state_sim = None
         # holds ref to SatScheduleArbiter
-        self.sat_arbiter = None
+        self.arbiter = None
         # holds ref to SatStateRecorder
         self.state_recorder = None
-        # holds ref to SatDataStore
-        self.data_store = None
 
         # keeps track of which data container (data packet) we're on
         self.curr_dc_indx = 0
@@ -301,15 +317,15 @@ class SatExecutive:
         self._first_step = True 
 
         # the "effectively zero" data volume number
-        self.dv_epsilon = 0.1 # Mb
+        self.dv_epsilon = dv_epsilon # Mb
 
     def _pull_schedule(self):
 
         scheduled_exec_acts_copy = self.scheduled_exec_acts
 
         # if schedule updates are available, blow away what we had previously (assumption is that arbiter handles changes to schedule gracefully)
-        if self.sat_arbiter.schedule_updated:
-            self.scheduled_exec_acts = self.sat_arbiter.get_scheduled_executable_acts()
+        if self.arbiter.schedule_updated:
+            self.scheduled_exec_acts = self.arbiter.get_scheduled_executable_acts()
         else:
             return
 
@@ -381,10 +397,10 @@ class SatExecutive:
         self._last_exec_act_windex = exec_act_windices[1]
 
         # sanity check that state sim has advanced to next timestep (new_time_dt) already
-        assert(self.sat_state_sim._curr_time_dt == new_time_dt)
+        assert(self.state_sim._curr_time_dt == new_time_dt)
         # if satellite state is not nominal at next timestep (new_time_dt), then that means the activities we are currently executing ( at current time step, self._curr_time_dt) have pushed our state over the edge. for that reason, we should not perform any activities at the next time step
         #  note that once we have canceled an activity, it stays canceled
-        if not self.sat_state_sim.nominal_state_check():
+        if not self.state_sim.nominal_state_check():
             for exec_act in next_exec_acts:
                 self._cancelled_acts.add(exec_act)
             #  in this case, remove all of the next acts
@@ -405,10 +421,6 @@ class SatExecutive:
         for exec_act in added_exec_acts:
             self._initialize_act_execution_context(exec_act,new_time_dt)
 
-        #  tell the state simulator how much data volume we have added in executing our current activities
-        self.sat_state_sim.add_to_data_storage(self._curr_timestep_delta_dv,new_time_dt)
-        self._curr_timestep_delta_dv = 0
-
         self._curr_exec_acts = next_exec_acts        
 
         self._last_time_dt = self._curr_time_dt
@@ -417,19 +429,6 @@ class SatExecutive:
         # mark no longer first step
         if self._first_step:
             self._first_step = False
-
-    def _get_curr_dv_storage_availability(self):
-        """ get how much data volume is available to be added to storage"""
-        #  how much is available in storage
-        ds_avail_a_priori = self.sat_state_sim.get_available_data_storage(self._curr_time_dt)
-
-        #  subtract out the current usage that has been spoken for in this execution step of the executive
-        ds_avail_with_acts = ds_avail_a_priori - self._curr_timestep_delta_dv
-
-        #  this should always be positive!
-        assert(ds_avail_with_acts >= 0)
-
-        return ds_avail_with_acts
 
     def execute_acts(self,new_time_dt):
         """ execute current activities that the update step has chosen """
@@ -482,7 +481,7 @@ class SatExecutive:
                 act,
                 self.sim_sat.sat_indx,
                 exec_act.rt_conts,
-                self.data_store.get_curr_data_conts(),
+                self.state_sim.get_curr_data_conts(),
                 self.dv_epsilon
             )
             curr_exec_context['executable_tx_data_conts_by_rt_cont'] = exec_tx_dcs
@@ -494,9 +493,8 @@ class SatExecutive:
 
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
 
-        #  add/remove any updated data containers
-        self.data_store.add(curr_exec_context['rx_data_conts'])
-        self.data_store.cleanup(curr_exec_context['tx_data_conts'])
+        # flag any empty data conts that we transmitted for removal
+        self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'])
 
         #  set the executed properties for the activity
         #  note that we will actually set these twice for cross-links ( TX and RX sat), but that's okay
@@ -602,7 +600,7 @@ class SatExecutive:
 
         #  reduce this number by any restrictions due to data volume storage availability
         #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
-        delta_dv = min(delta_dv,self._get_curr_dv_storage_availability())
+        delta_dv = min(delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
 
         #  the data volume that actually gets collected or lost
         executed_delta_dv = 0
@@ -679,8 +677,8 @@ class SatExecutive:
         else:
             raise NotImplementedError
 
-        #  factor this executed Delta into the total data volume Delta for this time step
-        self._curr_timestep_delta_dv += executed_delta_dv
+        all_data_conts = curr_exec_context['tx_data_conts'] + curr_exec_context['rx_data_conts']
+        self.state_sim.add_to_data_storage(executed_delta_dv,all_data_conts,self._curr_time_dt)
 
 
     @staticmethod
@@ -772,6 +770,10 @@ class SatExecutive:
 
         rx_delta_dv = proposed_act.ave_data_rate * (ts_end_dt-ts_start_dt).total_seconds()
 
+        #  reduce this number by any restrictions due to data volume storage availability
+        #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
+        rx_delta_dv = min(rx_delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
+
         received_dv = min(proposed_dv,rx_delta_dv)
 
 
@@ -812,7 +814,7 @@ class SatExecutive:
         curr_exec_context['dv_used'] += received_dv
 
         #  factor this executed Delta into the total data volume Delta for this time step
-        self._curr_timestep_delta_dv += received_dv
+        self.state_sim.add_to_data_storage(received_dv,curr_exec_context['rx_data_conts'],self._curr_time_dt)
 
         return received_dv,True
 

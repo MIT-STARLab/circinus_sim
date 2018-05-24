@@ -73,15 +73,13 @@ class SimSatellite(SimAgent):
         self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt)
         self.exec = SatExecutive(self,sim_start_dt)
         self.state_recorder = SatStateRecorder(sim_start_dt,sim_satellite_params['state_recorder'])
-        self.data_store = DataStore()
 
         # adds references between sat sim objects
         self.state_sim.sat_exec = self.exec
         self.state_sim.state_recorder = self.state_recorder
-        self.exec.sat_state_sim = self.state_sim
-        self.exec.sat_arbiter = self.arbiter
+        self.exec.state_sim = self.state_sim
+        self.exec.arbiter = self.arbiter
         self.exec.state_recorder = self.state_recorder
-        self.exec.data_store = self.data_store
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
