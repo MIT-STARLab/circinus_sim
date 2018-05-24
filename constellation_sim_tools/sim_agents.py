@@ -127,7 +127,7 @@ class SimSatellite(SimAgent):
     def get_ES_hist(self):
         return self.state_recorder.get_ES_hist()
     def get_DS_hist(self):
-        return self.state_recorder.DS_state_hist
+        return self.state_recorder.get_DS_hist()
 
 class SimGroundStation(SimAgent):
     """class for simulation ground stations"""

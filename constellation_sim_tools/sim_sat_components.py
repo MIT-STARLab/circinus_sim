@@ -28,8 +28,26 @@ class SatStateSimulator:
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
 
     def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state):
+        #  should probably add more robust physical units checking
+
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
+
+        ################
+        #  Data storage stuff
+
+        #  note that data generated is not really simulated here; the state simulator just provides a coherent API for storage ( the executive handles data generation)
+
+        #  data storage is assumed to be in Mb
+        #  assume we start out with zero data stored on board
+        self.DS_state = 0
+        storage_opt = sat_data_storage_params['storage_option']
+        self.DS_max = sat_data_storage_params['data_storage_Gbit']['d_max'][storage_opt] * 1000  # convert to megabits
+        # note:  assuming no minimum data storage limit - it's just 0!
+        self.DS_min = 0
+
+        ################
+        #  energy storage stuff
 
         self.ES_state = sat_initial_state['batt_e_Wh']
 
@@ -123,6 +141,8 @@ class SatStateSimulator:
         # update state recorder
     
         self.state_recorder.add_ES_hist(self._curr_time_dt,self.ES_state)
+        self.state_recorder.add_DS_hist(self._curr_time_dt,self.DS_state)
+
         # todo: add whatever else needed
 
     def nominal_state_check(self):
@@ -142,6 +162,28 @@ class SatStateSimulator:
 
         if len(curr_ecl_winds) == 1:
             return True
+
+    def get_available_data_storage(self,time_dt):
+        if not time_dt == self._curr_time_dt:
+            raise RuntimeWarning('Attempting to get available data volume from state sim off-timestep')
+
+        return self.DS_max - self.DS_state
+
+    def add_to_data_storage(self,delta_dv,time_dt):
+        """ add an amount of data volume to data storage state"""
+
+        if not time_dt == self._curr_time_dt:
+            raise RuntimeWarning('Attempting to add data volume to state sim off-timestep')
+
+        new_DS_state = self.DS_state + delta_dv
+
+        if new_DS_state > self.DS_max:
+            raise RuntimeWarning('Attempting to add more to data storage than than is available. Current DS state: %f, delta dv %f, DS  max: %f'%(self.DS_state,delta_dv,self.DS_max))
+        if new_DS_state < self.DS_min:
+            raise RuntimeWarning('Attempting to go below minimum data storage limit. Current DS state: %f, delta dv %f, DS min: %f'%(self.DS_state,delta_dv,self.DS_min))
+
+        self.DS_state = new_DS_state
+
 
 
 class SatScheduleArbiter(PlannerScheduler):
@@ -236,6 +278,9 @@ class SatExecutive:
         self._last_time_dt = sim_start_dt
         #  keeps track of up to what time activities have been executed ( used as a check for timing)
         self._last_act_execution_time_dt = sim_start_dt
+
+        #  this keeps track of, across all executed activities how much data volume is added to (subtracted from) data storage
+        self._curr_timestep_delta_dv = 0
 
         # holds ref to SatStateSimulator
         self.sat_state_sim = None
@@ -360,6 +405,10 @@ class SatExecutive:
         for exec_act in added_exec_acts:
             self._initialize_act_execution_context(exec_act,new_time_dt)
 
+        #  tell the state simulator how much data volume we have added in executing our current activities
+        self.sat_state_sim.add_to_data_storage(self._curr_timestep_delta_dv,new_time_dt)
+        self._curr_timestep_delta_dv = 0
+
         self._curr_exec_acts = next_exec_acts        
 
         self._last_time_dt = self._curr_time_dt
@@ -368,6 +417,19 @@ class SatExecutive:
         # mark no longer first step
         if self._first_step:
             self._first_step = False
+
+    def _get_curr_dv_storage_availability(self):
+        """ get how much data volume is available to be added to storage"""
+        #  how much is available in storage
+        ds_avail_a_priori = self.sat_state_sim.get_available_data_storage(self._curr_time_dt)
+
+        #  subtract out the current usage that has been spoken for in this execution step of the executive
+        ds_avail_with_acts = ds_avail_a_priori - self._curr_timestep_delta_dv
+
+        #  this should always be positive!
+        assert(ds_avail_with_acts >= 0)
+
+        return ds_avail_with_acts
 
     def execute_acts(self,new_time_dt):
         """ execute current activities that the update step has chosen """
@@ -535,6 +597,15 @@ class SatExecutive:
         #  time delta
         delta_t_s = (ts_end_dt - ts_start_dt).total_seconds()
 
+        #  determine how much data volume can be produced or consumed based upon the activity average data rate ( the statement is valid for all types ObsWindow, XlnkWindow, DlnkWindow)
+        delta_dv = curr_act_wind.ave_data_rate * delta_t_s
+
+        #  reduce this number by any restrictions due to data volume storage availability
+        #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
+        delta_dv = min(delta_dv,self._get_curr_dv_storage_availability())
+
+        #  the data volume that actually gets collected or lost
+        executed_delta_dv = 0
 
         #############
         #  execute activity
@@ -551,15 +622,16 @@ class SatExecutive:
             else:
                 curr_data_cont = curr_exec_context['rx_data_conts'][-1]
 
-            delta_dv = curr_act_wind.ave_data_rate * delta_t_s
+            # delta_dv = curr_act_wind.ave_data_rate * delta_t_s
             # todo add delta dv to DS state
 
             curr_data_cont.add_dv(delta_dv)
             curr_exec_context['dv_used'] += delta_dv
+            executed_delta_dv += delta_dv
 
         #  deal with cross-link if we are the transmitting satellite
         #  note: this code only deals with execution by the transmitting satellite. execution by the receiving satellite is dealt with within xlnk_receive_poll()
-        if type(curr_act_wind) == XlnkWindow:
+        elif type(curr_act_wind) == XlnkWindow:
 
             xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
             xsat_exec = self.sim_sat.get_sat_from_indx(xsat_indx).get_exec()
@@ -567,7 +639,8 @@ class SatExecutive:
 
             #  if we're the transmitting satellite, then we have the responsibility to start the data transfer transaction
             if is_tx:
-                tx_delta_dv = curr_act_wind.ave_data_rate * delta_t_s
+                # tx_delta_dv = curr_act_wind.ave_data_rate * delta_t_s
+                tx_delta_dv = delta_dv
 
                 # while we still have delta dv to transmit
                 while tx_delta_dv > self.dv_epsilon:
@@ -595,6 +668,20 @@ class SatExecutive:
                     tx_delta_dv -= dv_txed
 
                     curr_exec_context['dv_used'] += dv_txed
+
+                    #  because  we are transmitting, we are losing data volume
+                    executed_delta_dv -= dv_txed
+
+        elif type(curr_act_wind) == DlnkWindow:
+            pass
+
+        #  otherwise, we don't know what to do with this activity type
+        else:
+            raise NotImplementedError
+
+        #  factor this executed Delta into the total data volume Delta for this time step
+        self._curr_timestep_delta_dv += executed_delta_dv
+
 
     @staticmethod
     def select_tx_data_cont(exec_data_conts_by_rt_cont,tx_dv_possible,dv_epsilon):
@@ -724,6 +811,9 @@ class SatExecutive:
         #  Mark the data volume received
         curr_exec_context['dv_used'] += received_dv
 
+        #  factor this executed Delta into the total data volume Delta for this time step
+        self._curr_timestep_delta_dv += received_dv
+
         return received_dv,True
 
     @staticmethod
@@ -758,8 +848,8 @@ class SatStateRecorder(StateRecorder):
 
     def __init__(self,sim_start_dt,state_recorder_params):
         self.base_time = sim_start_dt
-        self.ES_state_hist = []
-        self.DS_state_hist = []
+        self.ES_state_hist = [] # assumed to be in Wh
+        self.DS_state_hist = [] # assumed to be in Mb
         self.act_hist = []
 
         super().__init__()    
@@ -768,6 +858,11 @@ class SatStateRecorder(StateRecorder):
         # todo: add decimation?
         t_s = (t_dt - self.base_time).total_seconds()
         self.ES_state_hist.append((t_s,val))
+
+    def add_DS_hist(self,t_dt,val):
+        # todo: add decimation?
+        t_s = (t_dt - self.base_time).total_seconds()
+        self.DS_state_hist.append((t_s,val))
 
     def add_act_hist(self,act):
         # note that the execution times, dv for act are stored in attributes: executable_start,executable_end,executable_data_vol
@@ -796,6 +891,20 @@ class SatStateRecorder(StateRecorder):
             e.append(pt[1])
 
         return t,e
+
+
+    def get_DS_hist(self,out_units='minutes'):
+
+        if not out_units == 'minutes':
+            raise NotImplementedError
+
+        t = []
+        d = []
+        for pt in self.DS_state_hist:
+            t.append(pt[0]/60.0) # converted to minutes
+            d.append(pt[1]/1000.0) # converted to Gb
+
+        return t,d
 
 
 

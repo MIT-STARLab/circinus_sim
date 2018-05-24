@@ -23,6 +23,20 @@ class SimPlotting():
                 "power_units": power_units,
             }
 
+
+        self.parsed_data_params_by_sat_id = {}
+        for sat_id in self.sat_id_order:
+            self.parsed_data_params_by_sat_id[sat_id] = {}
+
+            sat_data_storage_params = sat_params['data_storage_params_by_sat_id'][sat_id]
+            storage_opt = sat_data_storage_params['storage_option']
+
+            self.parsed_data_params_by_sat_id[sat_id] = {
+                "d_min": sat_data_storage_params['data_storage_Gbit']['d_min'][storage_opt],
+                "d_max": sat_data_storage_params['data_storage_Gbit']['d_max'][storage_opt],
+            }
+
+
         # self.plot_fig_extension=plot_params['plot_fig_extension']
         # self.time_units=plot_params['time_units']
         # self.energy_usage_plot_params=plot_params['energy_usage_plot_params']
@@ -169,5 +183,40 @@ class SimPlotting():
         pltl.plot_energy_usage(
             sats_ids_list,
             energy_usage,
+            ecl_winds,
+            plot_params)
+
+
+    def sim_plot_all_sats_data_usage(self,
+            sats_ids_list,
+            data_usage,
+            ecl_winds,
+            plot_start_dt,
+            plot_end_dt,
+            base_time_dt):
+
+
+        plot_params = {}
+        plot_params['plot_start_dt'] = plot_start_dt
+        plot_params['plot_end_dt'] = plot_end_dt
+        plot_params['base_time_dt'] = base_time_dt
+
+        plot_params['plot_title'] = 'Data Storage Utilization - Constellation Sim'
+        plot_params['plot_size_inches'] = (18,12)
+        plot_params['show'] = False
+        plot_params['fig_name'] = 'plots/const_sim_data.pdf'
+        plot_params['plot_fig_extension'] = 'pdf'
+
+        plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
+        plot_params['sat_id_order'] = self.sat_id_order
+
+        plot_params['sats_dmin_Gb'] = [self.parsed_data_params_by_sat_id[sat_id]['d_min'] for sat_id in self.sat_id_order]
+        plot_params['sats_dmax_Gb'] = [self.parsed_data_params_by_sat_id[sat_id]['d_max'] for sat_id in self.sat_id_order]
+
+        plot_params['data_usage_plot_params'] = self.input_plot_params['data_usage_plot']
+
+        pltl.plot_data_usage(
+            sats_ids_list,
+            data_usage,
             ecl_winds,
             plot_params)

@@ -226,6 +226,7 @@ class ConstellationSim:
         dlnks_exe = [[] for indx in range(self.num_sats)]
         xlnks_exe = [[] for indx in range(self.num_sats)]
         energy_usage = {'time_mins': [[] for indx in range(self.num_sats)], 'e_sats': [[] for indx in range(self.num_sats)]}
+        data_usage = {'time_mins': [[] for indx in range(self.num_sats)], 'd_sats': [[] for indx in range(self.num_sats)]}
         for sat_id in self.sat_id_order:
             sat = self.sats_by_id[sat_id]
             sat_indx = sat.sat_indx
@@ -233,9 +234,14 @@ class ConstellationSim:
             t,e = sat.get_ES_hist()
             energy_usage['time_mins'][sat_indx] = t
             energy_usage['e_sats'][sat_indx] = e
+            t,d = sat.get_DS_hist()
+            data_usage['time_mins'][sat_indx] = t
+            data_usage['d_sats'][sat_indx] = d
 
         #  get scheduled activities as planned by ground network
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_act_hists()
+
+        debug_tools.debug_breakpt()
 
         #  plot scheduled and executed activities
         self.sim_plotter.sim_plot_all_sats_acts(
@@ -255,6 +261,16 @@ class ConstellationSim:
         self.sim_plotter.sim_plot_all_sats_energy_usage(
             self.sat_id_order,
             energy_usage,
+            self.ecl_winds,
+            self.sim_start_dt,
+            self.sim_end_dt,
+            self.sim_start_dt
+        )
+
+        #  plot satellite data usage
+        self.sim_plotter.sim_plot_all_sats_data_usage(
+            self.sat_id_order,
+            data_usage,
             self.ecl_winds,
             self.sim_start_dt,
             self.sim_end_dt,
