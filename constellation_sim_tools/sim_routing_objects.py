@@ -2,7 +2,7 @@ from copy import copy
 
 from circinus_tools.scheduling.custom_window import ObsWindow
 from circinus_tools.scheduling.routing_objects import DataRoute, DataMultiRoute, RoutingObjectID
-
+from .schedule_tools  import check_temporal_overlap, ExecutableActivity
 
 class SimDataContainer:
     '''This is essentially an observation data packet. Contains relevant information for tracking of data across sim run'''
@@ -183,7 +183,7 @@ class SimRouteContainer:
     #     self.dv_utilization_by_dmr_id[update_dr.ID] = dr_dv_util
     #     self.update_dt = update_dt
 
-    def get_winds_executable(self,filter_start_dt=None,filter_end_dt=None,sat_indx=None,gs_indx=None):
+    def get_winds_executable(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_indx=None,gs_indx=None):
         """find and set the windows within this route container that are relevant for execution under a set of filters"""
 
         # stores the filtered windows for execution, with their executable properties set
@@ -200,10 +200,9 @@ class SimRouteContainer:
                 #  test if this window is relevant for this ground station index
                 if (gs_indx is not None) and not wind.has_gs_indx(gs_indx):
                     continue
+
                 #  also apply any start and end filters if we want to
-                if filter_start_dt and wind.end < filter_start_dt:
-                    continue
-                if filter_end_dt and wind.start > filter_end_dt:
+                if not check_temporal_overlap(wind.start,wind.end,filter_start_dt,filter_end_dt,filter_opt):
                     continue
 
                 #  create a new executable window entry, which specifies both the window and the amount of data volume used from it for this route
@@ -276,52 +275,3 @@ class ExecutableDataContainer:
 
     def __repr__(self):
         return "(ExecutableDataContainer, dc: %s, remaining_dv: %f)"%(self.data_cont.ID,self.remaining_dv)
-
-
-class ExecutableActivity:
-    """ this is an object that keeps track of an activity window, and the route containers (with their underlying data routes) whose executions are the reason why the activity window is being performed. this helps us keep track of why a window is being performed and where data goes to and arrives from"""
-
-    def __init__(self,wind,rt_conts,dv_used):
-        #  the activity window for this object
-        self.wind =  wind
-        # rt_conts are the route containers for the window
-        self.rt_conts =  rt_conts
-        # dv_used is the amount of data volume used for this window within the route in which the wind was found
-        self.dv_used =  dv_used
-
-    def __hash__(self):
-        # xor the components together
-        return hash(self.wind)
-
-    def __eq__(self, other):
-        """this compares equality based on the activity window"""
-        return hash(self) == hash(other)
-
-    def __repr__(self):
-        return "(ExecAct, wind: %s, # rt_conts: %d)"%(self.wind,len(self.rt_conts))
-
-    @property
-    def act(self):
-        return self.wind
-
-    @property
-    def dv_epsilon(self):
-        #  just grab the dv epsilon from the first route container
-        return self.rt_conts[0].get_dv_epsilon()
-
-    def plans_match(self,other):
-        """ check if two executable activities have the same plans ( their route containers are the same)"""
-
-        try:
-            #  search for all of our route containers in the other's route containers
-            for rt_cont in self.rt_conts:
-                other_rt_cont = other.rt_conts[other.rt_conts.index(rt_cont)]
-                # if the update times are different, than they are not matching
-                if not rt_cont.update_dt == other_rt_cont.update_dt:
-                    return False
-
-        #  if we cannot find the right container at all
-        except ValueError:
-            return False
-
-        return True

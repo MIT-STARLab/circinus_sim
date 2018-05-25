@@ -1,7 +1,54 @@
-from .sim_routing_objects import ExecutableActivity
 from copy import deepcopy
 
-def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,sat_indx=None,gs_indx=None):
+class ExecutableActivity:
+    """ this is an object that keeps track of an activity window, and the route containers (with their underlying data routes) whose executions are the reason why the activity window is being performed. this helps us keep track of why a window is being performed and where data goes to and arrives from"""
+
+    def __init__(self,wind,rt_conts,dv_used):
+        #  the activity window for this object
+        self.wind =  wind
+        # rt_conts are the route containers for the window
+        self.rt_conts =  rt_conts
+        # dv_used is the amount of data volume used for this window within the route in which the wind was found
+        self.dv_used =  dv_used
+
+    def __hash__(self):
+        # xor the components together
+        return hash(self.wind)
+
+    def __eq__(self, other):
+        """this compares equality based on the activity window"""
+        return hash(self) == hash(other)
+
+    def __repr__(self):
+        return "(ExecAct, wind: %s, # rt_conts: %d)"%(self.wind,len(self.rt_conts))
+
+    @property
+    def act(self):
+        return self.wind
+
+    @property
+    def dv_epsilon(self):
+        #  just grab the dv epsilon from the first route container
+        return self.rt_conts[0].get_dv_epsilon()
+
+    def plans_match(self,other):
+        """ check if two executable activities have the same plans ( their route containers are the same)"""
+
+        try:
+            #  search for all of our route containers in the other's route containers
+            for rt_cont in self.rt_conts:
+                other_rt_cont = other.rt_conts[other.rt_conts.index(rt_cont)]
+                # if the update times are different, than they are not matching
+                if not rt_cont.update_dt == other_rt_cont.update_dt:
+                    return False
+
+        #  if we cannot find the right container at all
+        except ValueError:
+            return False
+
+        return True
+
+def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_indx=None,gs_indx=None):
     """ go through all of the route containers and synthesize a list of unique windows to execute with the correct time and the data volume utilization"""
 
     # First we need to find all of the executable versions of each activity window contained anywhere in the data routes in the route containers.
@@ -9,7 +56,7 @@ def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,
     exec_acts_by_wind = {}
     for rt_cont in rt_conts:
         # this is an iterable of type ExecutableActivity
-        rt_cont_exec_winds = rt_cont.get_winds_executable(filter_start_dt,filter_end_dt,sat_indx,gs_indx)
+        rt_cont_exec_winds = rt_cont.get_winds_executable(filter_start_dt,filter_end_dt,filter_opt,sat_indx,gs_indx)
         for exec_act in rt_cont_exec_winds:
             exec_acts_by_wind.setdefault(exec_act.wind, [])
             exec_acts_by_wind[exec_act.wind].append(exec_act)
@@ -44,5 +91,41 @@ def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,
         assert(all(act == exec_act.wind for exec_act in exec_acts))
 
     return executable_acts_sythesized
+
+def check_temporal_overlap(window_start_dt,window_end_dt,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within'):
+    """ Check whether or not a window of time overlaps a filter window
+    
+    Filters a monolithic window of interest based upon a filter window. looks at whether or not the two windows overlap each other
+    :param start_time:  the start of the window of interest
+    :type start_time: datetime
+    :param end_time:  the end of the window of interest
+    :type end_time: datetime
+    :param filter_start_dt:  the start of the filter window ( if desired)
+    :type filter_start_dt: datetime or None
+    :param filter_end_dt:  the end of the filter window ( if desired)
+    :type filter_end_dt: datetime or None
+    :param filter_opt:  the type of filter to apply, defaults to 'partially_within'
+    :type filter_opt: str, optional
+    :returns:  true if the windows overlap for the specified filter
+    :rtype: {bool}
+    :raises: NotImplementedError
+    """
+
+    # ignore if window at doesn't at least overlap with our filtered time period by a little bit
+    if filter_opt == 'partially_within':
+        if filter_start_dt and window_end_dt < filter_start_dt:
+            return False
+        if filter_end_dt and window_start_dt > filter_end_dt:
+            return False
+    # ignore if window doesn't completely overlap with our filtered time period
+    elif filter_opt == 'totally_within':
+        if filter_start_dt and window_start_dt < filter_start_dt:
+            return False
+        if filter_end_dt and window_end_dt > filter_end_dt:
+            return False
+    else:
+        raise NotImplementedError
+
+    return True
 
 

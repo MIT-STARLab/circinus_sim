@@ -280,8 +280,6 @@ class ConstellationSim:
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_planned_act_hists()
         gs_dlnks_gsn_sched = self.gs_network.get_all_gs_planned_act_hists()
 
-        debug_tools.debug_breakpt()
-
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
             self.sat_id_order,

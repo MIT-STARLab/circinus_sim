@@ -233,8 +233,9 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_id=self.sim_sat.sat_id)
 
         #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
-        #  the list elements are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,sat_indx=self.sim_sat.sat_indx)
+        #  the list elements are of type ExecutableActivity
+        #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_indx=self.sim_sat.sat_indx)
 
         # sort executable activities by start time
         executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
@@ -503,28 +504,11 @@ class SatExecutive(Executive):
 
 
     def xlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):
-        """Called by a transmitting satellite to see if we can receive data and if yes, handles the received data
+        """Called by a transmitting satellite to see if we can receive data over a crosslink and if yes, handles the received data"""
         
-        [description]
-        :param ts_start_dt: the start time for this transmission, as calculated by the transmitting satellite
-        :type ts_start_dt: datetime
-        :param ts_end_dt: the end time for this transmission, as calculated by the transmitting satellite
-        :type ts_end_dt: datetime
-        :param proposed_act:  the activity which the transmitting satellite is executing
-        :type proposed_act: XlnkWindow
-        :param xsat_indx:  the index of the transmitting satellite
-        :type xsat_indx: int
-        :param txsat_data_cont:  the data container that the transmitting satellite is sending ( with route only up to the transmitting satellite)
-        :type txsat_data_cont: SimDataContainer
-        :param proposed_dv:  the data volume that the transmitting satellite is trying to send
-        :type proposed_dv: float
-        :returns:  data volume received, success flag
-        :rtype: {int,bool}
-        :raises: RuntimeWarning, RuntimeWarning, RuntimeWarning
-        """
+        # See documentation in receive_poll in sim_agent_components.py
 
         # note: do not modify txsat_data_cont in here!
-        #  note that a key assumption about this function is that once it indicates a failure to receive data, subsequent calls at the current time step will not be successful ( and therefore the transmitter does not have to continue trying)
 
         #  verify of the right type
         if not type(proposed_act) == XlnkWindow:

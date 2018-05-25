@@ -72,34 +72,24 @@ class GroundNetworkPS(PlannerScheduler):
         if len(self._replan_release_q) > 0:
             replan_required = False
 
-        def set_rt_cont_times(rt_conts,update_dt):
-            """ set the update time on all of the route containers"""
-            for rt_cont in rt_conts:
-                rt_cont.set_times_safe(update_dt)
-
         #  perform re-plan if required, and release or add to queue as appropriate
         if replan_required:
 
             if len(self._replan_release_q) > 0:
                 raise RuntimeWarning('Trying to rerun GP while there already plan results waiting for release.')
 
-            new_rt_conts = self.run_planner()
+            new_rt_conts = self._run_planner()
 
             #  if we don't have to wait to release new plans
             if self.replan_release_wait_time_s == 0:
-                #  mark all of the route containers with their release time
-                set_rt_cont_times(new_rt_conts,self._curr_time_dt)
-                # update plan database
-                self.plan_db.update_routes(new_rt_conts)
+                self._process_updated_routes(new_rt_conts)
                 #  update replan time
                 self._last_replan_time_dt = self._curr_time_dt
                 self.plans_updated = True
 
             #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
             elif self._first_step and self.release_first_plans_immediately:
-                #  mark all of the route containers with their release time
-                set_rt_cont_times(new_rt_conts,self._curr_time_dt)
-                self.plan_db.update_routes(new_rt_conts)
+                self._process_updated_routes(new_rt_conts)
                 self._last_replan_time_dt = self._curr_time_dt
                 self.plans_updated = True
 
@@ -111,25 +101,17 @@ class GroundNetworkPS(PlannerScheduler):
         #  release any ripe plans from the queue
         while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
             q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
-            #  mark all of the route containers with their release time
-            set_rt_cont_times(q_entry.rt_conts,self._curr_time_dt)
-            self.plan_db.update_routes(q_entry.rt_conts)
-            self._last_replan_time_dt = q_entry.time_dt
+            self._process_updated_routes(q_entry.rt_conts)
+            self._last_replan_time_dt = self._curr_time_dt
             self.plans_updated = True
 
-        #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
-        rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
-        # debug_tools.debug_breakpt()
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt)
-        for exec_act in executable_acts:
-            self.state_recorder.add_planned_act_hist(exec_act.act)
 
         #  time update
         self._curr_time_dt = new_time_dt
 
         self._first_step = False
 
-    def run_planner(self):
+    def _run_planner(self):
 
         #  get already existing sim route containers that need to be fed to the global planner
         existing_sim_rt_conts = self.plan_db.get_filtered_sim_routes(self._curr_time_dt,filter_opt='partially_within')
@@ -145,6 +127,28 @@ class GroundNetworkPS(PlannerScheduler):
         self.latest_gp_route_indx = latest_gp_route_uid
 
         return new_rt_conts
+
+    def _process_updated_routes(self,rt_conts):
+
+        #  mark all of the route containers with their release time
+        for rt_cont in rt_conts:
+            rt_cont.set_times_safe(self._curr_time_dt)
+
+        # update plan database
+        self.plan_db.update_routes(rt_conts)
+
+        #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
+        #  filter rationale: want any route containers that have at least one window overlapping past start time
+        rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
+
+        # distill the activities out of the route containers
+        #  filter rationale:  only want windows that are completely past the start time, because we don't want to update our planned activity history with activities from the past
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='totally_within')
+
+        # update any acts that have changed within our plans (note: activity plans CAN change up to right before they get executed, though the GP is incentivized to keep planned activities the same once it chooses them)
+        for exec_act in executable_acts:        
+            self.state_recorder.add_planned_act_hist(exec_act.act)
+
 
 class GroundNetworkStateRecorder(StateRecorder):
     """Convenient interface for storing state history for ground network"""

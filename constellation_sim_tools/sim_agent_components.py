@@ -9,7 +9,7 @@ from circinus_tools.sat_state_tools import propagate_sat_ES
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.other_tools import index_from_key
 from circinus_tools.scheduling.custom_window import  DlnkWindow
-from .schedule_tools  import synthesize_executable_acts
+from .schedule_tools  import synthesize_executable_acts,check_temporal_overlap
 
 class StateSimulator:
     """Simulates agent state, holding internally any state variables needed for the process"""
@@ -42,7 +42,7 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
         #  whether or not schedule instance has been updated since it was last grabbed by executive
         self._schedule_updated = False
 
-        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
+        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type ExecutableActivity
         self._schedule_cache = []
 
         # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
@@ -81,7 +81,7 @@ class Executive:
         self.sim_executive_agent = sim_executive_agent
 
         #  scheduled activities list- a sorted list of the activities for satellite to perform ( obtained from schedule arbiter)
-        #  these are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
+        #  these are of type ExecutableActivity
         self.scheduled_exec_acts = []
 
         # these keep track of which activity we are currently executing. The windox index (windex)  is the location within the scheduled activities list
@@ -571,9 +571,7 @@ class PlanningInfoDB:
             else:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
 
-    def get_filtered_sim_routes(self,filter_start_dt,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
-        if not filter_end_dt:
-            filter_end_dt = self.sim_end_dt
+    def get_filtered_sim_routes(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
 
         if not filter_opt in self.filter_opts:
             raise NotImplementedError
@@ -592,12 +590,9 @@ class PlanningInfoDB:
                 if not rt_cont.has_gs_indx(self.gs_id_order.index(gs_id)): 
                     return False
 
-            if filter_opt == 'totally_within':
-                if (rt_cont.start < filter_start_dt or rt_cont.end > filter_end_dt):
-                    return False
-            if filter_opt == 'partially_within':
-                if (rt_cont.end < filter_start_dt or rt_cont.start > filter_end_dt):
-                    return False
+            if not check_temporal_overlap(rt_cont.start,rt_cont.end,filter_start_dt,filter_end_dt,filter_opt):
+                return False
+
             return True
 
         all_rt_conts = []
@@ -625,15 +620,8 @@ class PlanningInfoDB:
             known_sat_state = self.sat_state_hist_by_id[sat_id][-1]
             last_update_dt = known_sat_state.update_dt
 
-            # get scheduled/executable activities between state update time and current time but have the satellite ID somewhere along the route
+            # get routes between last update time and current time that have the satellite ID somewhere along the route
             rt_conts = self.get_filtered_sim_routes(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,filter_opt='partially_within',sat_id=sat_id)
-            #  get all the windows that are executable from all of the route containers, filtered for this satellite ( also filtering on the relevant time window)
-            # using a set to ensure unique windows ( there can be duplicate windows across route containers)
-            # executable_acts = set() 
-            # for rt_cont in rt_conts:
-            #     executable_acts = executable_acts.union(rt_cont.get_winds_executable(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx))
-            # # sort executable windows by start time
-            # executable_acts = list(executable_acts)
     
             #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
             executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx)
