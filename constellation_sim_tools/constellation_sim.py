@@ -34,6 +34,8 @@ class ConstellationSim:
         self.sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
         self.num_sats=self.sat_params['num_sats']
         self.sat_id_order = self.sat_params['sat_id_order']
+        self.gs_id_order = self.gs_params['gs_id_order']
+        self.num_gs = len(self.gs_params['gs_id_order'])
 
         self.sim_tick = timedelta(seconds=self.sim_run_params['sim_tick_s'])
 
@@ -66,6 +68,7 @@ class ConstellationSim:
         #  note: use sim tick as resource delta T.
         plan_db_inputs = {
             "sat_id_order": self.sat_id_order,
+            "gs_id_order": self.gs_id_order,
             "initial_state_by_sat_id": self.sat_params['initial_state_by_sat_id'],
             "ecl_winds_by_sat_id": ecl_winds_by_sat_id,
             "power_params_by_sat_id": self.sat_params['power_params_by_sat_id'],
@@ -73,26 +76,38 @@ class ConstellationSim:
         }
 
         # create ground network
+        gs_by_id = {}
+        all_gs = []
         gs_network = SimGroundNetwork(
             'gsn',
             self.gs_params['gs_network_name'],
             self.sim_start_dt,
             self.sim_end_dt,
             self.num_sats,
+            self.num_gs,
             self.gp_wrapper,
             self.const_sim_inst_params['sim_gs_network_params'],
         ) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
-                station['id'], 
+                station['id'],
+                self.gs_id_order.index(station['id']),
                 station['name'], 
-                gs_network
+                gs_network,
+                self.sim_start_dt,
+                self.sim_end_dt
             )
+            gs_by_id[station['id']] = gs
             gs_network.gs_list.append(gs)
-        
+            all_gs.append(gs)
+
+            #  initialize the planning info database
+            gs.get_plan_db().initialize(plan_db_inputs)
+            
         #  initialize the planning info database
         gs_network.get_plan_db().initialize(plan_db_inputs)
         self.gs_network = gs_network
+        self.gs_by_id = gs_by_id
 
 
         # create sats
@@ -128,19 +143,20 @@ class ConstellationSim:
         #  set the simulation satellites list for every satellite
         for sat in all_sats:
             sat.all_sim_sats = all_sats
+            sat.all_sim_gs = all_gs
 
         self.sats_by_id = sats_by_id
 
     @staticmethod
-    def pickle_checkpoint(global_time,gs_network,sats_by_id):
-        pickle_name ='pickles/sim_checkpoint_%s' %(global_time.isoformat().replace (':','_'))
+    def pickle_checkpoint(global_time,gs_network,sats_by_id,gs_by_id):
+        pickle_name ='pickles/sim_checkpoint_%s' %(global_time.isoformat().replace (':','_').replace ('-','_'))
         with open('%s.pkl' % ( pickle_name),'wb') as f:
-            pickle.dump( {"global_time":global_time, "gs_network": gs_network, "sats_by_id":sats_by_id},f)
+            pickle.dump( {"global_time":global_time, "gs_network": gs_network, "sats_by_id":sats_by_id, "gs_by_id":gs_by_id},f)
 
     @staticmethod
     def unpickle_checkpoint(pickle_name):
         p = pickle.load (open ( pickle_name,'rb'))
-        return p['global_time'],p['gs_network'],p['sats_by_id']
+        return p['global_time'],p['gs_network'],p['sats_by_id'],p['gs_by_id']
 
     def run( self):
         """ run the simulation """
@@ -156,7 +172,7 @@ class ConstellationSim:
 
         # unpickle from a checkpoint if so desired
         if self.sim_run_params['restore_from_checkpoint']:
-            global_time, self.gs_network, self.sats_by_id = self.unpickle_checkpoint(self.sim_run_params['restore_pkl_name'])
+            global_time, self.gs_network, self.sats_by_id, self.gs_by_id = self.unpickle_checkpoint(self.sim_run_params['restore_pkl_name'])
             print_verbose('Unpickled checkpoint file %s'%(self.sim_run_params['restore_pkl_name']),verbose)
             assert(global_time != self.sim_start_dt)
 
@@ -171,10 +187,12 @@ class ConstellationSim:
 
             print_verbose('global_time: %s'%(global_time.isoformat()),verbose)
 
-            # pickle checkpoint if so desired
+            #####################
+            # Checkpoint pickling
+
             if self.sim_run_params['pickle_checkpoints']:
                 if (global_time - last_checkpoint_time).total_seconds() >= self.sim_run_params['checkpoint_spacing_s']:
-                    self.pickle_checkpoint(global_time, self.gs_network, self.sats_by_id)
+                    self.pickle_checkpoint(global_time, self.gs_network, self.sats_by_id, self.gs_by_id)
                     last_checkpoint_time = global_time
 
 
@@ -185,6 +203,9 @@ class ConstellationSim:
 
             for sat in self.sats_by_id.values():
                 sat.execution_step(global_time)
+            #  note that ground stations do not currently do anything in the execution step. including for completeness/API coherence
+            for gs in self.gs_by_id.values():
+                gs.execution_step(global_time)
 
 
             #####################
@@ -198,20 +219,28 @@ class ConstellationSim:
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
 
-            # now update satellite state
+            # now update satellite and ground station states
             for sat in self.sats_by_id.values():
                 sat.state_update_step(global_time)
+            for gs in self.gs_by_id.values():
+                gs.state_update_step(global_time)
 
 
-
-            # todo: this is a testing HACK.  remove! ( don't cross levels of abstraction like this either!)
-            if self.gs_network.scheduler.plans_updated:
-                for sat in self.sats_by_id.values():
-                    self.gs_network.send_planning_info(sat)
-                self.gs_network.scheduler.plans_updated = False
 
             #####################
             # Replanning
+
+            # todo: seems kinda bad to cross levels of abstraction like this...
+            if self.gs_network.scheduler.plans_updated:
+                # todo: this is a testing HACK to provide plans to the sats.  remove!
+                for sat in self.sats_by_id.values():
+                    self.gs_network.send_planning_info(sat)
+                # end hack
+
+                #  every time the ground network re-plans, want to send that updated planning information to the ground stations
+                for gs in self.gs_by_id.values():
+                    self.gs_network.send_planning_info(gs)
+                self.gs_network.scheduler.plans_updated = False
 
             # todo: this should be added back in when the local planner is included
             # for sat in self.sats_by_id.values():
@@ -226,24 +255,34 @@ class ConstellationSim:
         # Get the activities executed for all the satellites
         obs_exe = [[] for indx in range(self.num_sats)]
         dlnks_exe = [[] for indx in range(self.num_sats)]
+        gs_dlnks_exe = [[] for indx in range(self.num_gs)]
         xlnks_exe = [[] for indx in range(self.num_sats)]
         energy_usage = {'time_mins': [[] for indx in range(self.num_sats)], 'e_sats': [[] for indx in range(self.num_sats)]}
         data_usage = {'time_mins': [[] for indx in range(self.num_sats)], 'd_sats': [[] for indx in range(self.num_sats)]}
-        for sat_id in self.sat_id_order:
-            sat = self.sats_by_id[sat_id]
+        for sat in self.sats_by_id.values():
             sat_indx = sat.sat_indx
-            obs_exe[sat_indx],dlnks_exe[sat_indx],xlnks_exe[sat_indx] = sat.get_act_hist()
+            acts_exe = sat.get_act_hist()
+            obs_exe[sat_indx] = acts_exe['obs']
+            dlnks_exe[sat_indx] = acts_exe['dlnk']
+            xlnks_exe[sat_indx] = acts_exe['xlnk']
             t,e = sat.get_ES_hist()
             energy_usage['time_mins'][sat_indx] = t
             energy_usage['e_sats'][sat_indx] = e
             t,d = sat.get_DS_hist()
             data_usage['time_mins'][sat_indx] = t
             data_usage['d_sats'][sat_indx] = d
+        for gs in self.gs_by_id.values():
+            gs_indx = gs.gs_indx
+            acts_exe = gs.get_act_hist()
+            gs_dlnks_exe[gs_indx] = acts_exe['dlnk']
 
         #  get scheduled activities as planned by ground network
-        obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_act_hists()
+        obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_planned_act_hists()
+        gs_dlnks_gsn_sched = self.gs_network.get_all_gs_planned_act_hists()
 
-        #  plot scheduled and executed activities
+        debug_tools.debug_breakpt()
+
+        #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
             self.sat_id_order,
             obs_gsn_sched,
@@ -252,6 +291,16 @@ class ConstellationSim:
             dlnks_exe,
             xlnks_gsn_sched,
             xlnks_exe,
+            self.sim_start_dt,
+            self.sim_end_dt,
+            self.sim_start_dt
+        )
+
+        #  plot scheduled and executed down links for ground stations
+        self.sim_plotter.sim_plot_all_gs_acts(
+            self.gs_id_order,
+            gs_dlnks_gsn_sched,
+            gs_dlnks_exe,
             self.sim_start_dt,
             self.sim_end_dt,
             self.sim_start_dt

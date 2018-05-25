@@ -21,8 +21,8 @@ from circinus_tools  import time_tools as tt
 from circinus_tools  import io_tools
 from constellation_sim_tools import constellation_sim as const_sim
 
-# TODO: remove this line if not needed
-# from gp_tools.custom_window import ObsWindow
+from circinus_tools import debug_tools
+
 
 REPO_BASE = os.path.abspath(os.pardir)  # os.pardir aka '..'
 
@@ -75,6 +75,8 @@ class PipelineRunner:
             sat_id_order = io_tools.make_and_validate_sat_id_order(sat_id_order,orbit_prop_inputs['sat_params']['num_sats'],all_sat_ids1)
             orbit_prop_inputs['sat_params']['sat_id_order'] = sat_id_order
 
+            gs_id_order = io_tools.make_and_validate_gs_id_order(orbit_prop_inputs['gs_params'])
+            orbit_prop_inputs['gs_params']['gs_id_order'] = gs_id_order
             # orbit_prop_inputs['sat_params']['power_params_sorted'] = io_tools.sort_input_params_by_sat_IDs(orbit_prop_inputs['sat_params']['power_params'],sat_id_order)
             # orbit_prop_inputs['sat_params']['data_storage_params_sorted'] = io_tools.sort_input_params_by_sat_IDs(orbit_prop_inputs['sat_params']['data_storage_params'],sat_id_order)
             # orbit_prop_inputs['sat_params']['initial_state_sorted'] = io_tools.sort_input_params_by_sat_IDs(orbit_prop_inputs['sat_params']['initial_state'],sat_id_order)

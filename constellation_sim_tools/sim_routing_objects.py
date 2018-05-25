@@ -142,6 +142,12 @@ class SimRouteContainer:
             if dmr.has_sat_indx(sat_indx): return True
         return False
 
+    def has_gs_indx(self,gs_indx):
+        """ return true if ground station with gs index is contained within the route in this route container"""
+        for dmr in self.dmrs_by_id.values():
+            if dmr.has_gs_indx(gs_indx): return True
+        return False
+
     def get_routes(self):
         return list(self.dmrs_by_id.values())
 
@@ -177,7 +183,7 @@ class SimRouteContainer:
     #     self.dv_utilization_by_dmr_id[update_dr.ID] = dr_dv_util
     #     self.update_dt = update_dt
 
-    def get_winds_executable(self,filter_start_dt=None,filter_end_dt=None,sat_indx=None):
+    def get_winds_executable(self,filter_start_dt=None,filter_end_dt=None,sat_indx=None,gs_indx=None):
         """find and set the windows within this route container that are relevant for execution under a set of filters"""
 
         # stores the filtered windows for execution, with their executable properties set
@@ -190,6 +196,9 @@ class SimRouteContainer:
             for wind in winds:
                 #  test if this window is relevant for this satellite index
                 if (sat_indx is not None) and not wind.has_sat_indx(sat_indx):
+                    continue
+                #  test if this window is relevant for this ground station index
+                if (gs_indx is not None) and not wind.has_gs_indx(gs_indx):
                     continue
                 #  also apply any start and end filters if we want to
                 if filter_start_dt and wind.end < filter_start_dt:

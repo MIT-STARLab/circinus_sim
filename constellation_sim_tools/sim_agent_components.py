@@ -8,14 +8,77 @@ from circinus_tools import io_tools
 from circinus_tools.sat_state_tools import propagate_sat_ES
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.other_tools import index_from_key
+from circinus_tools.scheduling.custom_window import  DlnkWindow
 from .schedule_tools  import synthesize_executable_acts
+
+class StateSimulator:
+    """Simulates agent state, holding internally any state variables needed for the process"""
+    #  this is mostly a pass-through for the subclasses, because there's a fair bit of difference in what the ground station and satellites do
+
+    def __init__(self,sim_executive_agent):
+        # holds ref to the containing sim agent
+        self.sim_executive_agent = sim_executive_agent
+
+class PlannerScheduler:
+    """ superclass for planning/scheduling elements running on ground and satellites"""
+
+    def __init__(self,sim_start_dt,sim_end_dt):
+        
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
+
+    def get_plan_db(self):
+        return self.plan_db
+
+class ExecutiveAgentPlannerScheduler(PlannerScheduler):
+    """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
+
+    def __init__(self,sim_executive_agent,sim_start_dt,sim_end_dt):
+        # holds ref to the containing sim agent
+        self.sim_executive_agent = sim_executive_agent
+
+        #  this records whether or not the information in the planning database has been updated. we use this planning information to derive a schedule.  we assume that we start with no planning information available, so this is false for now ( we can't yet derive a schedule from the planning info)
+        self._planning_info_updated = False
+
+        #  whether or not schedule instance has been updated since it was last grabbed by executive
+        self._schedule_updated = False
+
+        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
+        self._schedule_cache = []
+
+        # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
+        self._curr_time_dt = sim_start_dt
+
+        #  whether or not we're on the first step of the simulation
+        self._first_step = True 
+
+        super().__init__(sim_start_dt,sim_end_dt)
+
+    @property
+    def schedule_updated(self):
+        return self._schedule_updated
+
+    def flag_planning_info_update(self):
+        self._planning_info_updated = True
+
+    # def ingest_routes(self,rt_conts):
+    #     #  add to database
+    #     self.plan_db.update_routes(rt_conts)
+
+    def update(self,new_time_dt):
+        # todo: if the update code in each of the classes gets similar enough, should pull more of that code into here
+        #  intended to be implemented in the subclass
+        raise NotImplementedError
+
+    def get_scheduled_executable_acts(self):
+        self._schedule_updated = False
+        return self._schedule_cache
 
 class Executive:
     """Superclass for executives running on ground and satellites"""
 
-    def __init__(self,sim_agent,sim_start_dt,dv_epsilon=0.01):
+    def __init__(self,sim_executive_agent,sim_start_dt,dv_epsilon=0.01):
         # holds ref to the containing sim agent
-        self.sim_agent = sim_agent
+        self.sim_executive_agent = sim_executive_agent
 
         #  scheduled activities list- a sorted list of the activities for satellite to perform ( obtained from schedule arbiter)
         #  these are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
@@ -207,8 +270,17 @@ class Executive:
     def execute_acts(self,new_time_dt):
         """ execute current activities that the update step has chosen """
 
-        #  intended to be implemented in subclass
-        raise NotImplementedError
+        #  sanity check that if we're executing activities, we do so with a finite time delta for consistency
+        if not self._first_step and not new_time_dt > self._last_act_execution_time_dt:
+            raise RuntimeWarning('Saw a zero time difference for activity execution')
+
+        #  advance the activity execution time high-water mark
+        self._last_act_execution_time_dt = new_time_dt
+
+        # if it's not the first step, then we can execute current activities
+        if not self._first_step:
+            for exec_act in self._curr_exec_acts:
+                self._execute_act(exec_act,new_time_dt)
 
     def _execute_act(self,exec_act,new_time_dt):
         """ Execute the executable activity input, taking any actions that this agent is responsible for initiating """
@@ -269,7 +341,7 @@ class Executive:
 
         #  reduce this number by any restrictions due to data volume storage availability
         #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
-        rx_delta_dv = min(rx_delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
+        rx_delta_dv = min(rx_delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt,rx_delta_dv))
 
         received_dv = min(proposed_dv,rx_delta_dv)
 
@@ -297,7 +369,7 @@ class Executive:
             proposed_act,
             txsat_data_cont,
             received_dv,
-            self.sim_agent.ID,
+            self.sim_executive_agent.ID,
             tx_sat_indx,
             self.curr_dc_indx,
             tx_data_cont_changed
@@ -354,22 +426,49 @@ class Executive:
 
         return ts_start_dt, ts_end_dt
 
-class PlannerScheduler:
-    """ superclass for planning/scheduling elements running on ground and satellites"""
-
-    def __init__(self,sim_start_dt,sim_end_dt):
-        
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
-
-    def get_plan_db(self):
-        return self.plan_db
-
-
 class StateRecorder:
     """ records state for an agent"""
 
-    def __init__(self):
-        pass
+    def __init__(self,sim_start_dt):
+        self.DS_state_hist = [] # assumed to be in Mb
+        self.base_time = sim_start_dt
+
+    def add_DS_hist(self,t_dt,val):
+        # todo: add decimation?
+        t_s = (t_dt - self.base_time).total_seconds()
+        self.DS_state_hist.append((t_s,val))
+
+    def get_DS_hist(self,out_units='minutes'):
+
+        if not out_units == 'minutes':
+            raise NotImplementedError
+
+        t = []
+        d = []
+        for pt in self.DS_state_hist:
+            t.append(pt[0]/60.0) # converted to minutes
+            d.append(pt[1]) # converted to Gb
+
+        return t,d
+        
+class ExecutiveAgentStateRecorder(StateRecorder):
+    """Convenient interface for storing state history for executive agents"""
+
+    def __init__(self,sim_start_dt):
+        self.act_hist = []
+
+        super().__init__(sim_start_dt)
+
+    def add_act_hist(self,act):
+        # note that the execution times, dv for act are stored in attributes: executable_start,executable_end,executable_data_vol
+        self.act_hist.append(act)
+
+    def get_act_hist(self):
+        acts_exe = {'dlnk': []}
+        for act in self.act_hist:
+            if type(act) == DlnkWindow: acts_exe['dlnk'].append(act)
+
+        return acts_exe
 
 class DataStore:
     """ Database for data containers (packets) stored on an agent"""
@@ -427,6 +526,8 @@ class PlanningInfoDB:
 
         #  holds list of satellite IDs in order
         self.sat_id_order = None
+        # holds list of gs IDs in order
+        self.gs_id_order = None
 
         #  contains state information history for every satellite
         self.sat_state_hist_by_id = {}  # the id here is the satellite
@@ -437,6 +538,7 @@ class PlanningInfoDB:
 
     def initialize(self,plan_db_inputs):
         self.sat_id_order = plan_db_inputs['sat_id_order']
+        self.gs_id_order = plan_db_inputs['gs_id_order']
         self.resource_delta_t_s = plan_db_inputs['resource_delta_t_s']
         self.sat_events['ecl_winds_by_sat_id'] = {}
 
@@ -469,17 +571,25 @@ class PlanningInfoDB:
             else:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
 
-    def get_filtered_sim_routes(self,filter_start_dt,filter_end_dt=None,filter_opt='partially_within',sat_id=None):
+    def get_filtered_sim_routes(self,filter_start_dt,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
         if not filter_end_dt:
             filter_end_dt = self.sim_end_dt
 
         if not filter_opt in self.filter_opts:
             raise NotImplementedError
 
+        if (sat_id is not None) and (gs_id is not None):
+            raise RuntimeError('should not filter with both satellite ID and ground station ID present')
+
         def do_filter(rt_cont):
             if sat_id is not None:
                 #  check if the route container includes the satellite ID
                 if not rt_cont.has_sat_indx(self.sat_id_order.index(sat_id)): 
+                    return False
+
+            if gs_id is not None:
+                #  check if the route container includes the ground station ID
+                if not rt_cont.has_gs_indx(self.gs_id_order.index(gs_id)): 
                     return False
 
             if filter_opt == 'totally_within':
@@ -543,5 +653,3 @@ class PlanningInfoDB:
 
     def get_ecl_winds(self, sat_id):
         return self.sat_events['ecl_winds_by_sat_id'][sat_id]
-
-

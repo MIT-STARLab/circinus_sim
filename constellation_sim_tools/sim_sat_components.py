@@ -17,13 +17,13 @@ from collections import namedtuple
 from circinus_tools  import io_tools
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
-from .sim_agent_components import Executive,PlannerScheduler,StateRecorder,PlanningInfoDB,DataStore
+from .sim_agent_components import StateSimulator,Executive,ExecutiveAgentPlannerScheduler,ExecutiveAgentStateRecorder,DataStore
 from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
 from .schedule_tools  import synthesize_executable_acts
 
 from circinus_tools import debug_tools
 
-class SatStateSimulator:
+class SatStateSimulator(StateSimulator):
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
 
     def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,dv_epsilon=0.01):
@@ -80,6 +80,8 @@ class SatStateSimulator:
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
 
+        super().__init__(sim_sat)
+
     def update(self,new_time_dt):
         """ Update state to new time by propagating state forward from last time to new time. Note that we use state at self._curr_time_dt to propagate forward to new_time_dt"""
 
@@ -88,6 +90,7 @@ class SatStateSimulator:
             if new_time_dt != self._curr_time_dt:
                 raise RuntimeWarning('Saw wrong initial time')
             self.state_recorder.add_ES_hist(self._curr_time_dt,self.ES_state)
+            self.state_recorder.add_DS_hist(self._curr_time_dt,self.DS_state)
             self._first_step = False
             return
 
@@ -165,7 +168,9 @@ class SatStateSimulator:
         if len(curr_ecl_winds) == 1:
             return True
 
-    def get_available_data_storage(self,time_dt):
+    def get_available_data_storage(self,time_dt,dv_desired=None):
+        # note: for the satellite we don't care about dv_desired
+
         if not time_dt == self._curr_time_dt:
             raise RuntimeWarning('Attempting to get available data volume from state sim off-timestep')
 
@@ -195,7 +200,6 @@ class SatStateSimulator:
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
 
-
     def get_curr_data_conts(self):
         return self.data_store.get_curr_data_conts()
 
@@ -203,40 +207,14 @@ class SatStateSimulator:
         self.data_store.cleanup(data_conts)
 
 
-class SatScheduleArbiter(PlannerScheduler):
+class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
 
     def __init__(self,sim_sat,sim_start_dt,sim_end_dt):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
-        #  this records whether or not the information in the planning database has been updated. we use this planning information to derive a schedule.  we assume that we start with no planning information available, so this is false for now ( we can't yet derive a schedule from the planning info)
-        self._planning_info_updated = False
-
-        #  whether or not schedule instance has been updated since it was last grabbed by executive
-        self._schedule_updated = False
-
-        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type circinus_tools.scheduling.routing_objects.ExecutableActivity
-        self._schedule_cache = []
-
-        # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
-        self._curr_time_dt = sim_start_dt
-
-        #  whether or not we're on the first step of the simulation
-        self._first_step = True 
-
-        super().__init__(sim_start_dt,sim_end_dt)
-
-    @property
-    def schedule_updated(self):
-        return self._schedule_updated
-
-    def flag_planning_info_update(self):
-        self._planning_info_updated = True
-
-    # def ingest_routes(self,rt_conts):
-    #     #  add to database
-    #     self.plan_db.update_routes(rt_conts)
+        super().__init__(sim_sat,sim_start_dt,sim_end_dt)
 
     def update(self,new_time_dt):
         # If first step, check the time
@@ -267,11 +245,6 @@ class SatScheduleArbiter(PlannerScheduler):
 
         self._curr_time_dt = new_time_dt
 
-    def get_scheduled_executable_acts(self):
-        self._schedule_updated = False
-        return self._schedule_cache
-
-
 class SatExecutive(Executive):
     """Handles execution of scheduled activities, with the final on whether or not to adhere exactly to schedule or make changes necessitated by most recent state estimates """
 
@@ -280,22 +253,6 @@ class SatExecutive(Executive):
         self.sim_sat = sim_sat
 
         super().__init__(sim_sat,sim_start_dt,dv_epsilon)
-
-
-    def execute_acts(self,new_time_dt):
-        """ execute current activities that the update step has chosen """
-
-        #  sanity check that if we're executing activities, we do so with a finite time delta for consistency
-        if not self._first_step and not new_time_dt > self._last_act_execution_time_dt:
-            raise RuntimeWarning('Saw a zero time difference for activity execution')
-
-        #  advance the activity execution time high-water mark
-        self._last_act_execution_time_dt = new_time_dt
-
-        # if it's not the first step, then we can execute current activities
-        if not self._first_step:
-            for exec_act in self._curr_exec_acts:
-                self._execute_act(exec_act,new_time_dt)
 
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
         """ sets up context dictionary for activity execution on the satellite"""
@@ -472,41 +429,40 @@ class SatExecutive(Executive):
                     executed_delta_dv -= dv_txed
 
         elif type(curr_act_wind) == DlnkWindow:
-            pass
-            # gs_indx = curr_act_wind.gs_indx
-            # gs_exec = self.sim_sat.get_gs_from_indx(gs_indx).get_exec()
+            gs_indx = curr_act_wind.gs_indx
+            gs_exec = self.sim_sat.get_gs_from_indx(gs_indx).get_exec()
 
-            # # note that sat is always transmitting, if it's a downlink. So sat has responsibility to start the data transfer transaction
-            # tx_delta_dv = delta_dv
+            # note that sat is always transmitting, if it's a downlink. So sat has responsibility to start the data transfer transaction
+            tx_delta_dv = delta_dv
 
-            # # while we still have delta dv to transmit
-            # while tx_delta_dv > self.dv_epsilon:
+            # while we still have delta dv to transmit
+            while tx_delta_dv > self.dv_epsilon:
             
-            #     # figure out data cont, amount of data to transmit
-            #     tx_dc, dv_to_send = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+                # figure out data cont, amount of data to transmit
+                tx_dc, dv_to_send = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
 
-            #     # send data to receiving satellite
-            #     #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
-            #     dv_txed,tx_success = gs_exec.dlnk_receive_poll(ts_start_dt,ts_end_dt,new_time_dt,curr_act_wind,self.sim_sat.sat_indx,tx_dc,dv_to_send)
+                # send data to receiving satellite
+                #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
+                dv_txed,tx_success = gs_exec.dlnk_receive_poll(ts_start_dt,ts_end_dt,new_time_dt,curr_act_wind,self.sim_sat.sat_indx,tx_dc,dv_to_send)
 
-            #     #  if there was a successful reception of the data,
-            #     if tx_success:
-            #         tx_dc.remove_dv(dv_txed)
-            #         if not tx_dc in curr_exec_context['tx_data_conts']:
-            #             curr_exec_context['tx_data_conts'].append(tx_dc)
+                #  if there was a successful reception of the data,
+                if tx_success:
+                    tx_dc.remove_dv(dv_txed)
+                    if not tx_dc in curr_exec_context['tx_data_conts']:
+                        curr_exec_context['tx_data_conts'].append(tx_dc)
 
-            #     #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
-            #     else:
-            #         # todo: added this temporarily for debugging purposes -  remove once functionality verified!
-            #         raise RuntimeWarning('saw failure to receive')
-            #         break
+                #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
+                else:
+                    # todo: added this temporarily for debugging purposes -  remove once functionality verified!
+                    raise RuntimeWarning('saw failure to receive')
+                    break
 
-            #     tx_delta_dv -= dv_txed
+                tx_delta_dv -= dv_txed
 
-            #     curr_exec_context['dv_used'] += dv_txed
+                curr_exec_context['dv_used'] += dv_txed
 
-            #     #  because  we are transmitting, we are losing data volume
-            #     executed_delta_dv -= dv_txed
+                #  because  we are transmitting, we are losing data volume
+                executed_delta_dv -= dv_txed
 
         #  otherwise, we don't know what to do with this activity type
         else:
@@ -587,42 +543,30 @@ class SatExecutive(Executive):
         else:
             raise NotImplementedError
 
-
-class SatStateRecorder(StateRecorder):
+class SatStateRecorder(ExecutiveAgentStateRecorder):
     """Convenient interface for storing state history for satellites"""
 
-    def __init__(self,sim_start_dt,state_recorder_params):
-        self.base_time = sim_start_dt
+    def __init__(self,sim_start_dt):
         self.ES_state_hist = [] # assumed to be in Wh
-        self.DS_state_hist = [] # assumed to be in Mb
-        self.act_hist = []
 
-        super().__init__()    
+        super().__init__(sim_start_dt)    
 
     def add_ES_hist(self,t_dt,val):
         # todo: add decimation?
         t_s = (t_dt - self.base_time).total_seconds()
         self.ES_state_hist.append((t_s,val))
 
-    def add_DS_hist(self,t_dt,val):
-        # todo: add decimation?
-        t_s = (t_dt - self.base_time).total_seconds()
-        self.DS_state_hist.append((t_s,val))
-
-    def add_act_hist(self,act):
-        # note that the execution times, dv for act are stored in attributes: executable_start,executable_end,executable_data_vol
-        self.act_hist.append(act)
-
     def get_act_hist(self):
-        obs_exe = []
-        xlnks_exe = []
-        dlnks_exe = []
-        for act in self.act_hist:
-            if type(act) == ObsWindow: obs_exe.append(act)
-            if type(act) == XlnkWindow: xlnks_exe.append(act)
-            if type(act) == DlnkWindow: dlnks_exe.append(act)
+        acts_exe = super().get_act_hist()
 
-        return obs_exe,dlnks_exe,xlnks_exe
+        #  add in observations and cross-links to the downlinks obtained 
+        acts_exe['obs'] = []
+        acts_exe['xlnk'] = []
+        for act in self.act_hist:
+            if type(act) == ObsWindow: acts_exe['obs'].append(act)
+            if type(act) == XlnkWindow: acts_exe['xlnk'].append(act)
+
+        return acts_exe
 
     def get_ES_hist(self,out_units='minutes'):
 
@@ -636,20 +580,5 @@ class SatStateRecorder(StateRecorder):
             e.append(pt[1])
 
         return t,e
-
-
-    def get_DS_hist(self,out_units='minutes'):
-
-        if not out_units == 'minutes':
-            raise NotImplementedError
-
-        t = []
-        d = []
-        for pt in self.DS_state_hist:
-            t.append(pt[0]/60.0) # converted to minutes
-            d.append(pt[1]) # converted to Gb
-
-        return t,d
-
 
 

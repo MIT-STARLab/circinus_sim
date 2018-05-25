@@ -55,31 +55,42 @@ class SimPlotting():
         # self.sats_dmax_Gb = [ds_params['data_storage_Gbit']['d_max'][ds_params['storage_option']] for ds_params in self.data_storage_params]
 
     def get_label_getters(self):
-        def xlnk_label_getter(xlnk):
-            dr_id = None
-            if route_ids_by_wind:
-                dr_indcs = route_ids_by_wind.get(xlnk,None)
-                if not dr_indcs is None:
-                    dr_id = dr_indcs[xlnk_route_index_to_use]
+        def xlnk_label_getter(xlnk,sat_indx):
+            # dr_id = None
+            # if route_ids_by_wind:
+            #     dr_indcs = route_ids_by_wind.get(xlnk,None)
+            #     if not dr_indcs is None:
+            #         dr_id = dr_indcs[xlnk_route_index_to_use]
 
-            other_sat_indx = xlnk.get_xlnk_partner(sat_indx)
-            if not dr_id is None:
-                label_text = "%d,%d" %(dr_id.get_indx(),other_sat_indx)
-                label_text = "%s" %(dr_indcs)
-            else:         
-                label_text = "%d" %(other_sat_indx)
+            # other_sat_indx = xlnk.get_xlnk_partner(sat_indx)
+            # if not dr_id is None:
+            #     label_text = "%d,%d" %(dr_id.get_indx(),other_sat_indx)
+            #     label_text = "%s" %(dr_indcs)
+            # else:         
+            #     label_text = "%d" %(other_sat_indx)
 
-            return label_text
+            # return label_text
+            rx_or_tx = 'rx' if xlnk.is_rx(sat_indx) else 'tx'
+            return "x%d,%s%d,dv %d/%d"%(xlnk.window_ID,rx_or_tx,xlnk.get_xlnk_partner(sat_indx),xlnk.executed_data_vol,xlnk.data_vol) 
 
         def dlnk_label_getter(dlnk):
-            # todo: scheduled data vol here is deprecated
-            return "t g%d,dv %d/%d"%(dlnk.gs_indx,dlnk.executed_data_vol,dlnk.data_vol) 
+            return "d%d,g%d,dv %d/%d"%(dlnk.window_ID,dlnk.gs_indx,dlnk.executed_data_vol,dlnk.data_vol) 
 
         def obs_label_getter(obs):
-            # todo: scheduled data vol here is deprecated
-            return "t obs %d, dv %d/%d"%(obs.window_ID,obs.executed_data_vol,obs.data_vol)
+            return "o%d, dv %d/%d"%(obs.window_ID,obs.executed_data_vol,obs.data_vol)
 
         return obs_label_getter,dlnk_label_getter,xlnk_label_getter
+
+    XLNK_COLORS = ['#FF0000','#FF3399','#990000','#990099','#FF9900']
+
+    # def xlnk_color_getter(xlnk):
+    #     xlnk_color_indx = 0
+    #     if route_ids_by_wind:
+    #         dr_indcs = route_ids_by_wind.get(xlnk,None)
+    #         if not dr_indcs is None:
+    #             dr_id = dr_indcs[xlnk_route_index_to_use]
+    #             xlnk_color_indx = dr_id.get_indx() %  xlnk_color_rollover
+    #     return xlnk_colors[xlnk_color_indx]
 
     def get_time_getters(self):
         def get_start(wind):
@@ -108,16 +119,17 @@ class SimPlotting():
         plot_params['base_time_dt'] = base_time_dt
 
         plot_params['plot_title'] = 'Executed and Planned Sat Acts'
+        plot_params['y_label'] = 'Satellite Index'
         plot_params['plot_size_inches'] = (18,12)
         plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/sim_exec_planned_acts.pdf'
+        plot_params['fig_name'] = 'plots/sim_sats_acts.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
-        plot_params['sat_id_order'] = self.sat_id_order
+        plot_params['agent_id_order'] = self.sat_id_order
 
         plot_params['plot_xlnks_choices'] = True
         plot_params['plot_dlnks_choices'] = True
@@ -125,6 +137,66 @@ class SimPlotting():
         plot_params['plot_xlnks'] = True
         plot_params['plot_dlnks'] = True
         plot_params['plot_obs'] = True
+
+        plot_params['xlnk_route_index_to_use'] = 0
+        plot_params['xlnk_color_rollover'] = 5
+        plot_params['xlnk_colors'] = self.XLNK_COLORS
+
+        obs_label_getter,dlnk_label_getter,xlnk_label_getter = self.get_label_getters()
+        plot_params['obs_label_getter_func'] = obs_label_getter
+        plot_params['dlnk_label_getter_func'] = dlnk_label_getter
+        plot_params['xlnk_label_getter_func'] = xlnk_label_getter
+
+        start_getter_reg,end_getter_reg = self.get_time_getters()
+        plot_params['start_getter_reg'] = start_getter_reg
+        plot_params['end_getter_reg'] = end_getter_reg
+
+
+
+        pltl.plot_all_agents_acts(
+            sats_ids_list,
+            sats_obs_winds_choices,
+            sats_obs_winds,
+            sats_dlnk_winds_choices,
+            sats_dlnk_winds, 
+            sats_xlnk_winds_choices,
+            sats_xlnk_winds,
+            plot_params)
+
+
+    def sim_plot_all_gs_acts(self,
+            gs_ids_list,
+            gs_dlnk_winds_choices,
+            gs_dlnk_winds, 
+            plot_start_dt,
+            plot_end_dt,
+            base_time_dt):
+
+        plot_params = {}
+        plot_params['route_ids_by_wind'] = None
+        plot_params['plot_start_dt'] = plot_start_dt
+        plot_params['plot_end_dt'] = plot_end_dt
+        plot_params['base_time_dt'] = base_time_dt
+
+        plot_params['plot_title'] = 'Executed and Planned GS Downlinks'
+        plot_params['y_label'] = 'Ground Station Index'
+        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_include_labels'] = self.input_plot_params['gs_acts_plot']['include_labels']
+        plot_params['plot_original_times_choices'] = True
+        plot_params['plot_executed_times_regular'] = True
+        plot_params['show'] = False
+        plot_params['fig_name'] = 'plots/sim_gs_dlnks.pdf'
+        plot_params['plot_fig_extension'] = 'pdf'
+
+        plot_params['time_units'] = self.input_plot_params['gs_acts_plot']['time_units']
+        plot_params['agent_id_order'] = self.sat_id_order
+
+        plot_params['plot_xlnks_choices'] = False
+        plot_params['plot_dlnks_choices'] = True
+        plot_params['plot_obs_choices'] = False
+        plot_params['plot_xlnks'] = False
+        plot_params['plot_dlnks'] = True
+        plot_params['plot_obs'] = False
 
         plot_params['xlnk_route_index_to_use'] = 0
         plot_params['xlnk_color_rollover'] = 5
@@ -139,16 +211,14 @@ class SimPlotting():
         plot_params['start_getter_reg'] = start_getter_reg
         plot_params['end_getter_reg'] = end_getter_reg
 
-
-
-        pltl.plot_all_sats_acts(
-            sats_ids_list,
-            sats_obs_winds_choices,
-            sats_obs_winds,
-            sats_dlnk_winds_choices,
-            sats_dlnk_winds, 
-            sats_xlnk_winds_choices,
-            sats_xlnk_winds,
+        pltl.plot_all_agents_acts(
+            gs_ids_list,
+            [],
+            [],
+            gs_dlnk_winds_choices,
+            gs_dlnk_winds, 
+            [],
+            [],
             plot_params)
 
 

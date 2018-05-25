@@ -1,7 +1,7 @@
 from .sim_routing_objects import ExecutableActivity
 from copy import deepcopy
 
-def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,sat_indx=None):
+def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,sat_indx=None,gs_indx=None):
     """ go through all of the route containers and synthesize a list of unique windows to execute with the correct time and the data volume utilization"""
 
     # First we need to find all of the executable versions of each activity window contained anywhere in the data routes in the route containers.
@@ -9,7 +9,7 @@ def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,
     exec_acts_by_wind = {}
     for rt_cont in rt_conts:
         # this is an iterable of type ExecutableActivity
-        rt_cont_exec_winds = rt_cont.get_winds_executable(filter_start_dt,filter_end_dt,sat_indx)
+        rt_cont_exec_winds = rt_cont.get_winds_executable(filter_start_dt,filter_end_dt,sat_indx,gs_indx)
         for exec_act in rt_cont_exec_winds:
             exec_acts_by_wind.setdefault(exec_act.wind, [])
             exec_acts_by_wind[exec_act.wind].append(exec_act)
