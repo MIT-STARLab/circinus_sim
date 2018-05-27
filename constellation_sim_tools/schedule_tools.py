@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+from circinus_tools import debug_tools
+
 class ExecutableActivity:
     """ this is an object that keeps track of an activity window, and the route containers (with their underlying data routes) whose executions are the reason why the activity window is being performed. this helps us keep track of why a window is being performed and where data goes to and arrives from"""
 
@@ -50,6 +52,10 @@ class ExecutableActivity:
 
 def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_indx=None,gs_indx=None):
     """ go through all of the route containers and synthesize a list of unique windows to execute with the correct time and the data volume utilization"""
+
+    # if sat_indx == 1:
+    #     debug_tools.debug_breakpt()
+
 
     # First we need to find all of the executable versions of each activity window contained anywhere in the data routes in the route containers.
     # note!  there may be duplicate copies of wind residing within the executable Windows objects.  in general this is okay though because we use their window ID hash for lookup

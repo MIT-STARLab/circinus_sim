@@ -226,7 +226,8 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
 
         #  if planning info has not been updated in the schedule has already been updated, then there is no reason to update schedule
-        if not self._planning_info_updated and self._schedule_updated:
+        if not self._planning_info_updated:
+            self._curr_time_dt = new_time_dt
             return
 
         #  get relevant sim route containers for deriving a schedule
@@ -241,6 +242,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
 
         self._schedule_updated = True
+        self._schedule_updated_hist.append(self._curr_time_dt)
         self._planning_info_updated = False
         self._schedule_cache = executable_acts
 
@@ -377,8 +379,8 @@ class SatExecutive(Executive):
 
             # if we just started this observation, then there are no data containers (packets). Make a new one and append
             if len(curr_exec_context['rx_data_conts']) == 0:
-                curr_data_cont = SimDataContainer(self.sim_sat.sat_id,self.sim_sat.sat_indx,self.curr_dc_indx,route=curr_act_wind,dv=0)
-                self.curr_dc_indx += 1
+                curr_data_cont = SimDataContainer(self.sim_sat.sat_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=0)
+                self._curr_dc_indx += 1
                 curr_exec_context['rx_data_conts'].append(curr_data_cont)
             else:
                 curr_data_cont = curr_exec_context['rx_data_conts'][-1]

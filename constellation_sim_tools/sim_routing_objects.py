@@ -2,6 +2,7 @@ from copy import copy
 
 from circinus_tools.scheduling.custom_window import ObsWindow
 from circinus_tools.scheduling.routing_objects import DataRoute, DataMultiRoute, RoutingObjectID
+from circinus_tools  import  time_tools as tt
 from .schedule_tools  import check_temporal_overlap, ExecutableActivity
 
 class SimDataContainer:
@@ -115,6 +116,8 @@ class SimRouteContainer:
         # allowable difference in utilization before a DMR is considered "changed" in utilization
         self.dv_utilization_epsilon = 0.001
 
+        self.output_date_str_format = 'short'
+
     @property
     def start(self):
         # get earliest start of all dmrs
@@ -125,9 +128,13 @@ class SimRouteContainer:
         # get latest end of all dmrs
         return max(dmr.end for dmr in self.dmrs_by_id.values())
 
+    @property
+    def data_vol(self):
+        return sum(dmr.data_vol*self.dv_utilization_by_dmr_id[dmr.ID] for dmr in self.dmrs_by_id.values())
+
     def __repr__(self):
-        creation_dt_str = short_date_string(self.creation_dt) if self.creation_dt else 'None'
-        update_dt_str = short_date_string(self.update_dt) if self.update_dt else 'None'
+        creation_dt_str = tt.date_string(self.creation_dt,self.output_date_str_format) if self.creation_dt else 'None'
+        update_dt_str = tt.date_string(self.update_dt,self.output_date_str_format) if self.update_dt else 'None'
         return '(SRC %s, ct %s, ut %s: %s)'%(self.ID,creation_dt_str,update_dt_str,self.get_display_string())
 
     def get_display_string(self):

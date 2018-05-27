@@ -145,7 +145,8 @@ class SimPlotting():
         obs_label_getter,dlnk_label_getter,xlnk_label_getter = self.get_label_getters()
         plot_params['obs_label_getter_func'] = obs_label_getter
         plot_params['dlnk_label_getter_func'] = dlnk_label_getter
-        plot_params['xlnk_label_getter_func'] = xlnk_label_getter
+        # plot_params['xlnk_label_getter_func'] = xlnk_label_getter
+        plot_params['xlnk_label_getter_func'] = lambda xlnk,sat_indx: ''  # return empty label
 
         start_getter_reg,end_getter_reg = self.get_time_getters()
         plot_params['start_getter_reg'] = start_getter_reg

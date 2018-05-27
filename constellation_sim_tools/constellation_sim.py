@@ -45,7 +45,9 @@ class ConstellationSim:
         self.io_proc =SchedIOProcessor(self.params)
         self.sim_plotter = SimPlotting(self.params)
 
-        # this feels a little dirty, but go ahead and create the GP wrapper here, where params is accessible
+        # we create a gp wrapper here, because:
+        # 1. it's easy to give it access to sim params right now
+        # 2. we want to store it in the constellation sim context, as opposed to within the gs network. It stores a lot of input data (e.g. accesses, data rates inputs...) and we don't want to be pickling/unpickling all that stuff every time we make a checkpoint in the sim. Note that the gp_wrapper does not internally track any constellation state, on purpose
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
 
         self._init_data_structs()
@@ -85,7 +87,6 @@ class ConstellationSim:
             self.sim_end_dt,
             self.num_sats,
             self.num_gs,
-            self.gp_wrapper,
             self.const_sim_inst_params['sim_gs_network_params'],
         ) 
         for station in self.gs_params['stations']:
@@ -173,8 +174,9 @@ class ConstellationSim:
         # unpickle from a checkpoint if so desired
         if self.sim_run_params['restore_from_checkpoint']:
             global_time, self.gs_network, self.sats_by_id, self.gs_by_id = self.unpickle_checkpoint(self.sim_run_params['restore_pkl_name'])
+            first_iter= False
+            assert(global_time != self.sim_start_dt)  # to make sure it actually isn't the first iteration
             print_verbose('Unpickled checkpoint file %s'%(self.sim_run_params['restore_pkl_name']),verbose)
-            assert(global_time != self.sim_start_dt)
 
 
         #######################
@@ -212,12 +214,13 @@ class ConstellationSim:
             # State update
 
             #  run ground network update step so that we can immediately share plans on first iteration of this loop
-            self.gs_network.state_update_step(global_time)
+            self.gs_network.state_update_step(global_time,self.gp_wrapper)
 
              # start all the satellites with a first round of GP schedules, if so desired
             if first_iter and self.sim_run_params['sat_schedule_hotstart']:
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
+                    self.gs_network.scheduler.plans_updated = False
 
             # now update satellite and ground station states
             for sat in self.sats_by_id.values():
@@ -279,6 +282,8 @@ class ConstellationSim:
         #  get scheduled activities as planned by ground network
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_planned_act_hists()
         gs_dlnks_gsn_sched = self.gs_network.get_all_gs_planned_act_hists()
+
+        # debug_tools.debug_breakpt()
 
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(

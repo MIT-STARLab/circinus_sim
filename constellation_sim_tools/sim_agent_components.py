@@ -38,9 +38,11 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
 
         #  this records whether or not the information in the planning database has been updated. we use this planning information to derive a schedule.  we assume that we start with no planning information available, so this is false for now ( we can't yet derive a schedule from the planning info)
         self._planning_info_updated = False
+        self._planning_info_updated_hist = []
 
         #  whether or not schedule instance has been updated since it was last grabbed by executive
         self._schedule_updated = False
+        self._schedule_updated_hist = []
 
         #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type ExecutableActivity
         self._schedule_cache = []
@@ -59,6 +61,7 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
 
     def flag_planning_info_update(self):
         self._planning_info_updated = True
+        self._planning_info_updated_hist.append(self._curr_time_dt)
 
     # def ingest_routes(self,rt_conts):
     #     #  add to database
@@ -82,7 +85,9 @@ class Executive:
 
         #  scheduled activities list- a sorted list of the activities for satellite to perform ( obtained from schedule arbiter)
         #  these are of type ExecutableActivity
-        self.scheduled_exec_acts = []
+        self._scheduled_exec_acts = []
+        self._scheduled_exec_acts_updated_hist = []
+
 
         # these keep track of which activity we are currently executing. The windox index (windex)  is the location within the scheduled activities list
         self._curr_exec_acts = []
@@ -105,7 +110,7 @@ class Executive:
         self.state_recorder = None
 
         # keeps track of which data container (data packet) we're on
-        self.curr_dc_indx = 0
+        self._curr_dc_indx = 0
 
         #  holds data structures that keep track of execution context for a given activity.  these are all of the data structures that keep track of what has been accomplished in the course of executing a given activity
         self._execution_context_by_exec_act = {}
@@ -118,11 +123,11 @@ class Executive:
 
     def _pull_schedule(self):
 
-        scheduled_exec_acts_copy = self.scheduled_exec_acts
+        scheduled_exec_acts_copy = self._scheduled_exec_acts
 
         # if schedule updates are available, blow away what we had previously (assumption is that scheduler handles changes to schedule gracefully)
         if self.scheduler.schedule_updated:
-            self.scheduled_exec_acts = self.scheduler.get_scheduled_executable_acts()
+            self._scheduled_exec_acts = self.scheduler.get_scheduled_executable_acts()
         else:
             return
 
@@ -136,29 +141,31 @@ class Executive:
 
             try:
                 # search for current act in the scheduled acts
-                # curr_act_indx = index_from_key(self.scheduled_exec_acts,key= ea: ea.act,value=latest_exec_act.act)
+                # curr_act_indx = index_from_key(self._scheduled_exec_acts,key= ea: ea.act,value=latest_exec_act.act)
                 # note that this searches by the activity window itself (the hash of the exec act)
-                curr_act_indx = self.scheduled_exec_acts.index(latest_exec_act)
+                curr_act_indx = self._scheduled_exec_acts.index(latest_exec_act)
             except ValueError:
                 # todo: add cleanup?
                 # - what does it mean if current act is not in new sched? cancel current act?
                 raise RuntimeWarning("Couldn't find activity in new schedule: %s"%(self._curr_exec_act.act))
 
             #  test if the routing plans for the current activity being executed have changed, we need to do something about that
-            updated_exec_act = self.scheduled_exec_acts[curr_act_indx]
+            updated_exec_act = self._scheduled_exec_acts[curr_act_indx]
             if not latest_exec_act.plans_match(updated_exec_act):
                 raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
 
             self._last_exec_act_windex = curr_act_indx
 
         # if there are activities in the schedule and we're not currently executing anything, then assume for the moment we're starting from beginning of it (actual index will be resolved in update step)
-        elif len(self.scheduled_exec_acts) > 0:
+        elif len(self._scheduled_exec_acts) > 0:
             self._last_exec_act_windex = 0
 
         # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
         else:
             # todo: no act, so what is index? Is the below correct?
             self._last_exec_act_windex = None
+
+        self._scheduled_exec_acts_updated_hist.append(self._curr_time_dt)
 
     @staticmethod
     def executable_time_accessor(exec_act,time_prop):
@@ -188,7 +195,7 @@ class Executive:
         self._pull_schedule()
 
         # figure out current activity, index of that act in schedule (note this could return None)
-        next_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_exec_act_windex,self.scheduled_exec_acts,self.executable_time_accessor)
+        next_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
         self._last_exec_act_windex = exec_act_windices[1]
 
         # sanity check that state sim has advanced to next timestep (new_time_dt) already
@@ -261,7 +268,7 @@ class Executive:
 
         #  this function is called when we choose to stop the activity. if we stop before the actual end of the activity, then we need to record that new end time.  for now we assume that the activity ends at the new time (as opposed to self._curr_time_dt), because the state simulator update step runs before the executive update step, and has already propagated state to new_time_dt assuming the activity executes until then. See SatStateSimulator.update().  if the state simulator is not run before the executive, this will need to be changed
         curr_exec_context['end_dt'] = new_time_dt
-        curr_act_wind.set_executed_properties(curr_exec_context['start_dt'],curr_exec_context['end_dt'],curr_exec_context['dv_used'])
+        curr_act_wind.set_executed_properties(curr_exec_context['start_dt'],curr_exec_context['end_dt'],curr_exec_context['dv_used'],dv_epsilon=0.1)
         self.state_recorder.add_act_hist(curr_act_wind)
         
         # delete the current exec context, for safety
@@ -364,14 +371,14 @@ class Executive:
             tx_data_cont_changed = True
 
         #  ingest the data received into the appropriate destination
-        self.curr_dc_indx = self.ingest_rx_data(
+        self._curr_dc_indx = self.ingest_rx_data(
             curr_exec_context['rx_data_conts'],
             proposed_act,
             txsat_data_cont,
             received_dv,
             self.sim_executive_agent.ID,
             tx_sat_indx,
-            self.curr_dc_indx,
+            self._curr_dc_indx,
             tx_data_cont_changed
         )
 

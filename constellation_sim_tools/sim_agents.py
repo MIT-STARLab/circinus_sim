@@ -39,7 +39,8 @@ class SimAgent:
 
     def post_planning_info_rx(self):
         """ perform any actions required after receiving new planning information"""
-        pass
+        # intended to be implemented in subclass
+        raise NotImplementedError
 
 class SimExecutiveAgent(SimAgent):
     """ superclass for agents that are capable of executing plans in the simulation (e.g. satellites, ground stations)"""
@@ -199,7 +200,7 @@ class SimGroundStation(SimExecutiveAgent):
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
     
-    def __init__(self,ID,name,sim_start_dt,sim_end_dt,num_sats,num_gs,gp_wrapper,sim_gs_network_params):
+    def __init__(self,ID,name,sim_start_dt,sim_end_dt,num_sats,num_gs,sim_gs_network_params):
         """initializes based on parameters
         
         initializes based on parameters
@@ -212,18 +213,18 @@ class SimGroundNetwork(SimAgent):
         # current time for the agent. note that individual components within the agent store their own times
         self._curr_time_dt = sim_start_dt
 
-        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,gp_wrapper,sim_gs_network_params['gsn_ps_params'])
+        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,sim_gs_network_params['gsn_ps_params'])
         self.state_recorder = GroundNetworkStateRecorder(sim_start_dt,num_sats,num_gs)
 
         self.scheduler.state_recorder = self.state_recorder
 
         super().__init__(ID)
 
-    def state_update_step(self,new_time_dt):
+    def state_update_step(self,new_time_dt,gp_wrapper):
         if new_time_dt < self._curr_time_dt:
             raise RuntimeWarning('Saw earlier time')
 
-        self.scheduler.update(new_time_dt)
+        self.scheduler.update(new_time_dt,gp_wrapper)
 
         self._curr_time_dt = new_time_dt
 
@@ -232,6 +233,6 @@ class SimGroundNetwork(SimAgent):
 
     def get_all_sats_planned_act_hists(self):
         return self.state_recorder.get_all_sats_planned_act_hists()
-        
+
     def get_all_gs_planned_act_hists(self):
         return self.state_recorder.get_all_gs_planned_act_hists()

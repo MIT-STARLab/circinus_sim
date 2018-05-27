@@ -118,6 +118,7 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
 
         #  if planning info has not been updated in the schedule has already been updated, then there is no reason to update schedule
         if not self._planning_info_updated and self._schedule_updated:
+            self._curr_time_dt = new_time_dt
             return
 
         #  get relevant sim route containers for deriving a schedule
@@ -132,6 +133,7 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
 
         self._schedule_updated = True
+        self._schedule_updated_hist.append(self._curr_time_dt)
         self._planning_info_updated = False
         self._schedule_cache = executable_acts
 
