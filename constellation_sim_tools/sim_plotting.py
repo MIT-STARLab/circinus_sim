@@ -8,9 +8,14 @@ class SimPlotting():
 
         plot_params = sim_params['const_sim_inst_params']['sim_plot_params']
         sat_params = sim_params['orbit_prop_params']['sat_params']
+        sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
         # self.obs_params = gp_params['orbit_prop_params']['obs_params']
         self.sat_id_order = sat_params['sat_id_order']
         self.input_plot_params = plot_params
+
+        self.plots_start_dt = plot_params['start_utc_dt']
+        self.plots_end_dt = plot_params['end_utc_dt']
+        self.plots_base_dt = sim_run_params['start_utc_dt']
 
         #  holds power parameters for each satellite ID,  after parsing
         self.parsed_power_params_by_sat_id = {}
@@ -107,16 +112,13 @@ class SimPlotting():
             sats_dlnk_winds_choices,
             sats_dlnk_winds, 
             sats_xlnk_winds_choices,
-            sats_xlnk_winds,
-            plot_start_dt,
-            plot_end_dt,
-            base_time_dt):
+            sats_xlnk_winds):
 
         plot_params = {}
         plot_params['route_ids_by_wind'] = None
-        plot_params['plot_start_dt'] = plot_start_dt
-        plot_params['plot_end_dt'] = plot_end_dt
-        plot_params['base_time_dt'] = base_time_dt
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'Executed and Planned Sat Acts'
         plot_params['y_label'] = 'Satellite Index'
@@ -168,16 +170,13 @@ class SimPlotting():
     def sim_plot_all_gs_acts(self,
             gs_ids_list,
             gs_dlnk_winds_choices,
-            gs_dlnk_winds, 
-            plot_start_dt,
-            plot_end_dt,
-            base_time_dt):
+            gs_dlnk_winds):
 
         plot_params = {}
         plot_params['route_ids_by_wind'] = None
-        plot_params['plot_start_dt'] = plot_start_dt
-        plot_params['plot_end_dt'] = plot_end_dt
-        plot_params['base_time_dt'] = base_time_dt
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'Executed and Planned GS Downlinks'
         plot_params['y_label'] = 'Ground Station Index'
@@ -226,16 +225,13 @@ class SimPlotting():
     def sim_plot_all_sats_energy_usage(self,
             sats_ids_list,
             energy_usage,
-            ecl_winds,
-            plot_start_dt,
-            plot_end_dt,
-            base_time_dt):
+            ecl_winds):
 
 
         plot_params = {}
-        plot_params['plot_start_dt'] = plot_start_dt
-        plot_params['plot_end_dt'] = plot_end_dt
-        plot_params['base_time_dt'] = base_time_dt
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'Energy Storage Utilization - Constellation Sim'
         plot_params['plot_size_inches'] = (18,12)
@@ -261,16 +257,13 @@ class SimPlotting():
     def sim_plot_all_sats_data_usage(self,
             sats_ids_list,
             data_usage,
-            ecl_winds,
-            plot_start_dt,
-            plot_end_dt,
-            base_time_dt):
+            ecl_winds):
 
 
         plot_params = {}
-        plot_params['plot_start_dt'] = plot_start_dt
-        plot_params['plot_end_dt'] = plot_end_dt
-        plot_params['base_time_dt'] = base_time_dt
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'Data Storage Utilization - Constellation Sim'
         plot_params['plot_size_inches'] = (18,12)

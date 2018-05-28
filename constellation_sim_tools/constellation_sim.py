@@ -283,7 +283,7 @@ class ConstellationSim:
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_planned_act_hists()
         gs_dlnks_gsn_sched = self.gs_network.get_all_gs_planned_act_hists()
 
-        # debug_tools.debug_breakpt()
+        debug_tools.debug_breakpt()
 
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
@@ -293,40 +293,28 @@ class ConstellationSim:
             dlnks_gsn_sched,
             dlnks_exe,
             xlnks_gsn_sched,
-            xlnks_exe,
-            self.sim_start_dt,
-            self.sim_end_dt,
-            self.sim_start_dt
+            xlnks_exe
         )
 
         #  plot scheduled and executed down links for ground stations
         self.sim_plotter.sim_plot_all_gs_acts(
             self.gs_id_order,
             gs_dlnks_gsn_sched,
-            gs_dlnks_exe,
-            self.sim_start_dt,
-            self.sim_end_dt,
-            self.sim_start_dt
+            gs_dlnks_exe
         )
 
         #  plot satellite energy usage
         self.sim_plotter.sim_plot_all_sats_energy_usage(
             self.sat_id_order,
             energy_usage,
-            self.ecl_winds,
-            self.sim_start_dt,
-            self.sim_end_dt,
-            self.sim_start_dt
+            self.ecl_winds
         )
 
         #  plot satellite data usage
         self.sim_plotter.sim_plot_all_sats_data_usage(
             self.sat_id_order,
             data_usage,
-            self.ecl_winds,
-            self.sim_start_dt,
-            self.sim_end_dt,
-            self.sim_start_dt
+            self.ecl_winds
         )
         
 
