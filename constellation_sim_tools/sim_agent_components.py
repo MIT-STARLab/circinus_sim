@@ -115,7 +115,8 @@ class PlannerScheduler:
         if replan_required:
 
             if len(self._replan_release_q) > 0:
-                raise RuntimeWarning('Trying to rerun GP while there are already plan results waiting for release.')
+                # note:  may need to add some better handling here... maybe sometimes we want to replan, but we should wait to we get the newest plans first?  why do we have a q if we can't put Multiple items on it?
+                raise RuntimeWarning('Trying to rerun planner while there are already plan results waiting for release.')
 
             new_rt_conts = self._run_planner(planner_wrapper)
 
@@ -214,7 +215,9 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
 
         self._schedule_cache_updated = True
         self._schedule_cache_updated_hist.append(self._curr_time_dt)
+        #  mark planning info as no longer being updated, because we have incorporated this updated information into the schedule
         self._planning_info_updated = False
+        self._planning_info_updated_external = False
         self._schedule_cache = executable_acts
 
     def get_scheduled_executable_acts(self):

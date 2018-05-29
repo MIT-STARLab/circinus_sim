@@ -96,6 +96,7 @@ class SimSatellite(SimExecutiveAgent):
         self.state_recorder = SatStateRecorder(sim_start_dt)
 
         # adds references between sat sim objects
+        self.arbiter.state_sim = self.state_sim
         self.state_sim.sat_exec = self.exec
         self.state_sim.state_recorder = self.state_recorder
         self.exec.state_sim = self.state_sim

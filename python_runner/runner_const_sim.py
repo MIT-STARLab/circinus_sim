@@ -93,7 +93,7 @@ class PipelineRunner:
             raise NotImplementedError
 
         #  check that it's the right version
-        if const_sim_inst_params_inputs['version'] == "0.1":
+        if const_sim_inst_params_inputs['version'] == "0.2":
             const_sim_inst_params['sim_run_params']['start_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_run_params']['start_utc'])
             const_sim_inst_params['sim_run_params']['end_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_run_params']['end_utc'])
             const_sim_inst_params['sim_plot_params']['start_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_plot_params']['start_utc'])

@@ -6,6 +6,7 @@ from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, Xl
 from circinus_tools  import time_tools as tt
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
+from .lp_wrapper import LocalPlannerWrapper
 from .sim_plotting import SimPlotting
 
 from circinus_tools import debug_tools
@@ -148,7 +149,7 @@ class ConstellationSim:
             sat.get_plan_db().initialize(plan_db_inputs)
 
             # as todo: fully incorporate this
-            self.lp_wrapper_by_sat_id[sat_id] = None #LocalPlannerWrapper(sim_params)
+            self.lp_wrapper_by_sat_id[sat_id] = LocalPlannerWrapper(self.params)
 
 
         #  set the simulation satellites list for every satellite

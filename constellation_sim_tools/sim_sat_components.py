@@ -217,8 +217,16 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
+        self.state_sim = None
+
         #  used to indicate the scheduler that the local planner needs to be run
-        self.lp_replan_required = False
+        # self.lp_replan_required = False
+
+        # This keeps track of the latest data route index created. (along with the agent ID, the DR "uid" in the LP algorithm)
+        self.latest_lp_route_indx = 0
+
+        # indicates that an activity was injected in the executive
+        self.act_was_injected = False
 
         # see superclass for documentation
         self.replan_release_wait_time_s = sat_arbiter_params['replan_release_wait_time_s']
@@ -231,10 +239,26 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # 1.  executive has executed an "injected activity" and we need to re-plan to deal with the effects of that activity (e.g. observation data was collected and there is no plan currently to get it to ground)
         # 2.  the scheduled activities were not executed in the way expected (e.g. activity was canceled)
         # 3.  updates have been made to the planning information database (todo:  clarify this use case)
-        replan_required = self.lp_replan_required
+
+        # todo: do we need this check?
+        # if self._planning_info_updated_external:
+        #     ...
+
         replan_required = False  # TODO REMOVE
 
+        if self.act_was_injected:
+            replan_required = True
+
         return replan_required
+
+    def _clear_replan_reqs(self):
+        """Clear all of the flags that require a replan"""
+
+        # note:  this gets called immediately after running the local planner, even if we still need to wait to release the plans from the Q. so it is possible that these flags will be set high again before the plans are even released -  that should be fine,  we will just replan again when we are able to
+        # todo:  verify the above logic
+
+
+        self.act_was_injected = False
 
     def get_executable_acts(self):
         #  get relevant sim route containers for deriving a schedule
@@ -251,10 +275,26 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  see superclass for docs
 
         #  get current data containers for planning
-        # data_conts = self.state_sim.get_curr_data_conts()
-        # #  get relevant sim route containers for planning
-        # rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_id=self.sim_sat.sat_id)
+        existing_data_conts = self.state_sim.get_curr_data_conts()
+        #  get relevant sim route containers for planning
+        # todo:  probably need to do a little bit more work to preprocess these route containers -  to provide updated utilization numbers.  not sure where this is best done -  maybe in the executive?
+        existing_rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_id=self.sim_sat.sat_id)
 
+        # todo: add getting of sat state
+        #  get the satellite states at the beginning of the planning window
+        # sat_state_by_id = self.plan_db.get_sat_states(self._curr_time_dt)
+        sat_state = None
+
+        #  run the global planner
+        # debug_tools.debug_breakpt()
+        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,existing_rt_conts,existing_data_conts,self.sim_sat.sat_id,self.latest_lp_route_indx,sat_state)
+
+        #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
+        self.latest_lp_route_indx = latest_lp_route_indx
+
+        self._clear_replan_reqs()
+
+        return new_rt_conts
 
         # lp_wrapper.run_lp(self._curr_time_dt,)
 
@@ -267,10 +307,6 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #         - figures out which rt containers to use, utilization for them
         # - receive updated list of route containers, update planning info database with these
 
-        # todo: verify this is correct
-        self.lp_replan_required = False
-
-        return []
 
     def _process_updated_routes(self,rt_conts):
         #  see superclass for docs
@@ -295,9 +331,8 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # for exec_act in executable_acts:        
         #     self.state_recorder.add_planned_act_hist(exec_act.act)
 
-    def flag_lp_replan(self): 
-        """ used to inform the scheduler that it needs to be replan with the local planner"""
-        self.lp_replan_required = True
+    def flag_act_injected(self): 
+        self.act_was_injected = True
 
 
 class SatExecutive(Executive):
@@ -369,7 +404,7 @@ class SatExecutive(Executive):
 
         #  if the activity was injected, then we need to run the local planner afterwards to deal with the unplanned effects of the activity
         if exec_act.injected:
-            self.scheduler.flag_lp_replan()
+            self.scheduler.flag_act_injected()
 
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
 

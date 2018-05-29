@@ -7,9 +7,9 @@
 
 import os.path
 import sys
-from multiprocessing import Process, Queue
+# from multiprocessing import Process, Queue
 from copy import copy
-import pickle
+# import pickle
 from datetime import datetime,timedelta
 
 from .sim_routing_objects import SimRouteContainer
@@ -42,7 +42,7 @@ class GlobalPlannerWrapper:
 
         self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
 
-    def run_gp(self,curr_time_dt,existing_sim_rt_conts,gp_agent_ID,latest_gp_route_uid,sat_state_by_id):
+    def run_gp(self,curr_time_dt,existing_rt_conts,gp_agent_ID,latest_gp_route_indx,sat_state_by_id):
 
         def get_inp_time(time_dt,param_mins):
             new_time = curr_time_dt + timedelta(minutes=param_mins)
@@ -74,8 +74,8 @@ class GlobalPlannerWrapper:
             "sats_state": sats_state
         }
 
-        esrcs = existing_sim_rt_conts
-        esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_sim_rt_conts}
+        esrcs = existing_rt_conts
+        esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_rt_conts}
         existing_route_data = {}
         existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
         #  we need to copy all of the existing routes here, because we update the schedule data volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the data route objects that satellites have in their Sim route containers ( and effectively propagating information instantaneously to the satellites - double plus ungood!). 
@@ -89,7 +89,7 @@ class GlobalPlannerWrapper:
 
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
         existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
-        existing_route_data['latest_gp_route_uid'] = latest_gp_route_uid
+        existing_route_data['latest_gp_route_indx'] = latest_gp_route_indx
 
         
         gp_inputs = {
@@ -131,7 +131,7 @@ class GlobalPlannerWrapper:
 
         scheduled_routes = gp_output['scheduled_routes']
         all_updated_routes = gp_output['all_updated_routes']
-        latest_gp_route_uid = gp_output['latest_dr_uid']
+        latest_gp_route_indx = gp_output['latest_dr_uid']
 
         scheduled_routes_set = set(scheduled_routes)
         existing_routes_set = set(existing_routes)
@@ -157,7 +157,7 @@ class GlobalPlannerWrapper:
                 SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt)
             )
 
-        return sim_routes, latest_gp_route_uid
+        return sim_routes, latest_gp_route_indx
 
         # if I want to make calling the GP a separate process at some point...
         # note the use of multiprocessing's Process means (I think) that we'll be making a copy of all the data in gp_inputs every time we call this, including the large (and unchanging!) data rates inputs. Not super great, but I don't think it'll be problematic.

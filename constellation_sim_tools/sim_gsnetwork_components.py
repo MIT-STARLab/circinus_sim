@@ -24,7 +24,7 @@ class GroundNetworkPS(PlannerScheduler):
         self.replan_interval_s = gsn_ps_params['replan_interval_s']
 
 
-        # This keeps track of the latest data route index created. (the DR "uid" in the GP algorithm)
+        # This keeps track of the latest data route index created. (along with the agent ID, the DR "uid" in the GP algorithm)
         self.latest_gp_route_indx = 0
 
         # holds ref to GroundNetworkStateRecorder
@@ -57,17 +57,17 @@ class GroundNetworkPS(PlannerScheduler):
         #  see superclass for docs
 
         #  get already existing sim route containers that need to be fed to the global planner
-        existing_sim_rt_conts = self.plan_db.get_filtered_sim_routes(self._curr_time_dt,filter_opt='partially_within')
+        existing_rt_conts = self.plan_db.get_filtered_sim_routes(self._curr_time_dt,filter_opt='partially_within')
 
         #  get the satellite states at the beginning of the planning window
         sat_state_by_id = self.plan_db.get_sat_states(self._curr_time_dt)
 
         #  run the global planner
         # debug_tools.debug_breakpt()
-        new_rt_conts, latest_gp_route_uid = gp_wrapper.run_gp(self._curr_time_dt,existing_sim_rt_conts,self.sim_gsn.ID,self.latest_gp_route_indx,sat_state_by_id)
+        new_rt_conts, latest_gp_route_indx = gp_wrapper.run_gp(self._curr_time_dt,existing_rt_conts,self.sim_gsn.ID,self.latest_gp_route_indx,sat_state_by_id)
 
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
-        self.latest_gp_route_indx = latest_gp_route_uid
+        self.latest_gp_route_indx = latest_gp_route_indx
 
         return new_rt_conts
 
