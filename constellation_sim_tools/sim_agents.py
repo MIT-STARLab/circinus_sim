@@ -143,6 +143,9 @@ class SimSatellite(SimExecutiveAgent):
     def get_ES_hist(self):
         return self.state_recorder.get_ES_hist()
 
+    def inject_obs(self,obs_list):
+        self.exec.inject_obs(obs_list)
+
 class SimGroundStation(SimExecutiveAgent):
     """class for simulation ground stations"""
     

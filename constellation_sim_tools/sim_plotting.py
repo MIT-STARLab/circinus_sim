@@ -88,14 +88,30 @@ class SimPlotting():
 
     XLNK_COLORS = ['#FF0000','#FF3399','#990000','#990099','#FF9900']
 
-    # def xlnk_color_getter(xlnk):
-    #     xlnk_color_indx = 0
-    #     if route_ids_by_wind:
-    #         dr_indcs = route_ids_by_wind.get(xlnk,None)
-    #         if not dr_indcs is None:
-    #             dr_id = dr_indcs[xlnk_route_index_to_use]
-    #             xlnk_color_indx = dr_id.get_indx() %  xlnk_color_rollover
-    #     return xlnk_colors[xlnk_color_indx]
+    def get_color_getters(self):
+
+        def obs_color_getter(obs):
+            if obs.wind_obj_type == 'injected':
+                return "#CC33FF"
+
+            return "#00FF00"
+
+        def dlnk_color_getter(obs):
+            return "#0000FF"
+
+        def xlnk_color_getter(obs):
+            return "#FF0000"
+            
+        # def xlnk_color_getter(xlnk):
+        #     xlnk_color_indx = 0
+        #     if route_ids_by_wind:
+        #         dr_indcs = route_ids_by_wind.get(xlnk,None)
+        #         if not dr_indcs is None:
+        #             dr_id = dr_indcs[xlnk_route_index_to_use]
+        #             xlnk_color_indx = dr_id.get_indx() %  xlnk_color_rollover
+        #     return xlnk_colors[xlnk_color_indx]
+
+        return obs_color_getter,dlnk_color_getter,xlnk_color_getter
 
     def get_time_getters(self):
         def get_start(wind):
@@ -123,7 +139,9 @@ class SimPlotting():
         plot_params['plot_title'] = 'Executed and Planned Sat Acts'
         plot_params['y_label'] = 'Satellite Index'
         plot_params['plot_size_inches'] = (18,12)
-        plot_params['plot_include_labels'] = self.input_plot_params['sat_acts_plot']['include_labels']
+        plot_params['plot_include_obs_labels'] = self.input_plot_params['sat_acts_plot']['include_obs_labels']
+        plot_params['plot_include_xlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_xlnk_labels']
+        plot_params['plot_include_dlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_dlnk_labels']
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
@@ -147,8 +165,13 @@ class SimPlotting():
         obs_label_getter,dlnk_label_getter,xlnk_label_getter = self.get_label_getters()
         plot_params['obs_label_getter_func'] = obs_label_getter
         plot_params['dlnk_label_getter_func'] = dlnk_label_getter
-        # plot_params['xlnk_label_getter_func'] = xlnk_label_getter
-        plot_params['xlnk_label_getter_func'] = lambda xlnk,sat_indx: ''  # return empty label
+        plot_params['xlnk_label_getter_func'] = xlnk_label_getter
+        # plot_params['xlnk_label_getter_func'] = lambda xlnk,sat_indx: ''  # return empty label
+
+        obs_color_getter,dlnk_color_getter,xlnk_color_getter = self.get_color_getters()
+        plot_params['obs_color_getter_func'] = obs_color_getter
+        plot_params['dlnk_color_getter_func'] = dlnk_color_getter
+        plot_params['xlnk_color_getter_func'] = xlnk_color_getter
 
         start_getter_reg,end_getter_reg = self.get_time_getters()
         plot_params['start_getter_reg'] = start_getter_reg

@@ -1,6 +1,9 @@
 #   wraps the global planner, providing an API for use within simulation components
 #
 # @author Kit Kennedy
+#
+# Notes:  
+# - currently, satellites' current data storage is not passed explicitly to the global planner. rather, it is passed in the form of existing data routes, which themselves levy a requirement that the data volume that they are storing on the satellites must be below the maximum buffer value for the satellite. I.e.,  we don't consider data volume in the same way as energy storage, a big pool of nameless data volume chunks, but rather a set of discrete routes that all have their own data volume. this works well for the current global planner/local planner paradigm, but may be too restrictive for future development. in that case, data storage should be passed to the global planner,  and somehow it will need to be clarified the global planner how the data storage number for each satellite relates to the data routes that it has planned
 
 import os.path
 import sys
@@ -24,7 +27,7 @@ def datetime_to_iso8601(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 class GlobalPlannerWrapper:
-    """wraps the global planner scheduling algorithm, makes it hopefully easy to call"""
+    """wraps the global planner scheduling algorithm, providing required inputs and converting outputs from/to constellation simulation"""
 
     def __init__(self, sim_params):
 

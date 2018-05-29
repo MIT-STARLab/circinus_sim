@@ -3,6 +3,7 @@ import pickle
 
 from circinus_tools.scheduling.io_processing import SchedIOProcessor
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
+from circinus_tools  import time_tools as tt
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .sim_plotting import SimPlotting
@@ -32,6 +33,7 @@ class ConstellationSim:
         self.gs_params = self.params['orbit_prop_params']['gs_params']
         self.const_sim_inst_params = sim_params['const_sim_inst_params']
         self.sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
+        self.sim_run_perturbations = sim_params['const_sim_inst_params']['sim_run_perturbations']
         self.num_sats=self.sat_params['num_sats']
         self.sat_id_order = self.sat_params['sat_id_order']
         self.gs_id_order = self.gs_params['gs_id_order']
@@ -50,10 +52,10 @@ class ConstellationSim:
         # 2. we want to store it in the constellation sim context, as opposed to within the gs network. It stores a lot of input data (e.g. accesses, data rates inputs...) and we don't want to be pickling/unpickling all that stuff every time we make a checkpoint in the sim. Note that the gp_wrapper does not internally track any constellation state, on purpose
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
 
-        self._init_data_structs()
+        self.init_data_structs()
 
 
-    def _init_data_structs(self):
+    def init_data_structs(self):
         """ initialize data structures used in the simulation """
 
         # dirty hack! I want to prevent these eclipse windows from sharing IDs with any windows returned from GP, so making them all negative. 
@@ -147,6 +149,38 @@ class ConstellationSim:
             sat.all_sim_gs = all_gs
 
         self.sats_by_id = sats_by_id
+
+        self.inject_obs()
+
+    def inject_obs(self):
+
+        inj_obs_raw = self.sim_run_perturbations['injected_observations']
+
+        windid = 0
+        inj_obs_by_sat_id = {}
+        for obs_raw in inj_obs_raw:
+            if not obs_raw['type'] == 'hardcoded':
+                raise NotImplementedError
+
+            sat_id = obs_raw['sat_id']
+            obs = ObsWindow(
+                windid, 
+                sat_indx= self.sat_id_order.index(sat_id),
+                target_IDs=['urgent'], 
+                sat_target_indx=0, 
+                start= tt.iso_string_to_dt (obs_raw['start_utc']), 
+                end= tt.iso_string_to_dt (obs_raw['end_utc']), 
+                wind_obj_type='injected'
+            )
+
+            obs.calc_data_vol(self.sat_params['pl_data_rate'])
+
+            inj_obs_by_sat_id.setdefault(sat_id, []).append(obs)
+        
+        for sat_id in self.sat_id_order:
+            self.sats_by_id[sat_id].inject_obs(inj_obs_by_sat_id.get(sat_id,[]))
+
+
 
     @staticmethod
     def pickle_checkpoint(global_time,gs_network,sats_by_id,gs_by_id):

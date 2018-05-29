@@ -19,7 +19,7 @@ from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agent_components import StateSimulator,Executive,ExecutiveAgentPlannerScheduler,ExecutiveAgentStateRecorder,DataStore
 from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
-from .schedule_tools  import synthesize_executable_acts
+from .schedule_tools  import synthesize_executable_acts, ExecutableActivity
 
 from circinus_tools import debug_tools
 
@@ -190,9 +190,9 @@ class SatStateSimulator(StateSimulator):
 
         new_DS_state = self.DS_state + delta_dv
 
-        if new_DS_state > self.DS_max:
+        if new_DS_state > self.DS_max + self.dv_epsilon:
             raise RuntimeWarning('Attempting to add more to data storage than than is available. Current DS state: %f, delta dv %f, DS  max: %f'%(self.DS_state,delta_dv,self.DS_max))
-        if new_DS_state < self.DS_min:
+        if new_DS_state < self.DS_min - self.dv_epsilon:
             raise RuntimeWarning('Attempting to go below minimum data storage limit. Current DS state: %f, delta dv %f, DS min: %f'%(self.DS_state,delta_dv,self.DS_min))
 
         self.DS_state = new_DS_state
@@ -225,7 +225,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
 
-        #  if planning info has not been updated in the schedule has already been updated, then there is no reason to update schedule
+        #  if planning info has not been updated then there is no reason to update schedule
         if not self._planning_info_updated:
             self._curr_time_dt = new_time_dt
             return
@@ -256,6 +256,25 @@ class SatExecutive(Executive):
         self.sim_sat = sim_sat
 
         super().__init__(sim_sat,sim_start_dt,dv_epsilon)
+
+    def inject_obs(self,obs_list):
+        """ add a set of observation windows for execution and routing without advance planning. note that this should only be performed once, at the beginning of the simulation"""
+
+        obs_list.sort(key=lambda wind:wind.start)
+
+        for obs in obs_list:
+            #  only allowing injection of observation windows for the time being
+            if not type(obs) is ObsWindow:
+                raise NotImplementedError
+
+            obs.set_executable_properties(dv_used=obs.data_vol)
+
+            #  add an executable activity with no route containers. there are no route containers because the addition of this observation is serendipitous/unplanned/opportunistic... so there is no plan currently what to do with the window ( that's the LP's job)
+            self._injected_exec_acts.append(ExecutableActivity(obs,rt_conts=[],dv_used=obs.data_vol))
+
+        if len(obs_list) > 0:
+            self._last_injected_exec_act_windex = 0
+
 
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
         """ sets up context dictionary for activity execution on the satellite"""

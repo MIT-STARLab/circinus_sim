@@ -22,7 +22,7 @@ class ExecutableActivity:
         return hash(self) == hash(other)
 
     def __repr__(self):
-        return "(ExecAct, wind: %s, # rt_conts: %d)"%(self.wind,len(self.rt_conts))
+        return "(ExecAct, wind: %s, dv_used: %f,# rt_conts: %d)"%(self.wind,self.dv_used,len(self.rt_conts))
 
     @property
     def act(self):

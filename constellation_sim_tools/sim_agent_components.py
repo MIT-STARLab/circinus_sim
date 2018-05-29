@@ -11,6 +11,8 @@ from circinus_tools.other_tools import index_from_key
 from circinus_tools.scheduling.custom_window import  DlnkWindow
 from .schedule_tools  import synthesize_executable_acts,check_temporal_overlap
 
+from circinus_tools import debug_tools
+
 class StateSimulator:
     """Simulates agent state, holding internally any state variables needed for the process"""
     #  this is mostly a pass-through for the subclasses, because there's a fair bit of difference in what the ground station and satellites do
@@ -87,11 +89,14 @@ class Executive:
         #  these are of type ExecutableActivity
         self._scheduled_exec_acts = []
         self._scheduled_exec_acts_updated_hist = []
+        #  this keeps track of executable activities that have been added ad hoc to the executive's scheduled activities. it's good to keep them separate from the actual schedule activities, because that makes it easier to update the schedule from the scheduler
+        self._injected_exec_acts = []
 
 
         # these keep track of which activity we are currently executing. The windox index (windex)  is the location within the scheduled activities list
         self._curr_exec_acts = []
-        self._last_exec_act_windex = None
+        self._last_scheduled_exec_act_windex = None
+        self._last_injected_exec_act_windex = None
 
         #  maintains a record of of whether or not the current activity is canceled ( say, due to an off nominal condition)
         self._cancelled_acts = set()
@@ -167,6 +172,11 @@ class Executive:
 
         self._scheduled_exec_acts_updated_hist.append(self._curr_time_dt)
 
+    def inject_acts(self,acts):
+        #  meant to be implemented in subclass
+        raise NotImplementedError
+
+
     @staticmethod
     def executable_time_accessor(exec_act,time_prop):
         if time_prop == 'start':
@@ -194,9 +204,15 @@ class Executive:
         # update schedule if need be
         self._pull_schedule()
 
-        # figure out current activity, index of that act in schedule (note this could return None)
-        next_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
+        # figure out next activities, index of that act in schedule
+        next_exec_acts = []
+        regular_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
         self._last_exec_act_windex = exec_act_windices[1]
+        next_exec_acts += regular_exec_acts
+        #  also consider injected activities ("spontaneous", unplanned activities)
+        injected_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_injected_exec_act_windex,self._injected_exec_acts,self.executable_time_accessor)
+        self._last_injected_exec_act_windex = exec_act_windices[1]
+        next_exec_acts += injected_exec_acts
 
         # sanity check that state sim has advanced to next timestep (new_time_dt) already
         assert(self.state_sim._curr_time_dt == new_time_dt)
