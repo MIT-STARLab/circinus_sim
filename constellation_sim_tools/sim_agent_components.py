@@ -3,6 +3,7 @@
 # @author Kit Kennedy
 
 from collections import namedtuple
+from datetime import timedelta
 
 from circinus_tools import io_tools
 from circinus_tools.sat_state_tools import propagate_sat_ES
@@ -21,49 +22,134 @@ class StateSimulator:
         # holds ref to the containing sim agent
         self.sim_executive_agent = sim_executive_agent
 
+ReplanQEntry = namedtuple('ReplanQEntry', 'time_dt rt_conts')
+
 class PlannerScheduler:
     """ superclass for planning/scheduling elements running on ground and satellites"""
 
     def __init__(self,sim_start_dt,sim_end_dt):
-        
+
         self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
 
-    def get_plan_db(self):
-        return self.plan_db
+        #  this is the FIFO waiting list for newly produced plans.  when current time reaches the time for the first entry, that entry will be popped and the planning info database will be updated with those plans (each entry is a ReplanQEntry named tuple). this too should always stay sorted in ascending order of entry add time
+        self._replan_release_q = []
 
-class ExecutiveAgentPlannerScheduler(PlannerScheduler):
-    """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
+        #  the time that the scheduler waits after starting replanting before it makes the new plans available for execution, and sharing with other agents. this mechanism simulates the time required for planning in real life. set this to zero to release plans immediately ( meaning we assume planning is instantaneous)
+        self.replan_release_wait_time_s = None
+        #  if true first plans created at beginning of simulation will be released immediately
+        #  note that this is only relevant to set to true for the global planner only
+        self.release_first_plans_immediately = False
 
-    def __init__(self,sim_executive_agent,sim_start_dt,sim_end_dt):
-        # holds ref to the containing sim agent
-        self.sim_executive_agent = sim_executive_agent
+        #  the last time a plan was performed
+        self._last_replan_time_dt = None
 
         #  this records whether or not the information in the planning database has been updated. we use this planning information to derive a schedule.  we assume that we start with no planning information available, so this is false for now ( we can't yet derive a schedule from the planning info)
+        #  note that this is not really used in the ground station network planner
+        #  todo: not sure if this is too hacky of a way to do this, reassess once incorporated code for planning info sharing over links
         self._planning_info_updated = False
-        self._planning_info_updated_hist = []
+        self._planning_info_updated_internal_hist = []
 
-        #  whether or not schedule instance has been updated since it was last grabbed by executive
-        self._schedule_updated = False
-        self._schedule_updated_hist = []
-
-        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type ExecutableActivity
-        self._schedule_cache = []
+        #  this keeps track of whether or not plans have been updated by taking in planning info from an external source, e.g. the ground network or other satellites
+        self._planning_info_updated_external = False
+        self._planning_info_updated_external_hist = []
+        
 
         # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
         self._curr_time_dt = sim_start_dt
 
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
+        
+    def check_plans_updated(self):
+        return self._planning_info_updated
 
+    def set_plans_updated(self,val):
+        self._planning_info_updated = val
+
+
+    def get_plan_db(self):
+        return self.plan_db
+
+    def _planning_update_internal(self,replan_required,planner_wrapper):
+        """ check and release any plans from the re-plan queue, and run planner to update plans if necessary"""
+        #  Note that this uses the internal planner ( global planner or local planner) to update planning information. planning information can also be updated through reception of planning info from other agents. 
+
+        #  perform re-plan if required, and release or add to queue as appropriate
+        if replan_required:
+
+            if len(self._replan_release_q) > 0:
+                raise RuntimeWarning('Trying to rerun GP while there are already plan results waiting for release.')
+
+            new_rt_conts = self._run_planner(planner_wrapper)
+
+            #  if we don't have to wait to release new plans
+            if self.replan_release_wait_time_s == 0:
+                self._process_updated_routes(new_rt_conts)
+                #  update replan time
+                self._last_replan_time_dt = self._curr_time_dt
+                self._planning_info_updated = True
+                self._planning_info_updated_internal_hist.append(self._curr_time_dt)
+
+            #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
+            #  note: this is intended for the global planner
+            elif self._first_step and self.release_first_plans_immediately:
+                self._process_updated_routes(new_rt_conts)
+                self._last_replan_time_dt = self._curr_time_dt
+                self._planning_info_updated = True
+                self._planning_info_updated_internal_hist.append(self._curr_time_dt)
+
+            #  if it's not the first time and there is a wait required
+            else:
+                # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
+                self._replan_release_q.append(ReplanQEntry(time_dt=self._curr_time_dt+timedelta(seconds=self.replan_release_wait_time_s),rt_conts=new_rt_conts))
+
+        #  release any ripe plans from the queue
+        while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
+            q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
+            self._process_updated_routes(q_entry.rt_conts)
+            self._last_replan_time_dt = self._curr_time_dt
+            self._planning_info_updated = True
+            self._planning_info_updated_internal_hist.append(self._curr_time_dt)
+
+    def _run_planner(self,planner_wrapper):
+        """Run the planner contained within planner_wrapper"""
+
+        #  intended to be implemented in the subclass
+        raise NotImplementedError
+
+    def _process_updated_routes(self,rt_conts):
+        """ after receiving new route containers from a planner run, update them with any required information"""
+
+        #  intended to be implemented in the subclass
+        raise NotImplementedError
+
+
+class ExecutiveAgentPlannerScheduler(PlannerScheduler):
+    """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
+
+    def __init__(self,sim_executive_agent,sim_start_dt,sim_end_dt):
         super().__init__(sim_start_dt,sim_end_dt)
+
+        # holds ref to the containing sim agent
+        self.sim_executive_agent = sim_executive_agent
+
+        #  whether or not schedule instance has been updated since it was last grabbed by executive
+        self._schedule_cache_updated = False
+        self._schedule_cache_updated_hist = []
+
+        #  cached schedule, regenerated every time we receive new planning info. the elements in this list are of type ExecutableActivity
+        self._schedule_cache = []
+
 
     @property
     def schedule_updated(self):
-        return self._schedule_updated
+        return self._schedule_cache_updated
 
-    def flag_planning_info_update(self):
+    def flag_planning_info_rx_external(self):
+        # todo: Is this the right way to handle this?
         self._planning_info_updated = True
-        self._planning_info_updated_hist.append(self._curr_time_dt)
+        self._planning_info_updated_external = True
+        self._planning_info_updated_external_hist.append(self._curr_time_dt)
 
     # def ingest_routes(self,rt_conts):
     #     #  add to database
@@ -75,7 +161,7 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
         raise NotImplementedError
 
     def get_scheduled_executable_acts(self):
-        self._schedule_updated = False
+        self._schedule_cache_updated = False
         return self._schedule_cache
 
 class Executive:
@@ -141,7 +227,7 @@ class Executive:
         # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
         if len(self._curr_exec_acts) > 0:
             # store most recent (by executable_start) exec act seen. 
-            latest_exec_act = scheduled_exec_acts_copy[self._last_exec_act_windex]
+            latest_exec_act = scheduled_exec_acts_copy[self._last_scheduled_exec_act_windex]
             assert(latest_exec_act in self._curr_exec_acts)
 
             try:
@@ -159,16 +245,16 @@ class Executive:
             if not latest_exec_act.plans_match(updated_exec_act):
                 raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
 
-            self._last_exec_act_windex = curr_act_indx
+            self._last_scheduled_exec_act_windex = curr_act_indx
 
         # if there are activities in the schedule and we're not currently executing anything, then assume for the moment we're starting from beginning of it (actual index will be resolved in update step)
         elif len(self._scheduled_exec_acts) > 0:
-            self._last_exec_act_windex = 0
+            self._last_scheduled_exec_act_windex = 0
 
         # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
         else:
             # todo: no act, so what is index? Is the below correct?
-            self._last_exec_act_windex = None
+            self._last_scheduled_exec_act_windex = None
 
         self._scheduled_exec_acts_updated_hist.append(self._curr_time_dt)
 
@@ -206,8 +292,8 @@ class Executive:
 
         # figure out next activities, index of that act in schedule
         next_exec_acts = []
-        regular_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
-        self._last_exec_act_windex = exec_act_windices[1]
+        regular_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_scheduled_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
+        self._last_scheduled_exec_act_windex = exec_act_windices[1]
         next_exec_acts += regular_exec_acts
         #  also consider injected activities ("spontaneous", unplanned activities)
         injected_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_injected_exec_act_windex,self._injected_exec_acts,self.executable_time_accessor)
@@ -286,7 +372,7 @@ class Executive:
         curr_exec_context['end_dt'] = new_time_dt
         curr_act_wind.set_executed_properties(curr_exec_context['start_dt'],curr_exec_context['end_dt'],curr_exec_context['dv_used'],dv_epsilon=0.1)
         self.state_recorder.add_act_hist(curr_act_wind)
-        
+
         # delete the current exec context, for safety
         self._execution_context_by_exec_act[exec_act] = None
 

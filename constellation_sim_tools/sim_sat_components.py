@@ -20,6 +20,7 @@ from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, Xl
 from .sim_agent_components import StateSimulator,Executive,ExecutiveAgentPlannerScheduler,ExecutiveAgentStateRecorder,DataStore
 from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
 from .schedule_tools  import synthesize_executable_acts, ExecutableActivity
+from .lp_wrapper import LocalPlannerWrapper 
 
 from circinus_tools import debug_tools
 
@@ -210,18 +211,33 @@ class SatStateSimulator(StateSimulator):
 class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
 
-    def __init__(self,sim_sat,sim_start_dt,sim_end_dt):
+    def __init__(self,sim_sat,sim_start_dt,sim_end_dt,sat_arbiter_params):
+        super().__init__(sim_sat,sim_start_dt,sim_end_dt)
+
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
 
-        super().__init__(sim_sat,sim_start_dt,sim_end_dt)
+        #  used to indicate the scheduler that the local planner needs to be run
+        self.lp_replan_required = False
 
-    def update(self,new_time_dt):
+        # see superclass for documentation
+        self.replan_release_wait_time_s = sat_arbiter_params['replan_release_wait_time_s']
+
+
+    def update(self,new_time_dt,lp_wrapper):
         # If first step, check the time
         if self._first_step:
             if new_time_dt != self._curr_time_dt:
                 raise RuntimeWarning('Saw wrong initial time')
             self._first_step = False
+
+         #  only run the local planner if it's been flagged as needing to be run. reasons for this:
+        # 1.  executive has executed an "injected activity" and we need to re-plan to deal with the effects of that activity (e.g. observation data was collected and there is no plan currently to get it to ground)
+        # 2.  the scheduled activities were not executed in the way expected (e.g. activity was canceled)
+        # 3.  updates have been made to the planning information database (todo:  clarify this use case)
+        replan_required = self.lp_replan_required
+        replan_required = False  # TODO REMOVE
+        self._planning_update_internal(replan_required,lp_wrapper)
 
         # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
 
@@ -241,12 +257,66 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # sort executable activities by start time
         executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
 
-        self._schedule_updated = True
-        self._schedule_updated_hist.append(self._curr_time_dt)
+        self._schedule_cache_updated = True
+        self._schedule_cache_updated_hist.append(self._curr_time_dt)
         self._planning_info_updated = False
         self._schedule_cache = executable_acts
 
         self._curr_time_dt = new_time_dt
+
+        
+    def _run_planner(self,lp_wrapper):
+        #  see superclass for docs
+
+        #  get current data containers for planning
+        # data_conts = self.state_sim.get_curr_data_conts()
+        # #  get relevant sim route containers for planning
+        # rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_id=self.sim_sat.sat_id)
+
+
+        # lp_wrapper.run_lp(self._curr_time_dt,)
+
+        # run lp
+        #     - wrapper
+        #         - feed in existing route conts
+        #         -  create new route containers for every un-routed data container, feed those in
+        #         - give it current state as well
+        #     - run lp
+        #         - figures out which rt containers to use, utilization for them
+        # - receive updated list of route containers, update planning info database with these
+
+        # todo: verify this is correct
+        self.lp_replan_required = False
+
+        return []
+
+    def _process_updated_routes(self,rt_conts):
+        #  see superclass for docs
+
+        pass
+        # #  mark all of the route containers with their release time
+        # for rt_cont in rt_conts:
+        #     rt_cont.set_times_safe(self._curr_time_dt)
+
+        # # update plan database
+        # self.plan_db.update_routes(rt_conts)
+
+        # #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
+        # #  filter rationale: want any route containers that have at least one window overlapping past start time
+        # rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
+
+        # # distill the activities out of the route containers
+        # #  filter rationale:  only want windows that are completely past the start time, because we don't want to update our planned activity history with activities from the past
+        # executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='totally_within')
+
+        # # update any acts that have changed within our plans (note: activity plans CAN change up to right before they get executed, though the GP is incentivized to keep planned activities the same once it chooses them)
+        # for exec_act in executable_acts:        
+        #     self.state_recorder.add_planned_act_hist(exec_act.act)
+
+    def flag_lp_replan(self): 
+        """ used to inform the scheduler that it needs to be replan with the local planner"""
+        self.lp_replan_required = True
+
 
 class SatExecutive(Executive):
     """Handles execution of scheduled activities, with the final on whether or not to adhere exactly to schedule or make changes necessitated by most recent state estimates """
@@ -270,7 +340,8 @@ class SatExecutive(Executive):
             obs.set_executable_properties(dv_used=obs.data_vol)
 
             #  add an executable activity with no route containers. there are no route containers because the addition of this observation is serendipitous/unplanned/opportunistic... so there is no plan currently what to do with the window ( that's the LP's job)
-            self._injected_exec_acts.append(ExecutableActivity(obs,rt_conts=[],dv_used=obs.data_vol))
+            # Mark the activity as injected, so that the executive can handle it appropriately
+            self._injected_exec_acts.append(ExecutableActivity(obs,rt_conts=[],dv_used=obs.data_vol,injected=True))
 
         if len(obs_list) > 0:
             self._last_injected_exec_act_windex = 0
@@ -313,6 +384,10 @@ class SatExecutive(Executive):
 
         # flag any empty data conts that we transmitted for removal
         self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'])
+
+        #  if the activity was injected, then we need to run the local planner afterwards to deal with the unplanned effects of the activity
+        if exec_act.injected:
+            self.scheduler.flag_lp_replan()
 
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
 

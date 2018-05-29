@@ -3,7 +3,6 @@
 # @author Kit Kennedy
 
 from collections import namedtuple
-from datetime import timedelta
 
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agent_components import Executive,PlannerScheduler,StateRecorder
@@ -11,46 +10,29 @@ from .schedule_tools  import synthesize_executable_acts
 
 from circinus_tools import debug_tools
 
-ReplanQEntry = namedtuple('ReplanQEntry', 'time_dt rt_conts')
-
 class GroundNetworkPS(PlannerScheduler):
     """Handles calling of the GP, and ingestion of plan and state updates from satellites"""
 
     def __init__(self,sim_gsn,sim_start_dt,sim_end_dt,gsn_ps_params):
+        #  initialize from superclass first
+        super().__init__(sim_start_dt,sim_end_dt)
+
         # holds ref to the containing sim ground network
         self.sim_gsn = sim_gsn
-
-        # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
-        self._curr_time_dt = sim_start_dt
 
         #  time to wait since last plans were released before rerunning planning
         self.replan_interval_s = gsn_ps_params['replan_interval_s']
 
-        #  this is the FIFO waiting list for newly produced plans.  when current time reaches the time for the first entry, that entry will be popped and the planning info database will be updated with those plans (each entry is a ReplanQEntry named tuple). this too should always stay sorted in ascending order of entry add time
-        self._replan_release_q = []
-        #  the time that the scheduler waits after starting replanting before it makes the new plans available for sharing with other agents. this mechanism simulates the time required for planning in real life. set this to zero to release plans immediately ( meaning we assume planning is instantaneous)
-        self.replan_release_wait_time_s = gsn_ps_params['replan_release_wait_time_s']
-        #  if true first plans created at beginning of simulation will be released immediately
-        self.release_first_plans_immediately = gsn_ps_params['release_first_plans_immediately']
-
-        #  the last time a plan was performed
-        self._last_replan_time_dt = None
-        self._last_replan_time_hist = []
-
-        #  whether or not plans have been updated
-        #  todo: not sure if this is too hacky of a way to do this, reassess once incorporated code for planning info sharing over links
-        self.plans_updated = False
 
         # This keeps track of the latest data route index created. (the DR "uid" in the GP algorithm)
         self.latest_gp_route_indx = 0
 
-        #  whether or not we're on the first step of the simulation
-        self._first_step = True 
-
         # holds ref to GroundNetworkStateRecorder
         self.state_recorder = None
 
-        super().__init__(sim_start_dt,sim_end_dt)
+        # see superclass for documentation
+        self.replan_release_wait_time_s = gsn_ps_params['replan_release_wait_time_s']
+        self.release_first_plans_immediately = gsn_ps_params['release_first_plans_immediately']
 
     def update(self,new_time_dt,gp_wrapper):
         """  this code calls the global planner. it deals with the fact that in reality it takes time to run the global planner. for this reason we add the output of the global planner to a queue, and only release those new plans once enough simulation time is past for those plans to be 'available'.  we do this primarily because satellites can talk to the ground station at any time, so we don't want to do an instantaneous plan update right after the ground station talks to one satellite and then share those plans with another satellite immediately. We have to wait a replan time. """
@@ -71,42 +53,7 @@ class GroundNetworkPS(PlannerScheduler):
         if len(self._replan_release_q) > 0:
             replan_required = False
 
-        #  perform re-plan if required, and release or add to queue as appropriate
-        if replan_required:
-
-            if len(self._replan_release_q) > 0:
-                raise RuntimeWarning('Trying to rerun GP while there already plan results waiting for release.')
-
-            new_rt_conts = self._run_planner(gp_wrapper)
-
-            #  if we don't have to wait to release new plans
-            if self.replan_release_wait_time_s == 0:
-                self._process_updated_routes(new_rt_conts)
-                #  update replan time
-                self._last_replan_time_dt = self._curr_time_dt
-                self._last_replan_time_hist.append(self._last_replan_time_dt)
-                self.plans_updated = True
-
-            #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
-            elif self._first_step and self.release_first_plans_immediately:
-                self._process_updated_routes(new_rt_conts)
-                self._last_replan_time_dt = self._curr_time_dt
-                self._last_replan_time_hist.append(self._last_replan_time_dt)
-                self.plans_updated = True
-
-            #  if it's not the first time and there is a wait required
-            else:
-                # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
-                self._replan_release_q.append(ReplanQEntry(time_dt=self._curr_time_dt+timedelta(seconds=self.replan_release_wait_time_s),rt_conts=new_rt_conts))
-
-        #  release any ripe plans from the queue
-        while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
-            q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
-            self._process_updated_routes(q_entry.rt_conts)
-            self._last_replan_time_dt = self._curr_time_dt
-            self._last_replan_time_hist.append(self._last_replan_time_dt)
-            self.plans_updated = True
-
+        self._planning_update_internal(replan_required,gp_wrapper)
 
         #  time update
         self._curr_time_dt = new_time_dt
@@ -114,6 +61,7 @@ class GroundNetworkPS(PlannerScheduler):
         self._first_step = False
 
     def _run_planner(self,gp_wrapper):
+        #  see superclass for docs
 
         #  get already existing sim route containers that need to be fed to the global planner
         existing_sim_rt_conts = self.plan_db.get_filtered_sim_routes(self._curr_time_dt,filter_opt='partially_within')
@@ -131,6 +79,7 @@ class GroundNetworkPS(PlannerScheduler):
         return new_rt_conts
 
     def _process_updated_routes(self,rt_conts):
+        #  see superclass for docs
 
         #  mark all of the route containers with their release time
         for rt_cont in rt_conts:

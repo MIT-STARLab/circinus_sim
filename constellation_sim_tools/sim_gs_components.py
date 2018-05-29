@@ -102,10 +102,11 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
 
     def __init__(self,sim_gs,sim_start_dt,sim_end_dt):
+        super().__init__(sim_gs,sim_start_dt,sim_end_dt)
+
         # holds ref to the containing sim sat
         self.sim_gs = sim_gs
 
-        super().__init__(sim_gs,sim_start_dt,sim_end_dt)
 
     def update(self,new_time_dt):
         # If first step, check the time
@@ -117,7 +118,7 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
 
         #  if planning info has not been updated in the schedule has already been updated, then there is no reason to update schedule
-        if not self._planning_info_updated and self._schedule_updated:
+        if not self._planning_info_updated:
             self._curr_time_dt = new_time_dt
             return
 
@@ -132,8 +133,8 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         # sort executable activities by start time
         executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
 
-        self._schedule_updated = True
-        self._schedule_updated_hist.append(self._curr_time_dt)
+        self._schedule_cache_updated = True
+        self._schedule_cache_updated_hist.append(self._curr_time_dt)
         self._planning_info_updated = False
         self._schedule_cache = executable_acts
 

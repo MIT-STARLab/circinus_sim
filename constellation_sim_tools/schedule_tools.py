@@ -5,13 +5,15 @@ from circinus_tools import debug_tools
 class ExecutableActivity:
     """ this is an object that keeps track of an activity window, and the route containers (with their underlying data routes) whose executions are the reason why the activity window is being performed. this helps us keep track of why a window is being performed and where data goes to and arrives from"""
 
-    def __init__(self,wind,rt_conts,dv_used):
+    def __init__(self,wind,rt_conts,dv_used,injected=False):
         #  the activity window for this object
         self.wind =  wind
         # rt_conts are the route containers for the window
         self.rt_conts =  rt_conts
         # dv_used is the amount of data volume used for this window within the route in which the wind was found
         self.dv_used =  dv_used
+        # Used to indicate if the activity is "injected" or not. "injected" means that it's a spontaneous/unplanned-for activity
+        self.injected = injected
 
     def __hash__(self):
         # xor the components together

@@ -52,6 +52,10 @@ class ConstellationSim:
         # 2. we want to store it in the constellation sim context, as opposed to within the gs network. It stores a lot of input data (e.g. accesses, data rates inputs...) and we don't want to be pickling/unpickling all that stuff every time we make a checkpoint in the sim. Note that the gp_wrapper does not internally track any constellation state, on purpose
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
 
+        #  in a similar manner to the global planner wrapper, we create the local planner wrappers here
+        #  we need one for each satellite, because they have specific parameters
+        self.lp_wrapper_by_sat_id = {}
+
         self.init_data_structs()
 
 
@@ -142,6 +146,10 @@ class ConstellationSim:
 
             #  initialize the planning info database
             sat.get_plan_db().initialize(plan_db_inputs)
+
+            # as todo: fully incorporate this
+            self.lp_wrapper_by_sat_id[sat_id] = None #LocalPlannerWrapper(sim_params)
+
 
         #  set the simulation satellites list for every satellite
         for sat in all_sats:
@@ -254,11 +262,11 @@ class ConstellationSim:
             if first_iter and self.sim_run_params['sat_schedule_hotstart']:
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
-                    self.gs_network.scheduler.plans_updated = False
+                    self.gs_network.scheduler.set_plans_updated(False)
 
             # now update satellite and ground station states
-            for sat in self.sats_by_id.values():
-                sat.state_update_step(global_time)
+            for sat_id,sat in self.sats_by_id.items():
+                sat.state_update_step(global_time,self.lp_wrapper_by_sat_id[sat_id])
             for gs in self.gs_by_id.values():
                 gs.state_update_step(global_time)
 
@@ -268,7 +276,7 @@ class ConstellationSim:
             # Replanning
 
             # todo: seems kinda bad to cross levels of abstraction like this...
-            if self.gs_network.scheduler.plans_updated:
+            if self.gs_network.scheduler.check_plans_updated():
                 # todo: this is a testing HACK to provide plans to the sats.  remove!
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
@@ -277,7 +285,7 @@ class ConstellationSim:
                 #  every time the ground network re-plans, want to send that updated planning information to the ground stations
                 for gs in self.gs_by_id.values():
                     self.gs_network.send_planning_info(gs)
-                self.gs_network.scheduler.plans_updated = False
+                self.gs_network.scheduler.set_plans_updated(False)
 
             # todo: this should be added back in when the local planner is included
             # for sat in self.sats_by_id.values():

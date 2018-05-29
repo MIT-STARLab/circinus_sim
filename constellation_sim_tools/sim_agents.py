@@ -91,7 +91,7 @@ class SimSatellite(SimExecutiveAgent):
             sat_scenario_params['data_storage_params'],
             sat_scenario_params['initial_state'],
         )
-        self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt)
+        self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt,sim_satellite_params['sat_schedule_arbiter_params'])
         self.exec = SatExecutive(self,sim_start_dt)
         self.state_recorder = SatStateRecorder(sim_start_dt)
 
@@ -110,7 +110,7 @@ class SimSatellite(SimExecutiveAgent):
     def sat_id(self):
         return self.ID
 
-    def state_update_step(self,new_time_dt):
+    def state_update_step(self,new_time_dt,lp_wrapper):
         """ update the state of the satellite using the new time"""
 
         if new_time_dt < self._curr_time_dt:
@@ -118,7 +118,7 @@ class SimSatellite(SimExecutiveAgent):
 
         # note that the order of these update steps is not arbitrary. See their definition file for more information.
         self.state_sim.update(new_time_dt)
-        self.arbiter.update(new_time_dt)
+        self.arbiter.update(new_time_dt,lp_wrapper)
         self.exec.update(new_time_dt)
 
         self._curr_time_dt = new_time_dt
@@ -135,7 +135,7 @@ class SimSatellite(SimExecutiveAgent):
 
     def post_planning_info_rx(self):
         """ perform any actions required after receiving new planning information (satellite-specific)"""
-        self.arbiter.flag_planning_info_update()
+        self.arbiter.flag_planning_info_rx_external()
 
     def get_ecl_winds(self):
         return self.get_plan_db().get_ecl_winds(self.sat_id)
@@ -198,7 +198,7 @@ class SimGroundStation(SimExecutiveAgent):
 
     def post_planning_info_rx(self):
         """ perform any actions required after receiving new planning information (satellite-specific)"""
-        self.scheduler_pass_thru.flag_planning_info_update()
+        self.scheduler_pass_thru.flag_planning_info_rx_external()
 
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
