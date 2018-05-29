@@ -107,21 +107,18 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         # holds ref to the containing sim sat
         self.sim_gs = sim_gs
 
+    def _check_internal_planning_update_req(self):
+        #  don't need to do an internal planning update, because currently ground stations do not do any of their own planning ( they get all of their plans from the ground station network)
+        return False
 
-    def update(self,new_time_dt):
-        # If first step, check the time
-        if self._first_step:
-            if new_time_dt != self._curr_time_dt:
-                raise RuntimeWarning('Saw wrong initial time')
-            self._first_step = False
+    def _internal_planning_update(self,replan_required,planner_wrapper):
+        #  we don't do any internal planning updates for the ground station planner. ( including this for clarity of intent, not because things wouldn't run if it weren't present)
 
-        # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
+        #  explicitly raise an error if a planner wrapper was provided ( none should exist for the ground stations)
+        if planner_wrapper:
+            raise NotImplementedError
 
-        #  if planning info has not been updated in the schedule has already been updated, then there is no reason to update schedule
-        if not self._planning_info_updated:
-            self._curr_time_dt = new_time_dt
-            return
-
+    def get_executable_acts(self):
         #  get relevant sim route containers for deriving a schedule
         rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',gs_id=self.sim_gs.gs_id)
 
@@ -130,15 +127,7 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
         executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',gs_indx=self.sim_gs.gs_indx)
 
-        # sort executable activities by start time
-        executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
-
-        self._schedule_cache_updated = True
-        self._schedule_cache_updated_hist.append(self._curr_time_dt)
-        self._planning_info_updated = False
-        self._schedule_cache = executable_acts
-
-        self._curr_time_dt = new_time_dt
+        return executable_acts
     
 class GSExecutive(Executive):
 

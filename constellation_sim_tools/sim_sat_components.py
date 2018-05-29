@@ -223,13 +223,9 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # see superclass for documentation
         self.replan_release_wait_time_s = sat_arbiter_params['replan_release_wait_time_s']
 
+    def _check_internal_planning_update_req(self):
 
-    def update(self,new_time_dt,lp_wrapper):
-        # If first step, check the time
-        if self._first_step:
-            if new_time_dt != self._curr_time_dt:
-                raise RuntimeWarning('Saw wrong initial time')
-            self._first_step = False
+        # todo: update this code
 
          #  only run the local planner if it's been flagged as needing to be run. reasons for this:
         # 1.  executive has executed an "injected activity" and we need to re-plan to deal with the effects of that activity (e.g. observation data was collected and there is no plan currently to get it to ground)
@@ -237,15 +233,10 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # 3.  updates have been made to the planning information database (todo:  clarify this use case)
         replan_required = self.lp_replan_required
         replan_required = False  # TODO REMOVE
-        self._planning_update_internal(replan_required,lp_wrapper)
 
-        # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
+        return replan_required
 
-        #  if planning info has not been updated then there is no reason to update schedule
-        if not self._planning_info_updated:
-            self._curr_time_dt = new_time_dt
-            return
-
+    def get_executable_acts(self):
         #  get relevant sim route containers for deriving a schedule
         rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_id=self.sim_sat.sat_id)
 
@@ -254,16 +245,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
         executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_indx=self.sim_sat.sat_indx)
 
-        # sort executable activities by start time
-        executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
-
-        self._schedule_cache_updated = True
-        self._schedule_cache_updated_hist.append(self._curr_time_dt)
-        self._planning_info_updated = False
-        self._schedule_cache = executable_acts
-
-        self._curr_time_dt = new_time_dt
-
+        return executable_acts
         
     def _run_planner(self,lp_wrapper):
         #  see superclass for docs

@@ -22,6 +22,12 @@ class StateSimulator:
         # holds ref to the containing sim agent
         self.sim_executive_agent = sim_executive_agent
 
+    def update(self,new_time_dt):
+        """ update state for state simulator"""
+
+        #  intended to be implemented in the subclass
+        raise NotImplementedError
+
 ReplanQEntry = namedtuple('ReplanQEntry', 'time_dt rt_conts')
 
 class PlannerScheduler:
@@ -66,13 +72,44 @@ class PlannerScheduler:
     def set_plans_updated(self,val):
         self._planning_info_updated = val
 
+    def update(self,new_time_dt,planner_wrapper):
+        """ update state for planner/scheduler"""
+
+        if self._first_step:
+            if new_time_dt != self._curr_time_dt:
+                raise RuntimeWarning('Saw wrong initial time')
+            self._first_step = False
+
+        replan_required = self._check_internal_planning_update_req()
+
+        self._internal_planning_update(replan_required,planner_wrapper)
+
+        self._schedule_cache_update()
+
+        self._curr_time_dt = new_time_dt
 
     def get_plan_db(self):
         return self.plan_db
 
-    def _planning_update_internal(self,replan_required,planner_wrapper):
+    def _check_internal_planning_update_req(self):
+        """ check if we need to do an internal planning update ( run the planner, if we have one, or release plans that have already been made )"""
+
+        #  intended to be implemented in the subclass
+        raise NotImplementedError
+
+    def _schedule_cache_update(self):
+        """ update the schedule cache ( for executive agents) """
+
+        #  intended to be implemented in the subclass
+        raise NotImplementedError
+
+    def _internal_planning_update(self,replan_required,planner_wrapper):
         """ check and release any plans from the re-plan queue, and run planner to update plans if necessary"""
-        #  Note that this uses the internal planner ( global planner or local planner) to update planning information. planning information can also be updated through reception of planning info from other agents. 
+
+        # note:  this function can be overloaded in a subclass, if no planning actually needs take place (e.g.  ground station)
+
+        # note: This code calls the planner for this agent. It deals with the fact that in reality it takes time to run the planner. For this reason we add the output of the planner to a queue, and only release those new plans once enough simulation time is past for those plans to be 'available'. We do this primarily because agents can talk to each other at any time, so we don't want to do an instantaneous plan update and share those plans immediately if in reality it would take time to compute them
+        # note: that this uses the internal planner ( global planner or local planner) to update planning information. planning information can also be updated through reception of planning info from other agents. 
 
         #  perform re-plan if required, and release or add to queue as appropriate
         if replan_required:
@@ -155,15 +192,35 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
     #     #  add to database
     #     self.plan_db.update_routes(rt_conts)
 
-    def update(self,new_time_dt):
-        # todo: if the update code in each of the classes gets similar enough, should pull more of that code into here
+    def get_executable_acts(self):
+        """  get filtered list of executable acts for this agent"""
+
         #  intended to be implemented in the subclass
         raise NotImplementedError
+
+    def _schedule_cache_update(self):
+        """ update the schedule cache, for use by the executive"""
+
+        # rest of the code is fine to execute in first step, because we might have planning info from which to derive a schedule
+
+        #  if planning info has not been updated then there is no reason to update schedule
+        if not self._planning_info_updated:
+            return
+
+        executable_acts = self.get_executable_acts()
+
+        # sort executable activities by start time
+        executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
+
+        self._schedule_cache_updated = True
+        self._schedule_cache_updated_hist.append(self._curr_time_dt)
+        self._planning_info_updated = False
+        self._schedule_cache = executable_acts
 
     def get_scheduled_executable_acts(self):
         self._schedule_cache_updated = False
         return self._schedule_cache
-
+        
 class Executive:
     """Superclass for executives running on ground and satellites"""
 

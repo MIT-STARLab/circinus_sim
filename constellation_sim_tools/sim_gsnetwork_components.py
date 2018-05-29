@@ -34,15 +34,9 @@ class GroundNetworkPS(PlannerScheduler):
         self.replan_release_wait_time_s = gsn_ps_params['replan_release_wait_time_s']
         self.release_first_plans_immediately = gsn_ps_params['release_first_plans_immediately']
 
-    def update(self,new_time_dt,gp_wrapper):
-        """  this code calls the global planner. it deals with the fact that in reality it takes time to run the global planner. for this reason we add the output of the global planner to a queue, and only release those new plans once enough simulation time is past for those plans to be 'available'.  we do this primarily because satellites can talk to the ground station at any time, so we don't want to do an instantaneous plan update right after the ground station talks to one satellite and then share those plans with another satellite immediately. We have to wait a replan time. """
-        
-        # If first step, check time validity
-        if self._first_step:
-            if new_time_dt != self._curr_time_dt:
-                raise RuntimeWarning('Saw wrong initial time')
+    def _check_internal_planning_update_req(self):
 
-        #  see if we need to replan at this time step
+         #  see if we need to replan at this time step
         # add in consideration for lots of received updated planning information from satellites causing a need to rerun global planner?
         replan_required = False
         if self._last_replan_time_dt is None:
@@ -53,12 +47,11 @@ class GroundNetworkPS(PlannerScheduler):
         if len(self._replan_release_q) > 0:
             replan_required = False
 
-        self._planning_update_internal(replan_required,gp_wrapper)
+        return replan_required
 
-        #  time update
-        self._curr_time_dt = new_time_dt
-
-        self._first_step = False
+    def _schedule_cache_update(self):
+        #  don't need to do anything with generating a schedule cache because the ground station network is not an executive planner ( it doesn't execute activities)
+        pass
 
     def _run_planner(self,gp_wrapper):
         #  see superclass for docs

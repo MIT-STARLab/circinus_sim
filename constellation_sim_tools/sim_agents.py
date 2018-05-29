@@ -118,7 +118,7 @@ class SimSatellite(SimExecutiveAgent):
 
         # note that the order of these update steps is not arbitrary. See their definition file for more information.
         self.state_sim.update(new_time_dt)
-        self.arbiter.update(new_time_dt,lp_wrapper)
+        self.arbiter.update(new_time_dt,planner_wrapper=lp_wrapper)
         self.exec.update(new_time_dt)
 
         self._curr_time_dt = new_time_dt
@@ -188,7 +188,7 @@ class SimGroundStation(SimExecutiveAgent):
 
         # note that the order of these update steps is not arbitrary. See their definition file for more information.
         self.state_sim.update(new_time_dt)
-        self.scheduler_pass_thru.update(new_time_dt)
+        self.scheduler_pass_thru.update(new_time_dt,planner_wrapper=None)
         self.exec.update(new_time_dt)
 
         self._curr_time_dt = new_time_dt
@@ -227,7 +227,7 @@ class SimGroundNetwork(SimAgent):
         if new_time_dt < self._curr_time_dt:
             raise RuntimeWarning('Saw earlier time')
 
-        self.scheduler.update(new_time_dt,gp_wrapper)
+        self.scheduler.update(new_time_dt,planner_wrapper=gp_wrapper)
 
         self._curr_time_dt = new_time_dt
 
