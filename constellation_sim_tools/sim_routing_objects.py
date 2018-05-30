@@ -118,15 +118,13 @@ class SimRouteContainer:
 
         self.output_date_str_format = 'short'
 
-    @property
-    def start(self):
+    def get_start(self,time_opt='regular'):
         # get earliest start of all dmrs
-        return min(dmr.start for dmr in self.dmrs_by_id.values())
+        return min(dmr.get_start(time_opt) for dmr in self.dmrs_by_id.values())
 
-    @property
-    def end(self):
+    def get_end(self,time_opt='regular'):
         # get latest end of all dmrs
-        return max(dmr.end for dmr in self.dmrs_by_id.values())
+        return max(dmr.get_end(time_opt) for dmr in self.dmrs_by_id.values())
 
     @property
     def data_vol(self):

@@ -759,7 +759,7 @@ class PlanningInfoDB:
                 if not rt_cont.has_gs_indx(self.gs_id_order.index(gs_id)): 
                     return False
 
-            if not check_temporal_overlap(rt_cont.start,rt_cont.end,filter_start_dt,filter_end_dt,filter_opt):
+            if not check_temporal_overlap(rt_cont.get_start(),rt_cont.get_end(),filter_start_dt,filter_end_dt,filter_opt):
                 return False
 
             return True

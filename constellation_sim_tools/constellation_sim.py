@@ -53,9 +53,8 @@ class ConstellationSim:
         # 2. we want to store it in the constellation sim context, as opposed to within the gs network. It stores a lot of input data (e.g. accesses, data rates inputs...) and we don't want to be pickling/unpickling all that stuff every time we make a checkpoint in the sim. Note that the gp_wrapper does not internally track any constellation state, on purpose
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
 
-        #  in a similar manner to the global planner wrapper, we create the local planner wrappers here
-        #  we need one for each satellite, because they have specific parameters
-        self.lp_wrapper_by_sat_id = {}
+        # Also create local planner wrapper. it will store inputs that are common across all satellites. the instance parameters passed to it should be satellite-specific
+        self.lp_wrapper = LocalPlannerWrapper(self.params)
 
         self.init_data_structs()
 
@@ -147,10 +146,6 @@ class ConstellationSim:
 
             #  initialize the planning info database
             sat.get_plan_db().initialize(plan_db_inputs)
-
-            # as todo: fully incorporate this
-            self.lp_wrapper_by_sat_id[sat_id] = LocalPlannerWrapper(self.params)
-
 
         #  set the simulation satellites list for every satellite
         for sat in all_sats:
@@ -267,7 +262,7 @@ class ConstellationSim:
 
             # now update satellite and ground station states
             for sat_id,sat in self.sats_by_id.items():
-                sat.state_update_step(global_time,self.lp_wrapper_by_sat_id[sat_id])
+                sat.state_update_step(global_time,self.lp_wrapper)
             for gs in self.gs_by_id.values():
                 gs.state_update_step(global_time)
 

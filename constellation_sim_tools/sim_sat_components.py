@@ -287,7 +287,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         #  run the global planner
         # debug_tools.debug_breakpt()
-        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,existing_rt_conts,existing_data_conts,self.sim_sat.sat_id,self.latest_lp_route_indx,sat_state)
+        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
 
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
         self.latest_lp_route_indx = latest_lp_route_indx

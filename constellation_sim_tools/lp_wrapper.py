@@ -9,10 +9,10 @@ import os.path
 import sys
 from copy import copy
 # import pickle
-# from datetime import datetime,timedelta
+from datetime import datetime,timedelta
 
 # from .sim_routing_objects import SimRouteContainer
-from .lp import LocalPlannerRunner
+from .runner_lp import PipelineRunner as LPPipelineRunner
 
 # from circinus_tools.scheduling.routing_objects import 
 
@@ -38,15 +38,15 @@ class LocalPlannerWrapper:
         # self.data_rates_params = sim_params['data_rates_params']
         self.const_sim_inst_params = sim_params['const_sim_inst_params']
         self.lp_wrapper_params = self.const_sim_inst_params['lp_wrapper_params']
-        # self.gp_params = self.gp_wrapper_params['gp_params']
+        self.lp_params = self.lp_wrapper_params['lp_params']
 
         self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
 
-    def run_lp(self,curr_time_dt,existing_rt_conts,existing_data_conts,lp_agent_ID,latest_lp_route_indx,sat_state):
+    def run_lp(self,curr_time_dt,sat_indx,sat_id,existing_rt_conts,existing_data_conts,latest_lp_route_indx,sat_state):
 
-        # def get_inp_time(time_dt,param_mins):
-        #     new_time = curr_time_dt + timedelta(minutes=param_mins)
-        #     return new_time
+        def get_inp_time(time_dt,param_mins):
+            new_time = curr_time_dt + timedelta(minutes=param_mins)
+            return new_time
 
         ##############################
         #  set up LP inputs
@@ -56,21 +56,17 @@ class LocalPlannerWrapper:
         if curr_time_dt >= self.sim_end_utc_dt:
             raise RuntimeWarning('should not be running LP after end of sim')
 
-        # gp_instance_params = {
-        #     "version": "0.6",
-        #     "planning_params": {
-        #         "planning_start" :  datetime_to_iso8601(get_inp_time(curr_time_dt,self.gp_params['planning_past_horizon_mins'])),
-        #         "planning_fixed_end" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_fixed_mins']))),
-        #         "planning_end_obs" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_obs_mins']))),
-        #         "planning_end_xlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_xlnk_mins']))),
-        #         "planning_end_dlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_dlnk_mins'])))
-        #     },
-        #     "activity_scheduling_params": {
-        #         "plot_activity_scheduling_results": False
-        #     },
-        #     "gp_agent_ID": gp_agent_ID,
-        #     "sats_state": sats_state
-        # }
+        lp_instance_params = {
+            "version": "0.1", # will need to add version checking at some point in the local planner code 
+            "planning_params": {
+                "planning_start_dt" :  curr_time_dt,
+                "planning_leaving_flow_start_dt" :  min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.lp_params['planning_leaving_flow_start_mins'])),
+                "planning_end_dt" :  min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.lp_params['planning_horizon_mins']))
+            },
+            "sat_indx": sat_indx,
+            "sat_id": sat_id,
+            # "sats_state": sats_state
+        }
 
         #  this holds all of the data about existing routes ( both planned and executed)
         existing_route_data = {}
@@ -93,15 +89,15 @@ class LocalPlannerWrapper:
         existing_route_data['executed_routes'] = [copy(dc.data_route) for dc in existing_data_conts]
 
         
-        # lp_inputs = {
-        #     # "orbit_prop_inputs": self.orbit_prop_params,
-        #     # "orbit_link_inputs": self.orbit_link_params,
-        #     # "gp_general_params_inputs": self.gp_general_params,
-        #     # "gp_instance_params_inputs": gp_instance_params,
-        #     # "data_rates_inputs": self.data_rates_params,
-        #     "existing_route_data": existing_route_data,
-        #     # "file_params":  {'new_pickle_file_name_pre': "const_sim_test_pickle"}
-        # }
+        lp_inputs = {
+            "orbit_prop_params": self.orbit_prop_params,
+            # "orbit_link_inputs": self.orbit_link_params,
+            # "gp_general_params_inputs": self.gp_general_params,
+            "lp_instance_params": lp_instance_params,
+            # "data_rates_inputs": self.data_rates_params,
+            "existing_route_data": existing_route_data,
+            # "file_params":  {'new_pickle_file_name_pre': "const_sim_test_pickle"}
+        }
 
         ##############################
         #  run the LP
@@ -111,8 +107,8 @@ class LocalPlannerWrapper:
 
         print('Run LP')
         lp_params = None
-        lp = LocalPlannerRunner(lp_params)
-        lp_output = lp.run(existing_route_data,verbose=True)
+        lp_pr = LPPipelineRunner()
+        lp_output = lp_pr.run(lp_inputs,verbose=True)
 
 
         # ##############################
