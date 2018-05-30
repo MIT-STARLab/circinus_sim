@@ -1,4 +1,4 @@
-from .schedule_tools  import check_temporal_overlap
+from constellation_sim_tools.schedule_tools  import check_temporal_overlap
 
 from circinus_tools import debug_tools
 

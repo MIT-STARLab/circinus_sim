@@ -12,7 +12,7 @@ from copy import copy
 from datetime import datetime,timedelta
 
 # from .sim_routing_objects import SimRouteContainer
-from .runner_lp import PipelineRunner as LPPipelineRunner
+from constellation_sim_tools.local_planner.runner_lp import PipelineRunner as LPPipelineRunner
 
 # from circinus_tools.scheduling.routing_objects import 
 
