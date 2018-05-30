@@ -1,5 +1,6 @@
 
-from .lp_algs import LPAlgs
+from .lp_processing import LPProcessing
+from .lp_scheduling import LPScheduling
 
 from circinus_tools import debug_tools
 
@@ -26,15 +27,17 @@ class LocalPlannerRunner:
         # #  the latest time for which we consider an incoming or leaving flow
         # self.planning_end_dt  = lp_inst_planning_params['planning_end_dt']
 
-        self.lp_algs = LPAlgs(lp_params)
+        self.lp_proc = LPProcessing(lp_params)
+        self.lp_sched= LPScheduling(lp_params)
 
 
     def run(self,existing_route_data,verbose=False):
 
         #   determine outflow and inflow routes
-        outflows,inflows = self.lp_algs.determine_flows(existing_route_data)
+        inflows,outflows = self.lp_proc.determine_flows(existing_route_data)
         
-            
+        self.lp_sched.make_model(inflows,outflows,verbose)
+        self.lp_sched.solve()
 
 
         # debug_tools.debug_breakpt()

@@ -139,9 +139,6 @@ class SimPlotting():
         plot_params['plot_title'] = 'Executed and Planned Sat Acts'
         plot_params['y_label'] = 'Satellite Index'
         plot_params['plot_size_inches'] = (18,12)
-        plot_params['plot_include_obs_labels'] = self.input_plot_params['sat_acts_plot']['include_obs_labels']
-        plot_params['plot_include_xlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_xlnk_labels']
-        plot_params['plot_include_dlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_dlnk_labels']
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
@@ -157,6 +154,9 @@ class SimPlotting():
         plot_params['plot_xlnks'] = True
         plot_params['plot_dlnks'] = True
         plot_params['plot_obs'] = True
+        plot_params['plot_include_obs_labels'] = self.input_plot_params['sat_acts_plot']['include_obs_labels']
+        plot_params['plot_include_xlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_xlnk_labels']
+        plot_params['plot_include_dlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_dlnk_labels']
 
         plot_params['xlnk_route_index_to_use'] = 0
         plot_params['xlnk_color_rollover'] = 5
@@ -166,7 +166,6 @@ class SimPlotting():
         plot_params['obs_label_getter_func'] = obs_label_getter
         plot_params['dlnk_label_getter_func'] = dlnk_label_getter
         plot_params['xlnk_label_getter_func'] = xlnk_label_getter
-        # plot_params['xlnk_label_getter_func'] = lambda xlnk,sat_indx: ''  # return empty label
 
         obs_color_getter,dlnk_color_getter,xlnk_color_getter = self.get_color_getters()
         plot_params['obs_color_getter_func'] = obs_color_getter
