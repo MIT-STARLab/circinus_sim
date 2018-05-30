@@ -45,10 +45,12 @@ class LPProcessing:
 
         #  note that these are of type data multi-route
         for rt in existing_route_data['planned_routes']:
+            # Notes about filtering below: 
+            # - we are using the regular start and end for the windows below, not the original start and end. this is fine for now because the local planner cannot extend the schedule time for window past the already-scheduled-by-the-global planner start/end times, so we don't need to consider the orginal_start/end times.
+            # - we are filtering for activity windows that are totally within the planning window, meaning there start and end times are both within the window. this is important for the start of the window, self.planning_leaving_flow_start_dt,  because we don't want to allow the case where a time-bound-overlapping activity is long enough such that it stretches before that start time and maybe even up to the current time on the satellite that is calling the local planner. that would be problematic, because we would be making planning decisions about an activity that is already being executed. so we want to be sure that all activity windows are fully confined to the planning window
 
             #  determine if any of the activity windows within this route are within the planning window, and this satellite is transmitting data during the window. if yes, it means that this route can carry data volume away from the satellite
-            # Note: notice that were using the regular start and end for the windows below, not the original start and end. this is fine for now because the local planner cannot extend the schedule time for window past the already-scheduled-by-the-global planner start/end times, so we don't need to consider the orginal_start/end times.
-            has_tx_in_planning_window = any(wind for wind in rt.get_winds() if  
+            tx_winds_in_planning_window = [ wind for wind in rt.get_winds() if  
                 (wind.has_sat_indx(self.sat_indx) and wind.is_tx(self.sat_indx)) and
                 check_temporal_overlap(
                     wind.start,
@@ -57,10 +59,13 @@ class LPProcessing:
                     self.planning_end_dt,
                     filter_opt='totally_within'
                 )
-            )
+            ]
+            has_tx_in_planning_window = len(tx_winds_in_planning_window) > 0
+            #  this is the amount of outgoing data volume from this route, within the planning window
+            tx_dv_in_planning_window = sum(wind.data_vol for wind in tx_winds_in_planning_window)
 
-            #  determine if any of the activity windows within this route are within the planning window, and this satellite is  receiving data during the window. if yes, it means that this route can bring data volume onto the satellite
-            has_rx_in_planning_window = any(wind for wind in rt.get_winds() if  
+            #  determine if any of the activity windows within this route are within the planning window, and this satellite is receiving data during the window. if yes, it means that this route can bring data volume onto the satellite
+            rx_winds_in_planning_window = [ wind for wind in rt.get_winds() if  
                 (wind.has_sat_indx(self.sat_indx) and wind.is_rx(self.sat_indx)) and
                 check_temporal_overlap(
                     wind.start,
@@ -69,33 +74,31 @@ class LPProcessing:
                     self.planning_end_dt,
                     filter_opt='totally_within'
                 )
-            )
+            ]
+            has_rx_in_planning_window = len(rx_winds_in_planning_window) > 0
+            #  this is the amount of incoming data volume for this route, within the planning window
+            rx_dv_in_planning_window = sum(wind.data_vol for wind in rx_winds_in_planning_window)
 
+            debug_tools.debug_breakpt()
 
-
-
+            #  if the route is an outflow, create a partial flow object to encapsulate it and mark the amount of data volume that can flow out
+            #  reduce the data volume by the planned utilization of the route. note that we have now divorced ourselves entirely from the original data volume for the route, because we could potentially be splitting the route ( in the case that it's a data multi-route). we will need to do the final bookkeeping for all data volume after running LP scheduling.
             if has_tx_in_planning_window:
-                # flobject = get_flow_obj(rt,'outflow',flow_indx)
-                # utilization_by_flow_id[flobject.ID] = existing_route_data['utilization_by_planned_route_id'][rt.ID] 
-                dv = rt.data_vol * existing_route_data['utilization_by_planned_route_id'][rt.ID] 
-                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, direction='outflow')
+                dv = tx_dv_in_planning_window * existing_route_data['utilization_by_planned_route_id'][rt.ID] 
+                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, tx_winds_in_planning_window,direction='outflow')
                 flow_indx += 1
                 outflows.append(flobject)
 
             if has_rx_in_planning_window: 
-                # flobject = get_flow_obj(rt,'inflow',flow_indx)
-                # utilization_by_flow_id[flobject.ID] = existing_route_data['utilization_by_planned_route_id'][rt.ID] 
-                dv = rt.data_vol * existing_route_data['utilization_by_planned_route_id'][rt.ID] 
-                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, direction='inflow')
+                dv = rx_dv_in_planning_window * existing_route_data['utilization_by_planned_route_id'][rt.ID] 
+                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow')
                 flow_indx += 1
                 inflows.append(flobject)
 
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
         for rt in existing_route_data['executed_routes']:
-            # flobject = get_flow_obj(rt,'inflow',flow_indx)
-            # utilization_by_flow_id[flobject.ID] = 1.0
-            #  utilization for inmate executed route is by definition 100%
-            flobject = PartialFlow(flow_indx, self.sat_indx, rt, rt.data_vol, direction='inflow')
+            #  utilization for executed route is by definition 100%
+            flobject = PartialFlow(flow_indx, self.sat_indx, rt, rt.data_vol, winds_in_planning_window= [],direction='inflow')
             flow_indx += 1
             inflows.append(flobject)
 

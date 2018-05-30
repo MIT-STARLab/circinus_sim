@@ -5,14 +5,19 @@ class PartialFlow:
 
     valid_directions = ['inflow','outflow']
 
-    def __init__(self,flow_indx,sat_indx,route,data_vol,direction):
+    def __init__(self,flow_indx,sat_indx,route,data_vol,winds_in_planning_window,direction):
         self.ro_ID = RoutingObjectID(creator_agent_ID='lp',creator_agent_ID_indx=flow_indx,rt_obj_type='partial_flow')
 
         self.data_vol = data_vol
         self._route = route
 
         self.sat_indx = sat_indx
-        self.direction = direction
+
+        #  stores a string indicating the direction of the flow
+        self._direction = direction
+
+        #  stores all of those activity windows which were found to be within the planning window on the satellite of interest. so these are the activity windows which are to be used for routing data volume for this flow. note that data volume for this flow should not be calculated from _winds_in_planning_window, but rather be obtained from self.data_vol. the point of storing these windows is for us to know which windows are required to be executed for routing the flow
+        self._winds_in_planning_window = winds_in_planning_window
 
         if not direction in self.valid_directions:
             raise NotImplementedError
@@ -46,3 +51,13 @@ class PartialFlow:
 
         # todo:  handle any necessary transition time constraints here
         return latest_arrival_on_sat <= earliest_departure_from_sat
+
+    def get_required_acts(self):
+        """ get all of the activity windows that are relevant for scheduling this flow"""
+        return wind for wind in self._winds_in_planning_window
+
+    def is_inflow(self):
+        return self._direction == "inflow"
+
+    def is_outflow(self):
+        return self._direction == "outflow"

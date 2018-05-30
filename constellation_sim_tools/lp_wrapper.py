@@ -34,7 +34,7 @@ class LocalPlannerWrapper:
         # these are inputs required for the GP
         self.orbit_prop_params = sim_params['orbit_prop_params']
         # self.orbit_link_params = sim_params['orbit_link_params']
-        # self.gp_general_params = sim_params['gp_general_params']
+        self.gp_general_params = sim_params['gp_general_params']
         # self.data_rates_params = sim_params['data_rates_params']
         self.const_sim_inst_params = sim_params['const_sim_inst_params']
         self.lp_wrapper_params = self.const_sim_inst_params['lp_wrapper_params']
@@ -92,7 +92,7 @@ class LocalPlannerWrapper:
         lp_inputs = {
             "orbit_prop_params": self.orbit_prop_params,
             # "orbit_link_inputs": self.orbit_link_params,
-            # "gp_general_params_inputs": self.gp_general_params,
+            "gp_general_params": self.gp_general_params,
             "lp_instance_params": lp_instance_params,
             # "data_rates_inputs": self.data_rates_params,
             "existing_route_data": existing_route_data,

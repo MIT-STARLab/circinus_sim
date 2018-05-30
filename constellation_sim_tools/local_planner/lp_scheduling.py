@@ -25,21 +25,31 @@ class LPScheduling(PyomoMILPScheduling):
 
         super().__init__()
 
+        gp_as_params = lp_params['gp_general_params']['activity_scheduling_params']
+
+        # this is the minimum obs dv that must be downlinked by a unified route in order for it to count it towards objective terms (other than total dv)
+        self.min_obs_dv_dlnk_req =gp_as_params['min_obs_dv_dlnk_req_Mb']
+
+
     def get_flow_structs(self,inflows,outflows):
+
+        all_flows = inflows + outflows
 
         unified_flows = []
         unified_flow_indx = 0
-        #  how much data volume each flow can deliver/carry
-        dv_by_partial_flow_id = {}
+        #  how much data volume each flow can deliver/carry. note that these capacity numbers already factor in the utilizations of the data routes
+        capacity_by_partial_flow_id = {}
         possible_unified_flows_ids_by_inflow_id = {}
         possible_unified_flows_ids_by_outflow_id = {}
 
+        all_acts_windids = set()
+
         for inflow in inflows:
-            dv_by_partial_flow_id[inflow.ID] = inflow.data_vol
+            capacity_by_partial_flow_id[inflow.ID] = inflow.data_vol
             possible_unified_flows_ids_by_inflow_id[inflow.ID] = []
 
             for outflow in outflows:
-                dv_by_partial_flow_id[outflow.ID] = outflow.data_vol
+                capacity_by_partial_flow_id[outflow.ID] = outflow.data_vol
                 possible_unified_flows_ids_by_outflow_id[outflow.ID] = []
 
                 #  if the data delivered from this inflow is available before the outflow, then they can be combined into a unified flow
@@ -50,12 +60,31 @@ class LPScheduling(PyomoMILPScheduling):
                     possible_unified_flows_ids_by_outflow_id[outflow.ID].append(unified_flow_indx)
                     unified_flow_indx += 1
 
-        return unified_flows,dv_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id
+        capacity_by_act_windid = {}
+        inflows_ids_by_act_windid = {}
+        outflows_ids_by_act_windid = {}
+        for flow in all_flows:
+            for act in flow.get_required_acts():
+                act_windid = act.window_ID
+                all_acts_windids.add(act_windid)
+
+                #  note that we're using the original activity capacity/available data volume here, rather than a capcity number constrained by existing routes.  this is because the LP can decide, if it wants to, to extend the length of an activity to use all of its potential data volume. Currently though the actual data routes, which make use of that potential data volume, are constrained by existing utilization values ( so we can lengthen an activity to get more data volume, but we can't do anything with it because we can't enlarge the data routes that would use that data volume - in the current version of the LP)
+                capacity_by_act_windid[act_windid] = act.data_vol
+
+                if flow.is_inflow():
+                    inflows_ids_by_act_windid.setdefault(act_windid, []).append(flow.ID)
+                elif flow.is_outflow():
+                    outflows_ids_by_act_windid.setdefault(act_windid, []).append(flow.ID)
+
+
+
+        return unified_flows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid
 
 
 
     def make_model ( self,inflows,outflows, verbose = False):
         # all the items in outflows,inflows are PartialFlow objects
+        # note: all flows in inflows,outflows 
 
         # important assumption: all activity window IDs are unique!
 
@@ -67,9 +96,14 @@ class LPScheduling(PyomoMILPScheduling):
         ##############################
 
         (unified_flows,
-            dv_by_partial_flow_id,
+            capacity_by_partial_flow_id,
             possible_unified_flows_ids_by_inflow_id,
-            possible_unified_flows_ids_by_outflow_id) =  self.get_flow_structs(inflows,outflows)
+            possible_unified_flows_ids_by_outflow_id,
+            all_acts_windids,
+            capacity_by_act_windid,
+            inflows_ids_by_act_windid,
+            outflows_ids_by_act_windid,
+            ) =  self.get_flow_structs(inflows,outflows)
 
         #     latency_sf_by_dmr_id =  self.get_dmr_latency_score_factors(
         #         routes_by_dmr_id,
@@ -133,7 +167,7 @@ class LPScheduling(PyomoMILPScheduling):
 
 
         #  subscript for each activity a
-        # model.all_act_windids = pe.Set(initialize= all_acts_windids)
+        model.all_act_windids = pe.Set(initialize= all_acts_windids)
 
         # Make an index in the model for every inflow and outflow
         all_partial_flow_ids = [flow.ro_ID for flow in inflows] + [flow.ro_ID for flow in outflows]
@@ -181,14 +215,14 @@ class LPScheduling(PyomoMILPScheduling):
         #  Make parameters
         ##############################
 
-        # model.par_min_obs_dv_dlnk_req = pe.Param (initialize=self.min_obs_dv_dlnk_req)
+        model.par_min_obs_dv_dlnk_req = pe.Param (initialize=self.min_obs_dv_dlnk_req)
 
         # The data volume available for each partial flow ( possible arriving data volume for inflows, and possible leaving data volume for outflows)
-        model.par_partial_flow_capacity = pe.Param(model.partial_flow_ids,initialize =dv_by_partial_flow_id)
+        model.par_partial_flow_capacity = pe.Param(model.partial_flow_ids,initialize =capacity_by_partial_flow_id)
 
         # model.par_total_obs_dv = sum(dv_by_obs_act_windid.values())
         # model.par_link_capacity = pe.Param(model.lnk_windids,initialize =dv_by_link_act_windid)
-        # model.par_act_capacity = pe.Param(model.all_act_windids,initialize =dv_by_act_windid)
+        model.par_act_capacity = pe.Param(model.all_act_windids,initialize =capacity_by_act_windid)
         # #  data volume for each data multi-route
         # model.par_dmr_dv = pe.Param(model.dmr_ids,initialize ={ dmr.ID: dmr.data_vol for dmr in routes_filt})
         # #  data volume for each activity in each data multi-route
@@ -226,8 +260,10 @@ class LPScheduling(PyomoMILPScheduling):
         ##############################
 
 
-        # activity utilization variable indicating how much of an activity's capacity is used [1]
-        # model.var_activity_utilization  = pe.Var (model.act_windids, bounds =(0,1))
+        # activity utilization variable indicating how much of an activity's capacity is used
+        model.var_activity_utilization  = pe.Var (model.all_act_windids, bounds =(0,1))
+        model.var_act_indic  = pe.Var (model.all_act_windids, within = pe.Binary)
+
         # dmr utilization variable indicating how much of a dmr's capacity is used [2]
         # model.var_dmr_utilization  = pe.Var (model.dmr_ids, bounds =(0,1))
 
@@ -242,7 +278,6 @@ class LPScheduling(PyomoMILPScheduling):
         #  indicates if a given incoming/outgoing flow pair combination is chosen (I_(i,o))
         model.var_unified_flow_indic  = pe.Var (model.unified_flow_ids, within = pe.Binary)
 
-        # model.var_act_indic  = pe.Var (model.mutable_act_windids, within = pe.Binary)
 
         # a utilization number for existing routes that will be bounded by the input existing route utilization (can't get more  "existing route" reward for a route than the route's previous utilization) [8]
         # model.var_existing_dmr_utilization_reward  = pe.Var (model.existing_dmr_ids, bounds =(0,1))
@@ -297,26 +332,23 @@ class LPScheduling(PyomoMILPScheduling):
                     <= model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o])
         model.c2 =pe.Constraint ( outflow_ids,  rule=c2_rule)
 
+        def c3_rule( model,u):
+            return model.var_unified_flow_dv[u] >= model.par_min_obs_dv_dlnk_req*model.var_unified_flow_indic[u]
+        model.c3 =pe.Constraint ( model.unified_flow_ids,  rule=c3_rule)
+
         debug_tools.debug_breakpt()
 
-        # # this constraint forces all activity indicators along a route to be high if that route is picked. From the other perspective, if an activity is not picked, then all route indicators through it must be low (not required, but the MILP branch and cut algorithm can take advantage of this to search through binary variables more efficiently)
-        # # it's not entirely clear to me though how helpful this constraint is - on a 30 sat model with 100 obs targets and 7 GS (1879 routes input to act sched) things seems to run slower by fractions of a second with this constaint (takes about 10 seconds to solve). Probably more helpful for larger models though...
-        # model.c1b  = pe.ConstraintList()
-        # for a in model.mutable_act_windids:
-        #     for p in model.par_dmr_subscrs_by_act[a]:
-        #         model.c1b.add(model.var_act_indic[a] >= model.var_dmr_indic[p]) 
+        def c4_rule( model,a):
+            return model.var_act_indic[a] >=  model.var_activity_utilization[a]
+        model.c4 =pe.Constraint ( model.all_act_windids,  rule=c4_rule)  
 
-        # def c2_rule( model,p):
-        #     return model.par_dmr_dv[p]*model.var_dmr_utilization[p] >= model.par_min_obs_dv_dlnk_req*model.var_dmr_indic[p]
-        # model.c2 =pe.Constraint ( model.dmr_ids,  rule=c2_rule)
+        def c5a_rule( model,a):
+            return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i] for i in inflows_ids_by_act_windid[a]) >= 0 
+        model.c5a =pe.Constraint ( model.all_act_windids,  rule=c5a_rule)  
 
-        # def c3_rule( model,a):
-        #     return model.var_act_indic[a] >=  model.var_activity_utilization[a]
-        # model.c3 =pe.Constraint ( model.mutable_act_windids,  rule=c3_rule)  
-
-        # def c3c_rule( model,p):
-        #     return model.var_dmr_indic[p] >=  model.var_dmr_utilization[p]
-        # model.c3c =pe.Constraint ( model.dmr_ids,  rule=c3c_rule)
+        def c5b_rule( model,a):
+            return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o] for o in outflows_ids_by_act_windid[a]) >= 0 
+        model.c5b =pe.Constraint ( model.all_act_windids,  rule=c5b_rule)  
 
         # print_verbose('make overlap constraints',verbose)
 
@@ -346,7 +378,7 @@ class LPScheduling(PyomoMILPScheduling):
         # print_verbose('make energy, data constraints',verbose)
 
         # #  energy constraints [6]
-        # # todo: maybe this ought to be moved to the super class, but i don't anticipate this code changing much any time soon, so i'll punt that.
+        # # todo: maybe this ought to be moved to the super class, but o don't anticipate this code changing much any time soon, so i'll punt that.
         # model.c6  = pe.ConstraintList()
         # for sat_indx in range (self.num_sats): 
 
