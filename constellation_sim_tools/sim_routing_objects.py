@@ -23,9 +23,9 @@ class SimDataContainer:
             obs = route
             route = [obs]
             # this stores the data route taken by the observation data in this container. Note that it is a simple data route, NOT a data multi route
-            self.dr = DataRoute(agent_id,dc_indx, route, window_start_sats={obs:sat_indx},dv=dv)
+            self._executed_dr = DataRoute(agent_id,dc_indx, route, window_start_sats={obs:sat_indx},dv=dv)
         elif type(route) == DataRoute:
-            self.dr = route
+            self._executed_dr = route
         else:
             raise NotImplementedError
 
@@ -37,18 +37,33 @@ class SimDataContainer:
 
     @property
     def data_vol(self):
-        return self.dr.data_vol
+        return self._executed_dr.data_vol
 
     @property
-    def data_route(self):
-        return self.dr
+    def executed_data_route(self):
+        return self._executed_dr
+
+    @property
+    def latest_planned_rt_cont(self):
+        """ get the latest planned route for this data container"""
+
+
+        # Note that it is an error for the planned route history to be empty -  it should always be populated by at least one entry after a new Sim data route is created
+        latest_planned_rt_cont = self._planned_rt_hist[-1]
+            
+        #  if there is a (most recent) planned route for this data container, then the executed data route should be contained within that planned route. this is basically saying that the plans for the data container must be up-to-date with its actual execution
+        if latest_planned_rt_cont:
+            if not latest_planned_rt_cont.contains_route(self._executed_dr):
+                raise RuntimeWarning(' executed data route not contained within the latest planned route for data container. Executed route: %s, latest planned route: %s'%(self._executed_dr,latest_planned_rt_cont))
+
+        return latest_planned_rt_cont
 
     def __repr__(self):
-        return "(SimDataContainer %s: dv %f,<%s>)"%(self.ID,self.dr.data_vol,self.dr.get_route_string())
+        return "(SimDataContainer %s: dv %f,<%s>)"%(self.ID,self._executed_dr.data_vol,self._executed_dr.get_route_string())
 
     def __copy__(self):
         #  the nones in the instantiation will be taken care of in the following lines
-        newone = type(self)(agent_id=None, sat_indx=None, dc_indx=None, route=copy(self.dr),dv=None)
+        newone = type(self)(agent_id=None, sat_indx=None, dc_indx=None, route=copy(self._executed_dr),dv=None)
         newone.ID = self.ID
         newone._ID_hist = copy(self._ID_hist)
         # copy the underlying route containers, because we want to be very sure that any of the route containers in this history cannot be changed. ( note that this does not break route container equality comparison because they are compared based on the routing object ID)
@@ -57,23 +72,23 @@ class SimDataContainer:
 
     def add_dv(self,delta_dv):
         """Add data to the data container, assuming the same route as currently specified"""
-        self.dr.add_dv(delta_dv)
+        self._executed_dr.add_dv(delta_dv)
 
     def remove_dv(self,delta_dv):
         """Remove data from the data container, assuming the same route as currently specified"""
-        self.dr.remove_dv(delta_dv)
+        self._executed_dr.remove_dv(delta_dv)
 
     def add_to_id_hist(self,ID):
         self._ID_hist.append(ID)
 
     def add_to_route(self,wind,window_start_sat_indx):
-        self.dr.append_wind_to_route(wind, window_start_sat_indx)
+        self._executed_dr.append_wind_to_route(wind, window_start_sat_indx)
 
     def fork(self,new_agent_id,new_dc_indx,dv=0):
         new_ro_id = RoutingObjectID(new_agent_id,new_dc_indx,rt_obj_type='obs_data_pkt')
         newone = copy(self)
         newone.ID = new_ro_id
-        newone.dr.data_vol = dv
+        newone._executed_dr.data_vol = dv
         newone.add_to_id_hist(self.ID)
         return newone
 
@@ -90,10 +105,6 @@ class SimDataContainer:
         else:
             self._planned_rt_hist.append(rt_cont)
 
-    @property
-    def latest_planned_route(self):
-        # Note that it is an error for the planned route history to be empty -  it should always be populated by at least one entry after a new Sim data route is created
-        return self._planned_rt_hist[-1]
 
 
     
@@ -308,7 +319,7 @@ class SimRouteContainer:
 
         for dc in data_conts:
             # dc_dr = dc.data_route
-            dc_planned_route = dc.latest_planned_route
+            dc_planned_route = dc.latest_planned_rt_cont
 
             #  check each data multi-route to see if it matches the route of the data container
             for dmr in self.dmrs_by_id.values():
@@ -320,6 +331,14 @@ class SimRouteContainer:
                     break
 
         return matches
+
+    def contains_route(self,route):
+        contains = False
+        for dmr in self.dmrs_by_id.values():
+            if dmr.contains_route(route):
+                contains = True
+
+        return contains
 
 
 class ExecutableDataContainer:

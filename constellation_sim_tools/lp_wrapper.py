@@ -86,9 +86,24 @@ class LocalPlannerWrapper:
         existing_route_data['utilization_by_planned_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
 
 
+        existing_route_data['utilization_by_executed_route_id'] = {}
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
-        existing_route_data['executed_routes'] = [copy(dc.data_route) for dc in existing_data_conts]
+        executed_routes = []
+        for dc in existing_data_conts:
+            # if there is currently a planned route for this data container, grab that ( note that the planned route should contain the executed route for the data container. we want to grab the planned route because it has the correct routing object ID)
+            if dc.latest_planned_rt_cont:
+                esrc = dc.latest_planned_rt_cont
+                for dmr in esrc.get_routes():
+                    executed_routes.append(copy(dmr))
+                    existing_route_data['utilization_by_executed_route_id'][dmr.ID] = esrc.get_dmr_utilization(dmr)
+            #  if there is no planned route for this data container (e.g. an injected observation), just go ahead and grab its executed route
+            else:
+                edr = dc.executed_data_route
+                executed_routes.append(copy(edr))
+                #  utilization for executed route is by definition 100%
+                existing_route_data['utilization_by_executed_route_id'][edr.ID] = 1.0
 
+        existing_route_data['executed_routes'] = executed_routes
         
         lp_inputs = {
             "orbit_prop_params": self.orbit_prop_params,

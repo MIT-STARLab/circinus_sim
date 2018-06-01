@@ -122,8 +122,8 @@ class LPProcessing:
 
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
         for rt in existing_route_data['executed_routes']:
-            #  utilization for executed route is by definition 100%
-            flobject = PartialFlow(flow_indx, self.sat_indx, rt, rt.data_vol, winds_in_planning_window= [],direction='inflow')
+            dv = rt.data_vol * existing_route_data['utilization_by_executed_route_id'][rt.ID]
+            flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, winds_in_planning_window= [],direction='inflow')
             flow_indx += 1
             inflows.append(flobject)
 

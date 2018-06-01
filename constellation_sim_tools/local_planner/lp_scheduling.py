@@ -617,11 +617,15 @@ class LPScheduling(AgentScheduling):
             if pe.value(self.model.var_unified_flow_dv[flow.ID]) >= self.min_obs_dv_dlnk_req:
                 flow_dv = pe.value(self.model.var_unified_flow_dv[flow.ID])
 
-                #  if the inflow ID is the same as the outflow ID, this must be an existing/ already planned route
+                #  if the inflow ID is the same as the outflow ID, this must be an already planned/executed route
                 if flow.inflow.rt_ID == flow.outflow.rt_ID:
                     rt_id = flow.outflow.rt_ID
                     rt = existing_planned_routes_by_id[rt_id]
-                    new_utilization = flow_dv/rt.scheduled_dv
+                    new_utilization = flow_dv/rt.data_vol
+                    #  set the scheduled data volume, for convenience. again,  schedule data volume should not be relied on as a source of truth
+                    # note: note that rt should be of type DataMultiRoute
+                    rt.set_scheduled_dv_frac(new_utilization)
+
 
                     #  do some sanity checks:
                     # - the route is in the existing planned routes
@@ -646,8 +650,6 @@ class LPScheduling(AgentScheduling):
                     #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
-
-                # note that we don't consider the case where an inflow data container is mapped to the outflow data route that was actually INTENDED TO TAKE (this won't get caught by flow.inflow.rt_ID == flow.outflow.rt_ID check, because the rt_ID for a data container is not the planned route container, but rather the actual path it has taken, with its own unique ID). this produces some clutter, but it is fine as long as we mark that utilization has gone to zero for the original route.
 
 
         # For every existing routes that is not in the scheduled routes, mark its utilization as zero ( because a new scheduled route has taken its throughput)

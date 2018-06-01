@@ -443,8 +443,6 @@ class SatExecutive(Executive):
                 dc.add_to_plan_hist(None)
                 remaining_obs_dv_collected -= remaining_obs_dv_collected
 
-            debug_tools.debug_breakpt()
-
             #  need to use the new time here because the state sim has already advanced in timestep ( shouldn't be a problem)
             self.state_sim.add_to_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
 
