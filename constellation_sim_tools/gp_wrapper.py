@@ -122,7 +122,6 @@ class GlobalPlannerWrapper:
         gp_pr = GPPipelineRunner()
         gp_output = gp_pr.run(gp_inputs,verbose=True)
 
-
         ##############################
         # handle output
 

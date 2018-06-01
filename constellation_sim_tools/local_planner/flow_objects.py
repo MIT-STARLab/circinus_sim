@@ -121,3 +121,24 @@ class PartialFlow:
 
     def is_outflow(self):
         return self._direction == "outflow"
+
+
+class UnifiedFlow:
+    """holds a pairing of an inflow to an outflow"""
+    def __init__(self,ID,inflow,outflow):
+        self.ID = ID
+        self.inflow = inflow
+        self.outflow = outflow
+
+    def get_latency( self,units='minutes',obs_option = 'center', dlnk_option = 'center'):
+
+        #  the regular start and end for these Windows gets changed by the global planner, so on subsequent passes the calculation will be different. want to avoid this
+        if obs_option in ['start','end']:
+            raise RuntimeWarning('Warning: should not use obs start/end for latency calculation (use original start/end)')
+        if dlnk_option in ['start','end']:
+            raise RuntimeWarning('Warning: should not use dlnk start/end for latency calculation (use original start/end)')
+
+        obs =  self.inflow.route.get_obs()
+        dlnk =  self.outflow.route.get_dlnk()
+
+        return DataRoute.calc_latency(obs,dlnk,units,obs_option,dlnk_option)

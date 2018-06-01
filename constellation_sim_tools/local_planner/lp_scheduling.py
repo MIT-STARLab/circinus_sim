@@ -5,6 +5,7 @@ from pyomo import environ  as pe
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow,  EclipseWindow
 from circinus_tools.scheduling.formulation.agent_scheduler import AgentScheduling
 from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute,RoutingObjectID
+from .flow_objects import UnifiedFlow
 
 from circinus_tools import debug_tools
 
@@ -14,10 +15,6 @@ def print_verbose(string,verbose=False):
 
 class LPScheduling(AgentScheduling):
     """ local planner scheduling algorithm/solver, using pyomo"""
-
-    #  holds a pairing of an inflow to an outflow. all possible pairings are considered in the scheduler.  note that the unified flow IDs are considered a different namespace from that of the inflow and outflow IDs ( which are actually the routing object IDs for the underlying data routes)
-    #  note that in constructing unified flows, we ensure that all rx activities on the inflow precede all tx activities on the outflow ( for the satellite index that we're considering), so we do not end up splitting the flow of a DataMultiRoute
-    UnifiedFlow = namedtuple('UnifiedFlow', 'ID inflow outflow')
 
     def __init__(self,lp_params):
         """initializes based on parameters
@@ -53,6 +50,13 @@ class LPScheduling(AgentScheduling):
         self.dv_epsilon = lp_general_params['dv_epsilon_Mb']
         self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
 
+        self.latency_calculation_params = lp_general_params['latency_calculation']
+        self.min_latency_for_sf_1_mins = lp_general_params['min_latency_for_sf_1_mins']
+
+        #  this should be as small as possible to prevent ill conditioning, but big enough that score factor constraints are still valid. 
+        #  note: the size of this value is checked in make_model() below
+        self.big_M_lat = 1e6
+
     @staticmethod
     def get_act_model_objs(act,model):
         """ get the pyomo model objects used for modeling activity utilization."""
@@ -71,6 +75,7 @@ class LPScheduling(AgentScheduling):
 
         all_flows = inflows + outflows
 
+        # all the pairing of inflows to outflows. All possible pairings are considered in the scheduler.  note that the unified flow IDs are considered a different namespace from that of the inflow and outflow IDs ( which are actually the routing object IDs for the underlying data routes)
         unified_flows = []
         existing_unified_flows = []
         injected_unified_flows = []
@@ -95,7 +100,7 @@ class LPScheduling(AgentScheduling):
 
                 #  if the data delivered from this inflow is available before the outflow, then they can be combined into a unified flow
                 if inflow.flow_precedes(outflow):
-                    uf = self.UnifiedFlow(ID=unified_flow_indx,inflow=inflow, outflow=outflow)
+                    uf = UnifiedFlow(ID=unified_flow_indx,inflow=inflow, outflow=outflow)
                     unified_flows.append(uf)
                     #  if the inflow and the outflow have the same route ID, then this is the existing mapping of inflow to outflow
                     if inflow.rt_ID == outflow.rt_ID:
@@ -160,10 +165,11 @@ class LPScheduling(AgentScheduling):
             outflows_ids_by_act_windid,
             ) =  self.get_flow_structs(inflows,outflows)
 
-        #     latency_sf_by_dmr_id =  self.get_dmr_latency_score_factors(
-        #         routes_by_dmr_id,
-        #         dmr_ids_by_obs_act_windid
-        #     )
+        unified_flow_by_id = {uf.ID:uf for uf in unified_flows}
+        latency_sf_by_uf_id =  self.get_route_latency_score_factors(
+            unified_flow_by_id,
+            possible_unified_flows_ids_by_inflow_id
+        )
 
         #     # verify that all acts found are within the planning window, otherwise we may end up with strange results
         #     for sat_acts in sats_mutable_acts:
@@ -233,6 +239,7 @@ class LPScheduling(AgentScheduling):
         all_partial_flow_ids = [flow.ID for flow in inflows] + [flow.ID for flow in outflows]
         injected_inflow_ids = [flow.ID for flow in injected_inflows]
         model.partial_flow_ids = pe.Set(initialize= all_partial_flow_ids)
+        model.inflow_ids = pe.Set(initialize= inflow_ids)
         model.injected_inflow_ids = pe.Set(initialize=injected_inflow_ids)
 
         existing_unified_flow_ids = [flow.ID for flow in existing_unified_flows]
@@ -252,17 +259,17 @@ class LPScheduling(AgentScheduling):
         # model.obs_windids = pe.Set(initialize= all_obs_windids)
         # model.lnk_windids = pe.Set(initialize= all_lnk_windids)
 
-        # if self.solver_name == 'gurobi' or self.solver_name == 'cplex':
-        #     int_feas_tol = self.solver_params['integer_feasibility_tolerance']
-        # elif self.solver_name == 'glpk':
-        #     # raise an error, because it could be misleading if someone changes the int feas tol in the inputs...
-        #     raise NotImplementedError('glpk runs, but I have not yet figured out setting integer_feasibility_tolerance')
-        # else:
-        #     raise NotImplementedError
+        if self.solver_name == 'gurobi' or self.solver_name == 'cplex':
+            int_feas_tol = self.solver_params['integer_feasibility_tolerance']
+        elif self.solver_name == 'glpk':
+            # raise an error, because it could be misleading if someone changes the int feas tol in the inputs...
+            raise NotImplementedError('glpk runs, but I have not yet figured out setting integer_feasibility_tolerance')
+        else:
+            raise NotImplementedError
 
-        # for p,lat_sf in latency_sf_by_dmr_id.items():
-        #     if lat_sf > int_feas_tol*self.big_M_lat:
-        #         raise RuntimeWarning('big_M_lat (%f) is not large enough for latency score factor %f and integer feasibility tolerance %f (dmr index %d)'%(self.big_M_lat,lat_sf,int_feas_tol,p))
+        for u,lat_sf in latency_sf_by_uf_id.items():
+            if lat_sf > int_feas_tol*self.big_M_lat:
+                raise RuntimeWarning('big_M_lat (%f) is not large enough for latency score factor %f and integer feasibility tolerance %f (unified flow index %d)'%(self.big_M_lat,lat_sf,int_feas_tol,u))
 
         # # for act_obj in all_act_windids_by_obj.keys():
         # #     if 2*(act_obj.end-act_obj.start).total_seconds() > self.big_M_act_t_dur_s:
@@ -361,7 +368,7 @@ class LPScheduling(AgentScheduling):
         # # satellite data storage (data buffers)
         # model.var_sats_dstore  = pe.Var (model.sat_indcs,  model.ds_timepoint_indcs,  within = pe.NonNegativeReals)
 
-        # model.var_latency_sf_obs = pe.Var (model.obs_windids,  bounds = (0,1.0))
+        model.var_latency_sf_inflow = pe.Var (model.inflow_ids,  bounds = (0,1.0))
 
         # allow_act_timing_constr_violations = False
         # if allow_act_timing_constr_violations:
@@ -553,46 +560,29 @@ class LPScheduling(AgentScheduling):
 
 
 
-        # #  observation latency score factor constraints [8]
-        # model.c8  = pe.ConstraintList()
-        # #  note this is for all observation window IDs, not just mutable ones
-        # for o in model.obs_windids:
-        #     dmrs_obs = model.par_dmr_subscrs_by_obs_act[o]
+        #  inflow latency score factor constraints [8]
+        model.c10  = pe.ConstraintList()
+        #  make this over all inflow IDs, as opposed to all unified flow IDs,  because we don't want to reward performing as many unified flows as possible
+        for i in model.inflow_ids:
+            inflow_uf_ids = possible_unified_flows_ids_by_inflow_id[i]
 
-        #     #  sort the latency score factors for all the dmrs for this observation in increasing order -  important for constraint construction
-        #     dmrs_obs.sort(key= lambda p: latency_sf_by_dmr_id[p])
+            #  sort the latency score factors for all the ufs for this inflow in increasing order -  important for constraint construction
+            inflow_uf_ids.sort(key= lambda u: latency_sf_by_uf_id[u])
 
-        #     num_dmrs_obs = len(dmrs_obs)
-        #     #  initial constraint -  score factor for this observation will be equal to zero if no dmrs for this obs were chosen
-        #     model.c8.add( model.var_latency_sf_obs[o] <= 0 + self.big_M_lat * sum(model.var_dmr_indic[p] for p in dmrs_obs) )
+            num_uf_inflow = len(inflow_uf_ids)
+            #  initial constraint -  score factor for this observation will be equal to zero if no ufs for this inflow were chosen
+            model.c10.add( model.var_latency_sf_inflow[i] <= 0 + self.big_M_lat * sum(model.var_unified_flow_indic[u] for u in inflow_uf_ids) )
 
-        #     for dmr_obs_indx in range(num_dmrs_obs):
-        #         #  add constraint that score factor for observation is less than or equal to the score factor for this dmr_obs_indx, plus any big M terms for any dmrs with larger score factors.
-        #         #  what this does is effectively disable the constraint for the score factor for this dmr_obs_indx if any higher score factor dmrs were chosen
-        #         model.c8.add( model.var_latency_sf_obs[o] <=
-        #             latency_sf_by_dmr_id[dmrs_obs[dmr_obs_indx]] +
-        #             self.big_M_lat * sum(model.var_dmr_indic[p] for p in dmrs_obs[dmr_obs_indx+1:num_dmrs_obs]) )
+            for inflow_uf_indx in range(num_uf_inflow):
+                #  add constraint that score factor for observation is less than or equal to the score factor for this inflow_uf_indx, plus any big M terms for any unified flows with larger score factors.
+                #  what this does is effectively disable the constraint for the score factor for this inflow_uf_indx if any higher score factor ufs were chosen
+                model.c10.add( model.var_latency_sf_inflow[i] <=
+                    latency_sf_by_uf_id[inflow_uf_ids[inflow_uf_indx]] +
+                    self.big_M_lat * sum(model.var_unified_flow_indic[u] for u in inflow_uf_ids[inflow_uf_indx+1:num_uf_inflow]) )
 
-        #         #  note: use model.c8[indx].expr.to_string()  to print out the constraint in a human readable form
-        #         #                ^ USES BASE 1 INDEXING!!! WTF??
+                #  note: use model.c8[indx].expr.to_string()  to print out the constraint in a human readable form
+                #                ^ USES BASE 1 INDEXING!!! WTF??
 
-
-        # # constrain utilization of existing routes that are within planning_fixed_end
-        # model.c11  = pe.ConstraintList()
-        # for p in model.fixed_dmr_ids:
-        #     # less than constraint because equality should be achievable (if we're only using existing routes that have all previously been scheduled and deconflicted together - which is the case for current version of GP), but want to allow route to lessen its utilization if a more valuable route is available.
-        #     #  add in an epsilon at the end, because it may be that the utilization number was precisely chosen to meet the minimum data volume requirement -  don't want to not make the minimum data volume requirement this time because of round off error
-        #     model.c11.add( model.var_dmr_utilization[p] <= utilization_by_existing_route_id[p] + self.epsilon_fixed_utilization)
-
-        # # constrain utilization reward of existing routes by the input utilization numbers
-        # model.c12  = pe.ConstraintList()
-        # for p in model.existing_dmr_ids:
-        #     # constrain the reward utilization (used in obj function) by the input utilization for this existing route
-        #     model.c12.add( model.var_existing_dmr_utilization_reward[p] <= utilization_by_existing_route_id[p] )
-        #     # also constrain by the current utilization in the optimization
-        #     model.c12.add( model.var_existing_dmr_utilization_reward[p] <= model.var_dmr_utilization[p] )
-
-        # print_verbose('make obj',verbose)
 
 
         # # from circinus_tools import debug_tools
@@ -626,23 +616,22 @@ class LPScheduling(AgentScheduling):
             total_injected_inflow_dv_term = self.obj_weights['injected_inflow_dv'] * 1/model.par_possible_injected_inflow_capacity * sum(model.var_unified_flow_dv[u] for u in injected_unified_flow_ids)
 
             #  for the indicators term though, we want to look at the indicators for the injected inflows as opposed to unified flows - because we want to reward meeting minimum data volume for each injected inflow, not for maximizing the number of unified flows the inflows spread themselves out over
-            injected_inflow_indicators_term = self.obj_weights['injected_flow_indicators'] * 1/len(injected_inflow_ids) * sum(model.var_partial_flow_indic[i] for i in model.injected_inflow_ids)
+            injected_inflow_indicators_term = self.obj_weights['injected_inflow_indicators'] * 1/len(injected_inflow_ids) * sum(model.var_partial_flow_indic[i] for i in model.injected_inflow_ids)
 
-
-            # # obj [2]
-            # latency_term = self.obj_weights['route_latency'] * 1/len(model.obs_windids) * sum(model.var_latency_sf_obs[o] for o in model.obs_windids)
+            # obj [2]
+            latency_term = self.obj_weights['injected_inflow_latency'] * 1/len(model.injected_inflow_ids) * sum(model.var_latency_sf_inflow[i] for i in model.injected_inflow_ids)
 
             # # obj [5]
             # energy_margin_term = self.obj_weights['energy_storage'] * 1/rsrc_norm_f * sum(model.var_sats_estore[sat_indx,tp_indx]/model.par_sats_estore_max[sat_indx] for tp_indx in decimated_tp_indcs for sat_indx in model.sat_indcs)
 
 
-            return total_dv_term + total_existing_dv_term + existing_indicators_term + total_injected_inflow_dv_term + injected_inflow_indicators_term  #+ latency_term + energy_margin_term 
+            return total_dv_term + total_existing_dv_term + existing_indicators_term + total_injected_inflow_dv_term + injected_inflow_indicators_term + latency_term #+ energy_margin_term 
 
         model.obj = pe.Objective( rule=obj_rule, sense=pe.maximize )
 
         self.model_constructed = True
 
-    def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, latest_dr_uid,lp_agent_ID,verbose = False):
+    def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, planned_rt_ids_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
 
         # inflow_by_id = [inflow.ID:inflow for inflow in inflows]
@@ -696,8 +685,8 @@ class LPScheduling(AgentScheduling):
                     scheduled_rt_ids.append(rt.ID)
 
 
-        # For every existing routes that is not in the scheduled routes, mark its utilization as zero ( because a new scheduled route has taken its throughput)
-        for rt_id,rt in existing_planned_routes_by_id.items():
+        # For every existing routes that is not in the scheduled routes, mark its utilization as zero ( because a new scheduled route has taken its throughput) - but only do this for routes that were actually found in planning window!
+        for rt_id in planned_rt_ids_in_planning_window:
             if not rt_id in scheduled_rt_ids:
                 updated_utilization_by_route_id[rt_id] = 0.0
 

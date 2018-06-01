@@ -39,13 +39,13 @@ class LocalPlannerRunner:
     def run(self,existing_route_data,verbose=False):
 
         #   determine outflow and inflow routes
-        inflows,outflows = self.lp_proc.determine_flows(existing_route_data)
+        inflows,outflows,planned_rt_ids_in_planning_window = self.lp_proc.determine_flows(existing_route_data)
 
         existing_planned_routes_by_id = {rt.ID:rt for rt in existing_route_data['planned_routes']}
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
-        scheduled_routes, updated_utilization_by_route_id = self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],self.latest_dr_uid,self.lp_agent_ID,verbose)
+        scheduled_routes, updated_utilization_by_route_id = self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],planned_rt_ids_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
 
 
         # debug_tools.debug_breakpt()

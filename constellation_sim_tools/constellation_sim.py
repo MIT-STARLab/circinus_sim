@@ -160,6 +160,9 @@ class ConstellationSim:
 
         inj_obs_raw = self.sim_run_perturbations['injected_observations']
 
+        if not self.sim_run_perturbations['do_inject_obs']:
+            return
+
         windid = 0
         inj_obs_by_sat_id = {}
         for obs_raw in inj_obs_raw:
