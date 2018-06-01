@@ -45,7 +45,7 @@ class LocalPlannerRunner:
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
-        self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],self.latest_dr_uid,self.lp_agent_ID,verbose)
+        scheduled_routes, updated_utilization_by_route_id = self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],self.latest_dr_uid,self.lp_agent_ID,verbose)
 
 
         # debug_tools.debug_breakpt()

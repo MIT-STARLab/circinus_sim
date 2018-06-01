@@ -14,14 +14,14 @@ def print_verbose(string,verbose=False):
 
 class LPScheduling(AgentScheduling):
     """ local planner scheduling algorithm/solver, using pyomo"""
-    
+
     #  holds a pairing of an inflow to an outflow. all possible pairings are considered in the scheduler.  note that the unified flow IDs are considered a different namespace from that of the inflow and outflow IDs ( which are actually the routing object IDs for the underlying data routes)
     #  note that in constructing unified flows, we ensure that all rx activities on the inflow precede all tx activities on the outflow ( for the satellite index that we're considering), so we do not end up splitting the flow of a DataMultiRoute
     UnifiedFlow = namedtuple('UnifiedFlow', 'ID inflow outflow')
 
     def __init__(self,lp_params):
         """initializes based on parameters
-        
+
         initializes based on parameters
         :param lp_params: global namespace parameters created from input files (possibly with some small non-structural modifications to params). The name spaces here should trace up all the way to the input files.
         :type params: dict
@@ -122,7 +122,7 @@ class LPScheduling(AgentScheduling):
 
     def make_model ( self,inflows,outflows, verbose = False):
         # all the items in outflows,inflows are PartialFlow objects
-        # note: all flows in inflows,outflows 
+        # note: all flows in inflows,outflows
 
         # important assumption: all activity window IDs are unique!
 
@@ -155,14 +155,14 @@ class LPScheduling(AgentScheduling):
         #             if act.original_start < self.planning_start_dt or act.original_end > self.planning_end_dt:
         #                 raise RuntimeWarning('Activity is out of planning window range (start %s, end %s): %s'%(self.planning_start_dt,self.planning_end_dt,act))
 
-        #     # construct a set of dance cards for every satellite, 
-        #     # each of which keeps track of all of the activities of satellite 
-        #     # can possibly execute at any given time slice delta T. 
+        #     # construct a set of dance cards for every satellite,
+        #     # each of which keeps track of all of the activities of satellite
+        #     # can possibly execute at any given time slice delta T.
         #     # this is for constructing energy storage constraints
         #     # using resource_delta_t_s because this dancecard is solely for use in constructing resource constraints
         #     # note that these dancecards will baloon in size pretty quickly as the planning_end_dt increases. However most of the complexity they introduce is before planning_end_obs,xlnk_dt because that's the horizon where obs,xlnk actitivities are included. After that there should only be sparse downlinks
         #     es_act_dancecards = [Dancecard(self.planning_start_dt,self.planning_end_dt,self.resource_delta_t_s,item_init=None,mode='timestep') for sat_indx in range (self.num_sats)]
-            
+
         #     #  add windows to dance card, silenty dropping any time steps that appear outside of the planning window bounds ( we don't need to enforce resource constraints on out-of-bounds activities)
         #     def wind_time_getter_orig(wind,time_opt):
         #         if time_opt == 'start': return wind.original_start
@@ -171,14 +171,14 @@ class LPScheduling(AgentScheduling):
         #         if time_opt == 'start': return wind.start
         #         if time_opt == 'end': return wind.end
 
-        #     for sat_indx in range (self.num_sats): 
+        #     for sat_indx in range (self.num_sats):
         #         es_act_dancecards[sat_indx].add_winds_to_dancecard(sats_mutable_acts[sat_indx],wind_time_getter_orig,drop_out_of_bounds=True)
         #         es_act_dancecards[sat_indx].add_winds_to_dancecard(ecl_winds[sat_indx],wind_time_getter_reg,drop_out_of_bounds=True)
 
         #     # this is for data storage
         #     # for each sat/timepoint, we store a list of all those data multi routes that are storing data on the sat at that timepoint
         #     ds_route_dancecards = [Dancecard(self.planning_start_dt,self.planning_end_dt,self.resource_delta_t_s,item_init=None,mode='timepoint') for sat_indx in range (self.num_sats)]
-            
+
         #     # add data routes to the dancecard
         #     for dmr in routes_filt:
         #         # list of type routing_objects.SatStorageInterval
@@ -189,7 +189,7 @@ class LPScheduling(AgentScheduling):
         #             ds_route_dancecards[interv.sat_indx].add_item_in_interval(dmr.ID,interv.start,interv.end,drop_out_of_bounds=True)
 
         # except IndexError:
-        #     raise RuntimeWarning('sat_indx out of range. Are you sure all of your input files are consistent? (including pickles)')        
+        #     raise RuntimeWarning('sat_indx out of range. Are you sure all of your input files are consistent? (including pickles)')
         # self.dmr_ids_by_act_windid = dmr_ids_by_act_windid
         # self.all_acts_windids = all_acts_windids
         # self.obs_windids = all_obs_windids
@@ -203,8 +203,6 @@ class LPScheduling(AgentScheduling):
 
         # # these dmr subscripts probably should've been done using the unique IDs for the objects, rather than their arbitrary locations within a list. Live and learn, hélas...
 
-        # model.inflow_ids = pe.Set(initialize= [flow.ID for flow in inflows])
-        # model.outflow_ids = pe.Set(initialize= [flow.ID for flow in outflows])
         inflow_ids = [flow.ID for flow in inflows]
         outflow_ids = [flow.ID for flow in outflows]
 
@@ -218,7 +216,7 @@ class LPScheduling(AgentScheduling):
 
         model.unified_flow_ids = pe.Set(initialize= [flow.ID for flow in unified_flows])
 
-        # # timepoints is the indices, which starts at 0 
+        # # timepoints is the indices, which starts at 0
         # #  NOTE: we assume the same time system for every satellite
         # self.es_time_getter_dc = es_act_dancecards[0]
         # es_num_timepoints = es_act_dancecards[0].num_timepoints
@@ -239,7 +237,7 @@ class LPScheduling(AgentScheduling):
         # else:
         #     raise NotImplementedError
 
-        # for p,lat_sf in latency_sf_by_dmr_id.items():        
+        # for p,lat_sf in latency_sf_by_dmr_id.items():
         #     if lat_sf > int_feas_tol*self.big_M_lat:
         #         raise RuntimeWarning('big_M_lat (%f) is not large enough for latency score factor %f and integer feasibility tolerance %f (dmr index %d)'%(self.big_M_lat,lat_sf,int_feas_tol,p))
 
@@ -251,7 +249,7 @@ class LPScheduling(AgentScheduling):
 
         # #     if 2*act_obj.data_vol > (1-int_feas_tol) * self.big_M_act_dv:
         # #         raise RuntimeWarning('big_M_act_dv (%f) is not large enough for act of dv %f and integer feasibility tolerance %f (act string %s)'%(self.big_M_act_dv,act_obj.data_vol,int_feas_tol,act_obj))
-                
+
 
 
         ##############################
@@ -278,8 +276,8 @@ class LPScheduling(AgentScheduling):
         # model.par_dmr_act_dv = pe.Param(
         #     model.dmr_ids,
         #     model.all_act_windids,
-        #     initialize = { (dmr.ID,act.window_ID): 
-        #         dmr.data_vol_for_wind(act) for dmr in routes_filt for act in dmr.get_winds() if act.window_ID in mutable_acts_windids 
+        #     initialize = { (dmr.ID,act.window_ID):
+        #         dmr.data_vol_for_wind(act) for dmr in routes_filt for act in dmr.get_winds() if act.window_ID in mutable_acts_windids
         #     }
         # )
 
@@ -292,7 +290,7 @@ class LPScheduling(AgentScheduling):
 
         # if self.energy_unit == "Wh":
         #     model.par_resource_delta_t = pe.Param (initialize= self.resource_delta_t_s/3600)
-        # else: 
+        # else:
         #     raise NotImplementedError
         # model.par_sats_estore_initial = pe.Param ( model.sat_indcs,initialize= { i: item for i,item in enumerate (self.sats_init_estate_Wh)})
         # model.par_sats_estore_min = pe.Param ( model.sat_indcs,initialize= { i: item for i,item in enumerate (self.sats_emin_Wh)})
@@ -328,7 +326,7 @@ class LPScheduling(AgentScheduling):
 
         # a utilization number for existing routes that will be bounded by the input existing route utilization (can't get more  "existing route" reward for a route than the route's previous utilization) [8]
         # model.var_existing_dmr_utilization_reward  = pe.Var (model.existing_dmr_ids, bounds =(0,1))
-        
+
         # # satellite energy storage
         # model.var_sats_estore  = pe.Var (model.sat_indcs,  model.es_timepoint_indcs,  within = pe.NonNegativeReals)
 
@@ -336,7 +334,7 @@ class LPScheduling(AgentScheduling):
         # model.var_sats_dstore  = pe.Var (model.sat_indcs,  model.ds_timepoint_indcs,  within = pe.NonNegativeReals)
 
         # model.var_latency_sf_obs = pe.Var (model.obs_windids,  bounds = (0,1.0))
-        
+
         # allow_act_timing_constr_violations = False
         # if allow_act_timing_constr_violations:
         #     print('allow_act_timing_constr_violations is True')
@@ -348,8 +346,8 @@ class LPScheduling(AgentScheduling):
         # model.inter_sat_act_constr_bounds  = pe.ConstraintList()
 
         # #  stores all of the lower bounds of the constraint violation variables, for use in normalization for objective function
-        # min_var_intra_sat_act_constr_violation_list = [] 
-        # min_var_inter_sat_act_constr_violation_list = [] 
+        # min_var_intra_sat_act_constr_violation_list = []
+        # min_var_inter_sat_act_constr_violation_list = []
 
         # constraint_violation_model_objs = {}
         # constraint_violation_model_objs['intra_sat_act_constr_violation_acts_list'] = []
@@ -358,8 +356,8 @@ class LPScheduling(AgentScheduling):
         # constraint_violation_model_objs['var_inter_sat_act_constr_violations'] = model.var_inter_sat_act_constr_violations
         # constraint_violation_model_objs['intra_sat_act_constr_bounds'] = model.intra_sat_act_constr_bounds
         # constraint_violation_model_objs['inter_sat_act_constr_bounds'] = model.inter_sat_act_constr_bounds
-        # constraint_violation_model_objs['min_var_intra_sat_act_constr_violation_list'] = min_var_intra_sat_act_constr_violation_list 
-        # constraint_violation_model_objs['min_var_inter_sat_act_constr_violation_list'] = min_var_inter_sat_act_constr_violation_list 
+        # constraint_violation_model_objs['min_var_intra_sat_act_constr_violation_list'] = min_var_intra_sat_act_constr_violation_list
+        # constraint_violation_model_objs['min_var_inter_sat_act_constr_violation_list'] = min_var_inter_sat_act_constr_violation_list
 
         ##############################
         #  Make constraints
@@ -370,12 +368,12 @@ class LPScheduling(AgentScheduling):
         # TODO: renumber  these with the final numbering
 
         def c1_rule( model,i):
-            return (sum(model.var_unified_flow_dv[u] for u in possible_unified_flows_ids_by_inflow_id[i]) 
+            return (sum(model.var_unified_flow_dv[u] for u in possible_unified_flows_ids_by_inflow_id[i])
                     <= model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i])
         model.c1 =pe.Constraint ( inflow_ids,  rule=c1_rule)
 
         def c2_rule( model,o):
-            return (sum(model.var_unified_flow_dv[u] for u in possible_unified_flows_ids_by_outflow_id[o]) 
+            return (sum(model.var_unified_flow_dv[u] for u in possible_unified_flows_ids_by_outflow_id[o])
                     <= model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o])
         model.c2 =pe.Constraint ( outflow_ids,  rule=c2_rule)
 
@@ -386,15 +384,15 @@ class LPScheduling(AgentScheduling):
 
         def c4_rule( model,a):
             return model.var_act_indic[a] >=  model.var_activity_utilization[a]
-        model.c4 =pe.Constraint ( model.all_act_windids,  rule=c4_rule)  
+        model.c4 =pe.Constraint ( model.all_act_windids,  rule=c4_rule)
 
         def c5a_rule( model,a):
-            return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i] for i in inflows_ids_by_act_windid[a]) >= 0 
-        model.c5a =pe.Constraint ( model.all_act_windids,  rule=c5a_rule)  
+            return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i] for i in inflows_ids_by_act_windid[a]) >= 0
+        model.c5a =pe.Constraint ( model.all_act_windids,  rule=c5a_rule)
 
         def c5b_rule( model,a):
-            return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o] for o in outflows_ids_by_act_windid[a]) >= 0 
-        model.c5b =pe.Constraint ( model.all_act_windids,  rule=c5b_rule)  
+            return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o] for o in outflows_ids_by_act_windid[a]) >= 0
+        model.c5b =pe.Constraint ( model.all_act_windids,  rule=c5b_rule)
 
 
         #  this is hacky, but okay for now... encase all activities within an outer list so it looks like all the activities for a constellation of one satellite. this is needed for gen_sat_act_duration_constraints() call below. todo: technically this is a bad design and we shouldn't have to jimmy an argument to pass it
@@ -441,7 +439,7 @@ class LPScheduling(AgentScheduling):
         # #  energy constraints [6]
         # # todo: maybe this ought to be moved to the super class, but o don't anticipate this code changing much any time soon, so i'll punt that.
         # model.c6  = pe.ConstraintList()
-        # for sat_indx in range (self.num_sats): 
+        # for sat_indx in range (self.num_sats):
 
         #     # tp_indx serves as an index into the satellite activity dance cards
         #     for tp_indx in model.es_timepoint_indcs:
@@ -449,7 +447,7 @@ class LPScheduling(AgentScheduling):
         #         #  continue for loop afterwards because no geq/leq constraints needed for this index
         #         if tp_indx == 0:
         #             model.c6.add( model.var_sats_estore[sat_indx,tp_indx] ==  model.par_sats_estore_initial[sat_indx])
-        #             continue 
+        #             continue
 
         #         #  minimum and maximum storage constraints
         #         model.c6.add( model.var_sats_estore[sat_indx,tp_indx] >= model.par_sats_estore_min[sat_indx])
@@ -458,7 +456,7 @@ class LPScheduling(AgentScheduling):
         #         if self.enforce_energy_storage_constr:
         #             # determine activity energy consumption
         #             charging = True
-        #             activity_delta_e = 0 
+        #             activity_delta_e = 0
         #             #  get the activities that were active during the time step immediately preceding time point
         #             activities = es_act_dancecards[sat_indx].get_objects_at_ts_pre_tp_indx(tp_indx)
         #             # activities may be none if nothing is happening at timestep, to minimize RAM usage
@@ -468,7 +466,7 @@ class LPScheduling(AgentScheduling):
         #                     if type(act) in self.standard_activities:
         #                         act_code = act.get_code(sat_indx)
         #                         activity_delta_e += (
-        #                             model.par_sats_edot_by_mode[sat_indx][act_code] 
+        #                             model.par_sats_edot_by_mode[sat_indx][act_code]
         #                             * model.var_activity_utilization[act.window_ID]
         #                             * model.par_resource_delta_t
         #                         )
@@ -485,7 +483,7 @@ class LPScheduling(AgentScheduling):
         #             base_delta_e = model.par_sats_edot_by_mode[sat_indx]['base']*model.par_resource_delta_t
 
         #             # maximum bound of energy at current time step based on last time step
-        #             model.c6.add( model.var_sats_estore[sat_indx,tp_indx] <= 
+        #             model.c6.add( model.var_sats_estore[sat_indx,tp_indx] <=
         #                 model.var_sats_estore[sat_indx,tp_indx-1]
         #                 + activity_delta_e
         #                 + charging_delta_e
@@ -493,7 +491,7 @@ class LPScheduling(AgentScheduling):
         #             )
 
         #             # minimum bound of energy at current time step based on last time step
-        #             model.c6.add( model.var_sats_estore[sat_indx,tp_indx] >= 
+        #             model.c6.add( model.var_sats_estore[sat_indx,tp_indx] >=
         #                 model.var_sats_estore[sat_indx,tp_indx-1]
         #                 + activity_delta_e
         #                 + base_delta_e
@@ -502,7 +500,7 @@ class LPScheduling(AgentScheduling):
 
         # #  data storage constraints [7]
         # model.c7  = pe.ConstraintList()
-        # for sat_indx in range (self.num_sats): 
+        # for sat_indx in range (self.num_sats):
 
         #     # tp_indx serves as an index into the satellite data storage dance cards
         #     for tp_indx in model.ds_timepoint_indcs:
@@ -535,32 +533,32 @@ class LPScheduling(AgentScheduling):
         #     num_dmrs_obs = len(dmrs_obs)
         #     #  initial constraint -  score factor for this observation will be equal to zero if no dmrs for this obs were chosen
         #     model.c8.add( model.var_latency_sf_obs[o] <= 0 + self.big_M_lat * sum(model.var_dmr_indic[p] for p in dmrs_obs) )
-            
+
         #     for dmr_obs_indx in range(num_dmrs_obs):
         #         #  add constraint that score factor for observation is less than or equal to the score factor for this dmr_obs_indx, plus any big M terms for any dmrs with larger score factors.
-        #         #  what this does is effectively disable the constraint for the score factor for this dmr_obs_indx if any higher score factor dmrs were chosen 
-        #         model.c8.add( model.var_latency_sf_obs[o] <= 
-        #             latency_sf_by_dmr_id[dmrs_obs[dmr_obs_indx]] + 
+        #         #  what this does is effectively disable the constraint for the score factor for this dmr_obs_indx if any higher score factor dmrs were chosen
+        #         model.c8.add( model.var_latency_sf_obs[o] <=
+        #             latency_sf_by_dmr_id[dmrs_obs[dmr_obs_indx]] +
         #             self.big_M_lat * sum(model.var_dmr_indic[p] for p in dmrs_obs[dmr_obs_indx+1:num_dmrs_obs]) )
 
         #         #  note: use model.c8[indx].expr.to_string()  to print out the constraint in a human readable form
         #         #                ^ USES BASE 1 INDEXING!!! WTF??
-                
+
 
         # # constrain utilization of existing routes that are within planning_fixed_end
         # model.c11  = pe.ConstraintList()
         # for p in model.fixed_dmr_ids:
-        #     # less than constraint because equality should be achievable (if we're only using existing routes that have all previously been scheduled and deconflicted together - which is the case for current version of GP), but want to allow route to lessen its utilization if a more valuable route is available. 
+        #     # less than constraint because equality should be achievable (if we're only using existing routes that have all previously been scheduled and deconflicted together - which is the case for current version of GP), but want to allow route to lessen its utilization if a more valuable route is available.
         #     #  add in an epsilon at the end, because it may be that the utilization number was precisely chosen to meet the minimum data volume requirement -  don't want to not make the minimum data volume requirement this time because of round off error
-        #     model.c11.add( model.var_dmr_utilization[p] <= utilization_by_existing_route_id[p] + self.epsilon_fixed_utilization) 
-        
+        #     model.c11.add( model.var_dmr_utilization[p] <= utilization_by_existing_route_id[p] + self.epsilon_fixed_utilization)
+
         # # constrain utilization reward of existing routes by the input utilization numbers
         # model.c12  = pe.ConstraintList()
         # for p in model.existing_dmr_ids:
         #     # constrain the reward utilization (used in obj function) by the input utilization for this existing route
-        #     model.c12.add( model.var_existing_dmr_utilization_reward[p] <= utilization_by_existing_route_id[p] ) 
+        #     model.c12.add( model.var_existing_dmr_utilization_reward[p] <= utilization_by_existing_route_id[p] )
         #     # also constrain by the current utilization in the optimization
-        #     model.c12.add( model.var_existing_dmr_utilization_reward[p] <= model.var_dmr_utilization[p] ) 
+        #     model.c12.add( model.var_existing_dmr_utilization_reward[p] <= model.var_dmr_utilization[p] )
 
         # print_verbose('make obj',verbose)
 
@@ -584,11 +582,11 @@ class LPScheduling(AgentScheduling):
             #  note the first two objectives are for all observations, not just mutable observations
 
             # obj [1]
-            total_dv_term = self.obj_weights['obs_dv'] * 1/model.par_max_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in model.unified_flow_ids) 
+            total_dv_term = self.obj_weights['obs_dv'] * 1/model.par_max_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in model.unified_flow_ids)
 
             # # obj [2]
             # latency_term = self.obj_weights['route_latency'] * 1/len(model.obs_windids) * sum(model.var_latency_sf_obs[o] for o in model.obs_windids)
-            
+
             # # obj [5]
             # energy_margin_term = self.obj_weights['energy_storage'] * 1/rsrc_norm_f * sum(model.var_sats_estore[sat_indx,tp_indx]/model.par_sats_estore_max[sat_indx] for tp_indx in decimated_tp_indcs for sat_indx in model.sat_indcs)
 
@@ -596,7 +594,7 @@ class LPScheduling(AgentScheduling):
             # existing_routes_term = self.obj_weights['existing_routes'] * 1/sum_existing_route_utilization * sum(model.var_existing_dmr_utilization_reward[p] for p in model.existing_dmr_ids) if len(model.existing_dmr_ids) > 0 else 0
 
             return total_dv_term #+ latency_term + energy_margin_term + existing_routes_term
-            
+
         model.obj = pe.Objective( rule=obj_rule, sense=pe.maximize )
 
         self.model_constructed = True
@@ -607,8 +605,10 @@ class LPScheduling(AgentScheduling):
         # inflow_by_id = [inflow.ID:inflow for inflow in inflows]
         # outflow_by_id = [outflow.ID:outflow for outflow in outflows]
 
-        updated_routes = []
+        scheduled_routes = []
+        # includes utilization for both scheduled routes and existing routes that have been "un-scheduled"
         updated_utilization_by_route_id = {}
+        scheduled_rt_ids = []
 
         # TODO: also need to update utilization for routes that did not end up scheduled, and have had their util reduced - from those in utilization_by_planned_route_id...
 
@@ -629,10 +629,11 @@ class LPScheduling(AgentScheduling):
                     # -  we have not already added this route to updated routes ( that would imply that the route is present more than once in the unified flows which should not be possible)
                     assert(rt_id in existing_planned_routes_by_id.keys())
                     assert( new_utilization <= utilization_by_planned_route_id[rt_id])
-                    assert(rt not in updated_routes)
+                    assert(rt not in scheduled_routes)
 
-                    updated_routes.append(rt)
+                    scheduled_routes.append(rt)
                     updated_utilization_by_route_id[rt_id] = new_utilization
+                    scheduled_rt_ids.append(rt.ID)
 
 
                 #  if we have an entirely new matching of an inflow to an outflow, which constitutes a new route
@@ -641,15 +642,22 @@ class LPScheduling(AgentScheduling):
                     outflow = flow.outflow
 
                     rt,latest_dr_uid = self.graft_routes(inflow,outflow,flow_dv,latest_dr_uid,lp_agent_ID)
-                    updated_routes.append(rt)
+                    scheduled_routes.append(rt)
                     #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%
                     updated_utilization_by_route_id[rt.ID] = 1.0
+                    scheduled_rt_ids.append(rt.ID)
 
                 # note that we don't consider the case where an inflow data container is mapped to the outflow data route that was actually INTENDED TO TAKE (this won't get caught by flow.inflow.rt_ID == flow.outflow.rt_ID check, because the rt_ID for a data container is not the planned route container, but rather the actual path it has taken, with its own unique ID). this produces some clutter, but it is fine as long as we mark that utilization has gone to zero for the original route.
 
+
+        # For every existing routes that is not in the scheduled routes, mark its utilization as zero ( because a new scheduled route has taken its throughput)
+        for rt_id,rt in existing_planned_routes_by_id.items():
+            if not rt_id in scheduled_rt_ids:
+                updated_utilization_by_route_id[rt_id] = 0.0
+
         debug_tools.debug_breakpt()
 
-        return updated_routes, updated_utilization_by_route_id
+        return scheduled_routes, updated_utilization_by_route_id
 
 
 
@@ -697,7 +705,7 @@ class LPScheduling(AgentScheduling):
         curr_inflow_dr = inflow_drs_queue.pop(0)
         curr_outflow_dr = outflow_drs_queue.pop(0)
         while remaining_unified_flow_dv > self.dv_epsilon:
-            
+
             delta_dv = min(inflow_dvs_by_dr[curr_inflow_dr],outflow_dvs_by_dr[curr_outflow_dr],remaining_unified_flow_dv)
 
             new_dr = make_new_route(
@@ -727,4 +735,3 @@ class LPScheduling(AgentScheduling):
 
 
 
-    

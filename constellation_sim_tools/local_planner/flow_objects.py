@@ -62,7 +62,7 @@ class PartialFlow:
         return self._route
 
     def __repr__(self):
-        return "(PartialFlow %s, dv: %f, dir: %s)"%(self.ro_ID,self.data_vol,self._direction)
+        return "(PartialFlow %s, rt_id: %s, dv: %f, dir: %s)"%(self.ro_ID,self._route.ID,self.data_vol,self._direction)
 
     def get_simple_drs_dvs(self):
         """ return a list of tuples for every data route within this flow, with each tuple containing a data route and the data volume for that route"""
