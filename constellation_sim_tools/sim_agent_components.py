@@ -538,7 +538,7 @@ class Executive:
             proposed_act,
             txsat_data_cont,
             received_dv,
-            self.sim_executive_agent.ID,
+            self.sim_executive_agent.dc_agent_id,
             tx_sat_indx,
             self._curr_dc_indx,
             tx_data_cont_changed
@@ -554,7 +554,7 @@ class Executive:
         return received_dv,True
 
     @staticmethod
-    def ingest_rx_data(rx_data_conts_list,act,txsat_data_cont,received_dv,rx_id,tx_sat_indx,dc_indx,tx_data_cont_changed):
+    def ingest_rx_data(rx_data_conts_list,act,txsat_data_cont,received_dv,rx_agent_id,tx_sat_indx,dc_indx,tx_data_cont_changed):
         """Ingest received data, and do the process of putting that data into its proper data container destination"""
 
         #  if we've already been receiving data from this transmitted data container, then we should still receive into the same reception data container
@@ -562,7 +562,7 @@ class Executive:
             rx_dc = rx_data_conts_list[-1]
         #  if the transmitted data container has changed, then we can make a new reception data container
         else:
-            new_rx_dc = txsat_data_cont.fork(rx_id,new_dc_indx=dc_indx)
+            new_rx_dc = txsat_data_cont.fork(rx_agent_id,new_dc_indx=dc_indx)
             dc_indx += 1
             new_rx_dc.add_to_route(act,tx_sat_indx)
             rx_data_conts_list.append(new_rx_dc)

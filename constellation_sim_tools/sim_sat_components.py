@@ -287,7 +287,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         #  run the global planner
         # debug_tools.debug_breakpt()
-        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
+        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
 
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
         self.latest_lp_route_indx = latest_lp_route_indx
@@ -490,7 +490,7 @@ class SatExecutive(Executive):
 
             # if we just started this observation, then there are no data containers (packets). Make a new one and append
             if len(curr_exec_context['rx_data_conts']) == 0:
-                curr_data_cont = SimDataContainer(self.sim_sat.sat_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=0)
+                curr_data_cont = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=0)
                 self._curr_dc_indx += 1
                 curr_exec_context['rx_data_conts'].append(curr_data_cont)
             else:

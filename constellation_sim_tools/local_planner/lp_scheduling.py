@@ -2,7 +2,9 @@ from collections import namedtuple
 
 from pyomo import environ  as pe
 
-from circinus_tools.scheduling.formulation.schedulers import PyomoMILPScheduling
+from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow,  EclipseWindow
+from circinus_tools.scheduling.formulation.agent_scheduler import AgentScheduling
+from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute,RoutingObjectID
 
 from circinus_tools import debug_tools
 
@@ -10,10 +12,12 @@ def print_verbose(string,verbose=False):
     if verbose:
         print(string)
 
-class LPScheduling(PyomoMILPScheduling):
+class LPScheduling(AgentScheduling):
     """ local planner scheduling algorithm/solver, using pyomo"""
     
-    UnifiedFlow = namedtuple('UnifiedFlow', 'ID inflow_ro_id outflow_ro_id')
+    #  holds a pairing of an inflow to an outflow. all possible pairings are considered in the scheduler.  note that the unified flow IDs are considered a different namespace from that of the inflow and outflow IDs ( which are actually the routing object IDs for the underlying data routes)
+    #  note that in constructing unified flows, we ensure that all rx activities on the inflow precede all tx activities on the outflow ( for the satellite index that we're considering), so we do not end up splitting the flow of a DataMultiRoute
+    UnifiedFlow = namedtuple('UnifiedFlow', 'ID inflow outflow')
 
     def __init__(self,lp_params):
         """initializes based on parameters
@@ -25,11 +29,42 @@ class LPScheduling(PyomoMILPScheduling):
 
         super().__init__()
 
+        sat_params = lp_params['orbit_prop_params']['sat_params']
         gp_as_params = lp_params['gp_general_params']['activity_scheduling_params']
+        lp_general_params = lp_params['const_sim_inst_params']['lp_general_params']
+
+        self.sat_indx = lp_params['lp_instance_params']['sat_indx']
 
         # this is the minimum obs dv that must be downlinked by a unified route in order for it to count it towards objective terms (other than total dv)
         self.min_obs_dv_dlnk_req =gp_as_params['min_obs_dv_dlnk_req_Mb']
 
+        self.sat_activity_params = sat_params['activity_params']
+
+        self.min_act_duration_s = {
+            ObsWindow: self.sat_activity_params['min_duration_s']['obs'],
+            DlnkWindow: self.sat_activity_params['min_duration_s']['dlnk'],
+            XlnkWindow: self.sat_activity_params['min_duration_s']['xlnk']
+        }
+
+        self.obj_weights = lp_general_params['obj_weights']
+        self.solver_name = lp_general_params['solver_name']
+        self.solver_params = lp_general_params['solver_params']
+
+        self.dv_epsilon = lp_general_params['dv_epsilon_Mb']
+
+    @staticmethod
+    def get_act_model_objs(act,model):
+        """ get the pyomo model objects used for modeling activity utilization."""
+        # note: can be overridden in subclass - this function provides an example implementation
+
+        model_objs_act = {
+            'act_object': act,
+            'var_dv_utilization': model.var_activity_utilization[act.window_ID]*model.par_act_capacity[act.window_ID],
+            'par_dv_capacity': model.par_act_capacity[act.window_ID],
+            'var_act_indic': model.var_act_indic[act.window_ID],
+        }
+
+        return model_objs_act
 
     def get_flow_structs(self,inflows,outflows):
 
@@ -42,43 +77,46 @@ class LPScheduling(PyomoMILPScheduling):
         possible_unified_flows_ids_by_inflow_id = {}
         possible_unified_flows_ids_by_outflow_id = {}
 
-        all_acts_windids = set()
 
         for inflow in inflows:
             capacity_by_partial_flow_id[inflow.ID] = inflow.data_vol
-            possible_unified_flows_ids_by_inflow_id[inflow.ID] = []
+            possible_unified_flows_ids_by_inflow_id.setdefault(inflow.ID,[])
 
             for outflow in outflows:
                 capacity_by_partial_flow_id[outflow.ID] = outflow.data_vol
-                possible_unified_flows_ids_by_outflow_id[outflow.ID] = []
+                possible_unified_flows_ids_by_outflow_id.setdefault(outflow.ID,[])
 
                 #  if the data delivered from this inflow is available before the outflow, then they can be combined into a unified flow
                 if inflow.flow_precedes(outflow):
-                    unified_flows.append(self.UnifiedFlow(ID=unified_flow_indx,inflow_ro_id=inflow.ID, outflow_ro_id=outflow.ID))
+                    unified_flows.append(self.UnifiedFlow(ID=unified_flow_indx,inflow=inflow, outflow=outflow))
 
                     possible_unified_flows_ids_by_inflow_id[inflow.ID].append(unified_flow_indx)
                     possible_unified_flows_ids_by_outflow_id[outflow.ID].append(unified_flow_indx)
                     unified_flow_indx += 1
 
+        all_acts_windids = set()
+        all_acts = []
         capacity_by_act_windid = {}
         inflows_ids_by_act_windid = {}
         outflows_ids_by_act_windid = {}
         for flow in all_flows:
             for act in flow.get_required_acts():
                 act_windid = act.window_ID
+                if act_windid not in all_acts_windids: all_acts.append(act)
                 all_acts_windids.add(act_windid)
 
                 #  note that we're using the original activity capacity/available data volume here, rather than a capcity number constrained by existing routes.  this is because the LP can decide, if it wants to, to extend the length of an activity to use all of its potential data volume. Currently though the actual data routes, which make use of that potential data volume, are constrained by existing utilization values ( so we can lengthen an activity to get more data volume, but we can't do anything with it because we can't enlarge the data routes that would use that data volume - in the current version of the LP)
                 capacity_by_act_windid[act_windid] = act.data_vol
 
+                inflows_ids_by_act_windid.setdefault(act_windid, [])
+                outflows_ids_by_act_windid.setdefault(act_windid, [])
                 if flow.is_inflow():
-                    inflows_ids_by_act_windid.setdefault(act_windid, []).append(flow.ID)
+                    inflows_ids_by_act_windid[act_windid].append(flow.ID)
                 elif flow.is_outflow():
-                    outflows_ids_by_act_windid.setdefault(act_windid, []).append(flow.ID)
+                    outflows_ids_by_act_windid[act_windid].append(flow.ID)
 
 
-
-        return unified_flows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid
+        return unified_flows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid
 
 
 
@@ -99,6 +137,7 @@ class LPScheduling(PyomoMILPScheduling):
             capacity_by_partial_flow_id,
             possible_unified_flows_ids_by_inflow_id,
             possible_unified_flows_ids_by_outflow_id,
+            all_acts,
             all_acts_windids,
             capacity_by_act_windid,
             inflows_ids_by_act_windid,
@@ -158,19 +197,23 @@ class LPScheduling(PyomoMILPScheduling):
         # self.all_acts_by_windid = all_acts_by_windid
         # self.mutable_acts_windids = mutable_acts_windids
 
+        self.unified_flows = unified_flows
+        self.inflows = inflows
+        self.outflows = outflows
+
         # # these dmr subscripts probably should've been done using the unique IDs for the objects, rather than their arbitrary locations within a list. Live and learn, hélas...
 
-        # model.inflow_ids = pe.Set(initialize= [flow.ro_ID for flow in inflows])
-        # model.outflow_ids = pe.Set(initialize= [flow.ro_ID for flow in outflows])
-        inflow_ids = [flow.ro_ID for flow in inflows]
-        outflow_ids = [flow.ro_ID for flow in outflows]
+        # model.inflow_ids = pe.Set(initialize= [flow.ID for flow in inflows])
+        # model.outflow_ids = pe.Set(initialize= [flow.ID for flow in outflows])
+        inflow_ids = [flow.ID for flow in inflows]
+        outflow_ids = [flow.ID for flow in outflows]
 
 
         #  subscript for each activity a
         model.all_act_windids = pe.Set(initialize= all_acts_windids)
 
         # Make an index in the model for every inflow and outflow
-        all_partial_flow_ids = [flow.ro_ID for flow in inflows] + [flow.ro_ID for flow in outflows]
+        all_partial_flow_ids = [flow.ID for flow in inflows] + [flow.ID for flow in outflows]
         model.partial_flow_ids = pe.Set(initialize= all_partial_flow_ids)
 
         model.unified_flow_ids = pe.Set(initialize= [flow.ID for flow in unified_flows])
@@ -220,7 +263,11 @@ class LPScheduling(PyomoMILPScheduling):
         # The data volume available for each partial flow ( possible arriving data volume for inflows, and possible leaving data volume for outflows)
         model.par_partial_flow_capacity = pe.Param(model.partial_flow_ids,initialize =capacity_by_partial_flow_id)
 
-        # model.par_total_obs_dv = sum(dv_by_obs_act_windid.values())
+        #  the maximum unified flow capacity cannot exceed the amount of data volume delivered by inflows or the amount of data volume carried out by outflows
+        model.par_max_possible_unified_flow_capacity = min(
+            sum(capacity_by_partial_flow_id[i] for i in inflow_ids),
+            sum(capacity_by_partial_flow_id[o] for o in outflow_ids)
+        )
         # model.par_link_capacity = pe.Param(model.lnk_windids,initialize =dv_by_link_act_windid)
         model.par_act_capacity = pe.Param(model.all_act_windids,initialize =capacity_by_act_windid)
         # #  data volume for each data multi-route
@@ -274,7 +321,7 @@ class LPScheduling(PyomoMILPScheduling):
         # model.var_dmr_indic  = pe.Var (model.dmr_ids, within = pe.Binary)
 
         # data volume used for a given incoming/outgoing flow pair combination (v_(i,o))
-        model.var_unified_flow_dv  = pe.Var (model.unified_flow_ids, within = pe.Reals)
+        model.var_unified_flow_dv  = pe.Var (model.unified_flow_ids, within = pe.PositiveReals)
         #  indicates if a given incoming/outgoing flow pair combination is chosen (I_(i,o))
         model.var_unified_flow_indic  = pe.Var (model.unified_flow_ids, within = pe.Binary)
 
@@ -336,7 +383,6 @@ class LPScheduling(PyomoMILPScheduling):
             return model.var_unified_flow_dv[u] >= model.par_min_obs_dv_dlnk_req*model.var_unified_flow_indic[u]
         model.c3 =pe.Constraint ( model.unified_flow_ids,  rule=c3_rule)
 
-        debug_tools.debug_breakpt()
 
         def c4_rule( model,a):
             return model.var_act_indic[a] >=  model.var_activity_utilization[a]
@@ -349,6 +395,21 @@ class LPScheduling(PyomoMILPScheduling):
         def c5b_rule( model,a):
             return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o] for o in outflows_ids_by_act_windid[a]) >= 0 
         model.c5b =pe.Constraint ( model.all_act_windids,  rule=c5b_rule)  
+
+
+        #  this is hacky, but okay for now... encase all activities within an outer list so it looks like all the activities for a constellation of one satellite. this is needed for gen_sat_act_duration_constraints() call below. todo: technically this is a bad design and we shouldn't have to jimmy an argument to pass it
+        sat_acts = [all_acts]
+
+        #  6 is activity minimum time duration
+        model.c6  = pe.ConstraintList()
+        # pass the model objects getter function so it can be called in place
+        self.gen_sat_act_duration_constraints(
+            model,
+            model.c6,
+            sat_acts,
+            num_sats=1,
+            act_model_objs_getter=self.get_act_model_objs
+        )
 
         # print_verbose('make overlap constraints',verbose)
 
@@ -507,58 +568,163 @@ class LPScheduling(PyomoMILPScheduling):
         # # from circinus_tools import debug_tools
         # # debug_tools.debug_breakpt()
 
-        # ##############################
-        # #  Make objective
-        # ##############################
+        ##############################
+        #  Make objective
+        ##############################
 
 
-        # #  determine which time points to use as "spot checks" on resource margin. These are the points that will be used in the objective function for maximizing resource margin
+        #  determine which time points to use as "spot checks" on resource margin. These are the points that will be used in the objective function for maximizing resource margin
         # timepoint_spacing = ceil(es_num_timepoints/self.resource_margin_obj_num_timepoints)
         # # need to turn the generator into a list for slicing
         # #  note: have to get the generator again
         # decimated_tp_indcs = list(self.es_time_getter_dc.get_tp_indcs())[::timepoint_spacing]
         # rsrc_norm_f = len(decimated_tp_indcs) * len(model.sat_indcs)
 
-        # def obj_rule(model):
-        #     #  note the first two objectives are for all observations, not just mutable observations
+        def obj_rule(model):
+            #  note the first two objectives are for all observations, not just mutable observations
 
-        #     # obj [1]
-        #     total_dv_term = self.obj_weights['obs_dv'] * 1/model.par_total_obs_dv * sum(model.par_dmr_dv[p]*model.var_dmr_utilization[p] for p in model.dmr_ids) 
+            # obj [1]
+            total_dv_term = self.obj_weights['obs_dv'] * 1/model.par_max_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in model.unified_flow_ids) 
 
-        #     # obj [2]
-        #     latency_term = self.obj_weights['route_latency'] * 1/len(model.obs_windids) * sum(model.var_latency_sf_obs[o] for o in model.obs_windids)
+            # # obj [2]
+            # latency_term = self.obj_weights['route_latency'] * 1/len(model.obs_windids) * sum(model.var_latency_sf_obs[o] for o in model.obs_windids)
             
-        #     # obj [5]
-        #     energy_margin_term = self.obj_weights['energy_storage'] * 1/rsrc_norm_f * sum(model.var_sats_estore[sat_indx,tp_indx]/model.par_sats_estore_max[sat_indx] for tp_indx in decimated_tp_indcs for sat_indx in model.sat_indcs)
+            # # obj [5]
+            # energy_margin_term = self.obj_weights['energy_storage'] * 1/rsrc_norm_f * sum(model.var_sats_estore[sat_indx,tp_indx]/model.par_sats_estore_max[sat_indx] for tp_indx in decimated_tp_indcs for sat_indx in model.sat_indcs)
 
-        #     # obj [6]
-        #     existing_routes_term = self.obj_weights['existing_routes'] * 1/sum_existing_route_utilization * sum(model.var_existing_dmr_utilization_reward[p] for p in model.existing_dmr_ids) if len(model.existing_dmr_ids) > 0 else 0
+            # # obj [6]
+            # existing_routes_term = self.obj_weights['existing_routes'] * 1/sum_existing_route_utilization * sum(model.var_existing_dmr_utilization_reward[p] for p in model.existing_dmr_ids) if len(model.existing_dmr_ids) > 0 else 0
 
-        #     if len(min_var_inter_sat_act_constr_violation_list) > 0:
-        #         inter_sat_act_constr_violations_term = self.obj_weights['inter_sat_act_constr_violations'] * 1/sum(min_var_inter_sat_act_constr_violation_list) * sum(model.var_inter_sat_act_constr_violations[indx] for indx in range(1,len(model.var_inter_sat_act_constr_violations)+1))
-        #     else:
-        #         inter_sat_act_constr_violations_term = 0
-
-        #     if len(min_var_intra_sat_act_constr_violation_list) > 0:
-        #         intra_sat_act_constr_violations_term = self.obj_weights['intra_sat_act_constr_violations'] * 1/sum(min_var_intra_sat_act_constr_violation_list) * sum(model.var_intra_sat_act_constr_violations[indx] for indx in range(1,len(model.var_inter_sat_act_constr_violations)+1))
-        #     else:
-        #         intra_sat_act_constr_violations_term = 0
-
-        #     # from circinus_tools import debug_tools
-        #     # debug_tools.debug_breakpt()
-
-        #     return total_dv_term + latency_term + energy_margin_term + existing_routes_term - inter_sat_act_constr_violations_term - intra_sat_act_constr_violations_term
+            return total_dv_term #+ latency_term + energy_margin_term + existing_routes_term
             
-        # model.obj = pe.Objective( rule=obj_rule, sense=pe.maximize )
+        model.obj = pe.Objective( rule=obj_rule, sense=pe.maximize )
 
         self.model_constructed = True
 
-        # print(self.planning_start_dt)
-        # print(self.planning_end_dt)
-        # print([rt.get_obs().end for rt in  selected_routes])
-        # print('all minus mutable')
-        # print([self.all_acts_by_windid[a] for a in (set(all_acts_windids)-set(mutable_acts_windids))])
-        # from circinus_tools import debug_tools
-        # debug_tools.debug_breakpt()
+    def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, latest_dr_uid,lp_agent_ID,verbose = False):
+        #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
+
+        # inflow_by_id = [inflow.ID:inflow for inflow in inflows]
+        # outflow_by_id = [outflow.ID:outflow for outflow in outflows]
+
+        updated_routes = []
+        updated_utilization_by_route_id = {}
+
+        # TODO: also need to update utilization for routes that did not end up scheduled, and have had their util reduced - from those in utilization_by_planned_route_id...
+
+        for flow in self.unified_flows:
+            #  if this unified flow possibility was actually chosen
+            if pe.value(self.model.var_unified_flow_dv[flow.ID]) >= self.min_obs_dv_dlnk_req:
+                flow_dv = pe.value(self.model.var_unified_flow_dv[flow.ID])
+
+                #  if the inflow ID is the same as the outflow ID, this must be an existing/ already planned route
+                if flow.inflow.rt_ID == flow.outflow.rt_ID:
+                    rt_id = flow.outflow.rt_ID
+                    rt = existing_planned_routes_by_id[rt_id]
+                    new_utilization = flow_dv/rt.scheduled_dv
+
+                    #  do some sanity checks:
+                    # - the route is in the existing planned routes
+                    # - the new utilization for the route is less than or equal to the previous utilization
+                    # -  we have not already added this route to updated routes ( that would imply that the route is present more than once in the unified flows which should not be possible)
+                    assert(rt_id in existing_planned_routes_by_id.keys())
+                    assert( new_utilization <= utilization_by_planned_route_id[rt_id])
+                    assert(rt not in updated_routes)
+
+                    updated_routes.append(rt)
+                    updated_utilization_by_route_id[rt_id] = new_utilization
+
+
+                #  if we have an entirely new matching of an inflow to an outflow, which constitutes a new route
+                else:
+                    inflow = flow.inflow
+                    outflow = flow.outflow
+
+                    rt,latest_dr_uid = self.graft_routes(inflow,outflow,flow_dv,latest_dr_uid,lp_agent_ID)
+                    updated_routes.append(rt)
+                    #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%
+                    updated_utilization_by_route_id[rt.ID] = 1.0
+
+                # note that we don't consider the case where an inflow data container is mapped to the outflow data route that was actually INTENDED TO TAKE (this won't get caught by flow.inflow.rt_ID == flow.outflow.rt_ID check, because the rt_ID for a data container is not the planned route container, but rather the actual path it has taken, with its own unique ID). this produces some clutter, but it is fine as long as we mark that utilization has gone to zero for the original route.
+
+        debug_tools.debug_breakpt()
+
+        return updated_routes, updated_utilization_by_route_id
+
+
+
+    def graft_routes(self,inflow,outflow,remaining_unified_flow_dv,latest_dr_uid,lp_agent_ID):
+        """Combine the underlying data routes within the inflow and outflow"""
+
+        #  each partial flow is either a simple DataRoute or a DataMultiRoute. this code handles both cases
+
+        # reduce the flows to simple DataRoute objects, with the amount of data volume for each data route
+        inflow_dvs_by_dr=  {dr:dv for (dr,dv) in inflow.get_simple_drs_dvs()}
+        outflow_dvs_by_dr=  {dr:dv for (dr,dv) in outflow.get_simple_drs_dvs()}
+
+        #  putting in a reminder to test this code, because I'm afraid I won't end up testing it...
+        if len(inflow_dvs_by_dr.keys()) > 1 or len(outflow_dvs_by_dr.keys()) > 1:
+            print('need to test this case!')
+            debug_tools.debug_breakpt()
+
+        inflow_dr_winds_by_dr = {dr:dr.get_inflow_winds_rx_sat(self.sat_indx) for dr in inflow_dvs_by_dr.keys()}
+        outflow_dr_winds_by_dr = {dr:dr.get_outflow_winds_tx_sat(self.sat_indx) for dr in outflow_dvs_by_dr.keys()}
+
+        ro_id = RoutingObjectID(creator_agent_ID=lp_agent_ID, creator_agent_ID_indx=latest_dr_uid)
+        latest_dr_uid += 1
+
+        def make_new_route(inflow_winds,outflow_winds,dv):
+            all_rt_winds = inflow_winds+outflow_winds
+            #  give all of the data routes the same id for now, because will combine them into a single data multi-route
+            dr = DataRoute(
+                agent_ID=None,
+                agent_ID_index=None,
+                route=all_rt_winds,
+                window_start_sats=DataRoute.determine_window_start_sats(all_rt_winds),
+                dv=dv,
+                ro_ID=ro_id
+            )
+            #  throw in a validation check for the data route, just in case
+            dr.validate(dv_epsilon=self.dv_epsilon)
+
+            return dr
+
+        inflow_drs_queue = list(inflow_dvs_by_dr.keys())
+        outflow_drs_queue = list(outflow_dvs_by_dr.keys())
+
+        #  loops through, matching every inflow route to an outflow route and assigning a slice of data volume to a newly created data route that grafts the two flows together. do this for as long as there is remaining data volume in the unified flow
+        new_drs = []
+        curr_inflow_dr = inflow_drs_queue.pop(0)
+        curr_outflow_dr = outflow_drs_queue.pop(0)
+        while remaining_unified_flow_dv > self.dv_epsilon:
+            
+            delta_dv = min(inflow_dvs_by_dr[curr_inflow_dr],outflow_dvs_by_dr[curr_outflow_dr],remaining_unified_flow_dv)
+
+            new_dr = make_new_route(
+                inflow_dr_winds_by_dr[curr_inflow_dr],
+                outflow_dr_winds_by_dr[curr_outflow_dr],
+                delta_dv
+            )
+            new_drs.append(new_dr)
+
+            inflow_dvs_by_dr[curr_inflow_dr] -= delta_dv
+            outflow_dvs_by_dr[curr_outflow_dr] -= delta_dv
+            remaining_unified_flow_dv -= delta_dv
+
+            #  we should only have inflows or outflows left to pop from the queues if we have remaining data volume
+            if remaining_unified_flow_dv > self.dv_epsilon:
+                if inflow_dvs_by_dr[curr_inflow_dr] < self.dv_epsilon:
+                    curr_inflow_dr = inflow_drs_queue.pop(0)
+                if outflow_dvs_by_dr[curr_outflow_dr] < self.dv_epsilon:
+                    curr_outflow_dr = outflow_drs_queue.pop(0)
+
+        # combine new drs into DMR
+        dmr = DataMultiRoute(ro_id, data_routes=new_drs)
+        # note: setting this for convenience. Also HAVE TO set the utilization for this route later because that * DMR data_vol is the real number to be used
+        dmr.set_scheduled_dv_frac(1.0)
+
+        return dmr, latest_dr_uid
+
+
 
     

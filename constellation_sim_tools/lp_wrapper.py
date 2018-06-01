@@ -42,7 +42,7 @@ class LocalPlannerWrapper:
 
         self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
 
-    def run_lp(self,curr_time_dt,sat_indx,sat_id,existing_rt_conts,existing_data_conts,latest_lp_route_indx,sat_state):
+    def run_lp(self,curr_time_dt,sat_indx,sat_id,lp_agent_id,existing_rt_conts,existing_data_conts,latest_lp_route_indx,sat_state):
 
         def get_inp_time(time_dt,param_mins):
             new_time = curr_time_dt + timedelta(minutes=param_mins)
@@ -65,6 +65,8 @@ class LocalPlannerWrapper:
             },
             "sat_indx": sat_indx,
             "sat_id": sat_id,
+            "lp_agent_ID": lp_agent_id,
+            "latest_dr_uid": latest_lp_route_indx
             # "sats_state": sats_state
         }
 
@@ -82,7 +84,6 @@ class LocalPlannerWrapper:
 
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
         existing_route_data['utilization_by_planned_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
-        existing_route_data['latest_lp_route_indx'] = latest_lp_route_indx
 
 
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
@@ -91,6 +92,7 @@ class LocalPlannerWrapper:
         
         lp_inputs = {
             "orbit_prop_params": self.orbit_prop_params,
+            "const_sim_inst_params": self.const_sim_inst_params,
             # "orbit_link_inputs": self.orbit_link_params,
             "gp_general_params": self.gp_general_params,
             "lp_instance_params": lp_instance_params,

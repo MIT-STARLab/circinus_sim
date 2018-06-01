@@ -111,6 +111,16 @@ class SimSatellite(SimExecutiveAgent):
     def sat_id(self):
         return self.ID
 
+    @property
+    def lp_agent_id(self):
+        """Get the name to use when creating new routes in the LP"""
+        return 'sat%s'%(self.ID)
+
+    @property
+    def dc_agent_id(self):
+        """Get the name to use when creating new data containers in the executive"""
+        return 'sat%s_dc'%(self.ID)
+
     def state_update_step(self,new_time_dt,lp_wrapper):
         """ update the state of the satellite using the new time"""
 
@@ -180,6 +190,11 @@ class SimGroundStation(SimExecutiveAgent):
     @property
     def gs_id(self):
         return self.ID
+
+    @property
+    def dc_agent_id(self):
+        """Get the name to use when creating new data containers in the executive"""
+        return 'gs%s_dc'%(self.ID)
 
     def state_update_step(self,new_time_dt):
         """ update the state of the satellite using the new time"""

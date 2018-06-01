@@ -4,6 +4,8 @@ from .lp_scheduling import LPScheduling
 
 from circinus_tools import debug_tools
 
+OUTPUT_JSON_VER = '0.1'
+
 class LocalPlannerRunner:
     """easy™ interface for running the local planner scheduling algorithm"""
 
@@ -30,14 +32,20 @@ class LocalPlannerRunner:
         self.lp_proc = LPProcessing(lp_params)
         self.lp_sched= LPScheduling(lp_params)
 
+        self.latest_dr_uid = lp_params['lp_instance_params']['latest_dr_uid']
+        self.lp_agent_ID = lp_params['lp_instance_params']['lp_agent_ID']
+
 
     def run(self,existing_route_data,verbose=False):
 
         #   determine outflow and inflow routes
         inflows,outflows = self.lp_proc.determine_flows(existing_route_data)
+
+        existing_planned_routes_by_id = {rt.ID:rt for rt in existing_route_data['planned_routes']}
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
+        self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],self.latest_dr_uid,self.lp_agent_ID,verbose)
 
 
         # debug_tools.debug_breakpt()
@@ -52,8 +60,10 @@ class PipelineRunner:
 
         lp_params = {}
         lp_params['orbit_prop_params'] = data['orbit_prop_params']
+        lp_params['const_sim_inst_params'] = data['const_sim_inst_params']
         # lp_params['orbit_link_params'] = orbit_link_params
         lp_params['lp_instance_params'] = data['lp_instance_params']
+        lp_params['gp_general_params'] = data['gp_general_params']
         # lp_params['data_rates_params'] = data_rates_params
         # lp_params['gp_other_params'] = gp_other_params
         

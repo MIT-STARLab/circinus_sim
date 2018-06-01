@@ -71,6 +71,7 @@ class GlobalPlannerWrapper:
                 "plot_activity_scheduling_results": False
             },
             "gp_agent_ID": gp_agent_ID,
+            "initial_gp_route_indx": latest_gp_route_indx,
             "sats_state": sats_state
         }
 
@@ -89,7 +90,6 @@ class GlobalPlannerWrapper:
 
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
         existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
-        existing_route_data['latest_gp_route_indx'] = latest_gp_route_indx
 
         
         gp_inputs = {
