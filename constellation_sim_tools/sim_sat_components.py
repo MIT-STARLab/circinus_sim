@@ -367,6 +367,8 @@ class SatExecutive(Executive):
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
         """ sets up context dictionary for activity execution on the satellite"""
 
+        # todo: should probably add tracking of route containers that are intended to be executed, but no data containers can be found for them. this tracking should not necessarily require any response, but will be useful for  diagnostics/debug
+
         curr_exec_context = super()._initialize_act_execution_context(exec_act,new_time_dt)
 
         act = exec_act.act
@@ -406,6 +408,48 @@ class SatExecutive(Executive):
         if exec_act.injected:
             self.scheduler.flag_act_injected()
 
+        #  for this version of code, we handle the addition of data containers for observation activity data collected after executing the full observation. the code below adds these.
+        curr_act_wind = curr_exec_context['act']
+        if type(curr_act_wind) == ObsWindow:
+            #  these are the route containers that were planned for collection
+            collected_rt_conts = curr_exec_context['rt_conts']
+
+            #  this is the amount of observation data volume that was executed in _execute_act() below
+            obs_dv_collected = curr_exec_context['dv_used']
+            remaining_obs_dv_collected = obs_dv_collected
+
+            collected_dcs = []
+
+            #  for every route container, we create a data container for all of the data volume intended be collected for that route container
+            for rt_cont in collected_rt_conts:
+                dc_dv = min(rt_cont.data_vol_for_wind(curr_act_wind),remaining_obs_dv_collected)
+                dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=dc_dv)
+                self._curr_dc_indx += 1
+                collected_dcs.append(dc)
+                # Add the planned route container to the data container's history
+                dc.add_to_plan_hist(rt_cont)
+                
+                remaining_obs_dv_collected -= dc_dv
+
+                if remaining_obs_dv_collected < self.dv_epsilon:
+                    break
+
+            #  if we still have data volume remaining, then go ahead and create a new data container
+            if remaining_obs_dv_collected > self.dv_epsilon: 
+                dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=remaining_obs_dv_collected)
+                self._curr_dc_indx += 1
+                collected_dcs.append(dc)
+                # Add a null route container to the data container's history -  signifying that there was no route planned for this collected observation data.  this can happen, for example, in the case where this is an injected observation
+                dc.add_to_plan_hist(None)
+                remaining_obs_dv_collected -= remaining_obs_dv_collected
+
+            debug_tools.debug_breakpt()
+
+            #  need to use the new time here because the state sim has already advanced in timestep ( shouldn't be a problem)
+            self.state_sim.add_to_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
+
+
+        #  need to call this last because it has final takedown responsibilities
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
 
     @staticmethod
@@ -485,20 +529,13 @@ class SatExecutive(Executive):
         #  execute activity
 
         # if it's an observation window, we are just receiving data
-        # note: this is the only place we need to deal with executing observation windows
         if type(curr_act_wind) == ObsWindow:
+            #  for now we just mark off that we collected observation data, and will deal with creating data containers for the observation data in the cleanup phase, in _cleanup_act_execution_context() above. this means that the observation data is not released until after the activity has finished. this is okay for the current code version because no activities should depend upon the execution of another activity halfway in progress.
+            #  note that it would be possible to create data containers right here, and iterate through the route containers as those data containers are created. however, when I started incrementing the logic for this it got very hairy very quickly
 
-            # if we just started this observation, then there are no data containers (packets). Make a new one and append
-            if len(curr_exec_context['rx_data_conts']) == 0:
-                curr_data_cont = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=0)
-                self._curr_dc_indx += 1
-                curr_exec_context['rx_data_conts'].append(curr_data_cont)
-            else:
-                curr_data_cont = curr_exec_context['rx_data_conts'][-1]
-
-            curr_data_cont.add_dv(delta_dv)
             curr_exec_context['dv_used'] += delta_dv
-            executed_delta_dv += delta_dv
+            #  we don't consider any data volumes have been executed here - will handle the addition of executed data volume in the cleanup stage ( for observations only)
+            executed_delta_dv += 0
 
         #  deal with cross-link if we are the transmitting satellite
         #  note: this code only deals with execution by the transmitting satellite. execution by the receiving satellite is dealt with within xlnk_receive_poll()
@@ -516,8 +553,11 @@ class SatExecutive(Executive):
                 # while we still have delta dv to transmit
                 while tx_delta_dv > self.dv_epsilon:
                 
-                    # figure out data cont, amount of data to transmit
-                    tx_dc, dv_to_send = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+                    # figure out data cont, amount of data to transmit, the planned route container that specified which data container and amount of data to send
+                    tx_dc, dv_to_send, tx_rc = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+
+                    # Add the planned route container to the data container's history
+                    tx_dc.add_to_plan_hist(tx_rc)
 
                     # send data to receiving satellite
                     #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
@@ -553,7 +593,10 @@ class SatExecutive(Executive):
             while tx_delta_dv > self.dv_epsilon:
             
                 # figure out data cont, amount of data to transmit
-                tx_dc, dv_to_send = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+                tx_dc, dv_to_send, tx_rc = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+
+                # Add the planned route container to the data container's history
+                tx_dc.add_to_plan_hist(tx_rc)
 
                 # send data to receiving satellite
                 #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
@@ -592,12 +635,15 @@ class SatExecutive(Executive):
 
         #  figure out which data container to send based upon planned data transmission
         exec_dc_choice = None
+        #  this stores the route container that was the justification for sending the chosen data container. i.e., plan that leads to the transmission
+        rt_cont_choice = None
         for rc,exec_data_conts in exec_data_conts_by_rt_cont.items():
             # each exec_dc is of type ExecutableDataContainer -  a record of how much data volume to transmit from a given data container for a given route container
             for exec_dc in exec_data_conts:
                 #  if there is still remaining data volume for this data container, then choose it
                 if exec_dc.remaining_dv > dv_epsilon:
                     exec_dc_choice = exec_dc
+                    rt_cont_choice = rc
                     break
 
             if exec_dc_choice:
@@ -613,7 +659,7 @@ class SatExecutive(Executive):
         #  this subtracts data volume from the executable data container ( not the data container itself!)
         exec_dc_choice.remaining_dv -= dv_to_send
 
-        return exec_dc_choice.data_cont,dv_to_send
+        return exec_dc_choice.data_cont,dv_to_send,rt_cont_choice
 
 
     def xlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):

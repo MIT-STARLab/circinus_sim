@@ -113,6 +113,8 @@ class LocalPlannerWrapper:
         lp_output = lp_pr.run(lp_inputs,verbose=True)
 
 
+         # make sure to set latest_planned_route for data containers !!!!
+
         # ##############################
         # # handle output
 

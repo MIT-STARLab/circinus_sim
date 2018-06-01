@@ -404,6 +404,7 @@ class Executive:
 
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
         curr_exec_context['act'] = exec_act.act
+        curr_exec_context['rt_conts'] = exec_act.rt_conts
 
         # note that if we want to allow activities to begin at a time different from their actual start, need to update code here
         #  the start time seen for this activity - new_time_dt is the time when the executive notices that we start executing the activity, but we want that account for the fact that the act can start in between timesteps for the executive
@@ -562,7 +563,8 @@ class Executive:
             rx_dc = rx_data_conts_list[-1]
         #  if the transmitted data container has changed, then we can make a new reception data container
         else:
-            new_rx_dc = txsat_data_cont.fork(rx_agent_id,new_dc_indx=dc_indx)
+            #  start out with zero data volume
+            new_rx_dc = txsat_data_cont.fork(rx_agent_id,new_dc_indx=dc_indx,dv=0)
             dc_indx += 1
             new_rx_dc.add_to_route(act,tx_sat_indx)
             rx_data_conts_list.append(new_rx_dc)

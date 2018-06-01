@@ -5,6 +5,8 @@ from circinus_tools.scheduling.routing_objects import DataRoute, DataMultiRoute,
 from circinus_tools  import  time_tools as tt
 from .schedule_tools  import check_temporal_overlap, ExecutableActivity
 
+from circinus_tools import debug_tools
+
 class SimDataContainer:
     '''This is essentially an observation data packet. Contains relevant information for tracking of data across sim run'''
 
@@ -12,7 +14,10 @@ class SimDataContainer:
 
     def __init__(self,agent_id,sat_indx,dc_indx,route,dv=0):
 
-        self.ID = RoutingObjectID(agent_id,dc_indx,rt_obj_type='obs_data_pkt')
+        if agent_id is not None:
+            self.ID = RoutingObjectID(agent_id,dc_indx,rt_obj_type='obs_data_pkt')
+        else:
+            self.ID = None
 
         if type(route) == ObsWindow:
             obs = route
@@ -25,7 +30,10 @@ class SimDataContainer:
             raise NotImplementedError
 
         # keeps track of the IDs held by this route, in the course of forking
-        self.ID_hist = []
+        self._ID_hist = []
+
+        # Contains all of the route containers that specified the plans for routing this data. this history is added to every time data is moved between agents.
+        self._planned_rt_hist = []
 
     @property
     def data_vol(self):
@@ -38,6 +46,15 @@ class SimDataContainer:
     def __repr__(self):
         return "(SimDataContainer %s: dv %f,<%s>)"%(self.ID,self.dr.data_vol,self.dr.get_route_string())
 
+    def __copy__(self):
+        #  the nones in the instantiation will be taken care of in the following lines
+        newone = type(self)(agent_id=None, sat_indx=None, dc_indx=None, route=copy(self.dr),dv=None)
+        newone.ID = self.ID
+        newone._ID_hist = copy(self._ID_hist)
+        # copy the underlying route containers, because we want to be very sure that any of the route containers in this history cannot be changed. ( note that this does not break route container equality comparison because they are compared based on the routing object ID)
+        newone._planned_rt_hist = [copy(rt_cont) for rt_cont in self._planned_rt_hist]
+        return newone
+
     def add_dv(self,delta_dv):
         """Add data to the data container, assuming the same route as currently specified"""
         self.dr.add_dv(delta_dv)
@@ -47,16 +64,37 @@ class SimDataContainer:
         self.dr.remove_dv(delta_dv)
 
     def add_to_id_hist(self,ID):
-        self.ID_hist.append(ID)
+        self._ID_hist.append(ID)
 
     def add_to_route(self,wind,window_start_sat_indx):
         self.dr.append_wind_to_route(wind, window_start_sat_indx)
 
     def fork(self,new_agent_id,new_dc_indx,dv=0):
-        newone = SimDataContainer(new_agent_id, None, new_dc_indx, copy(self.dr))
+        new_ro_id = RoutingObjectID(new_agent_id,new_dc_indx,rt_obj_type='obs_data_pkt')
+        newone = copy(self)
+        newone.ID = new_ro_id
         newone.dr.data_vol = dv
         newone.add_to_id_hist(self.ID)
         return newone
+
+    def add_to_plan_hist(self,rt_cont):
+        """ add a route container to the history of routes that were the reason for transmitting this data"""
+
+        if len(self._planned_rt_hist) > 0:
+            #  sanity check: None is a valid option for the first step of the route history, if observation data was collected without a route in mind, but none is not a valid option after that point,  because cross-links and down links should always have a route in mind when sending data
+            assert(rt_cont is not None)
+
+            #  because this function might be called many times for a single transmission activity, we want to check and make sure that we haven't already added this route container at the end of the history
+            if not rt_cont == self._planned_rt_hist[-1]:
+                self._planned_rt_hist.append(rt_cont)
+        else:
+            self._planned_rt_hist.append(rt_cont)
+
+    @property
+    def latest_planned_route(self):
+        # Note that it is an error for the planned route history to be empty -  it should always be populated by at least one entry after a new Sim data route is created
+        return self._planned_rt_hist[-1]
+
 
     
 class SimRouteContainer:
@@ -75,10 +113,13 @@ class SimRouteContainer:
             raise RuntimeWarning(' should not use anything but a RoutingObjectID as the ID for a DataMultiRoute')
             
         self.ID = ro_ID
-        dmrs_by_id = None
+        dmrs_by_id = {}
 
+        #  this is used for copying functionality
+        if dmrs is None:
+            pass
         # handle case where we're only passed a single route (standard)
-        if type(dmrs) == DataMultiRoute:
+        elif type(dmrs) == DataMultiRoute:
             dmr = dmrs
 
             # assert(isinstance(t_utilization_by_dr_id,float))
@@ -118,13 +159,6 @@ class SimRouteContainer:
 
         self.output_date_str_format = 'short'
 
-    def get_start(self,time_opt='regular'):
-        # get earliest start of all dmrs
-        return min(dmr.get_start(time_opt) for dmr in self.dmrs_by_id.values())
-
-    def get_end(self,time_opt='regular'):
-        # get latest end of all dmrs
-        return max(dmr.get_end(time_opt) for dmr in self.dmrs_by_id.values())
 
     @property
     def data_vol(self):
@@ -135,8 +169,26 @@ class SimRouteContainer:
         update_dt_str = tt.date_string(self.update_dt,self.output_date_str_format) if self.update_dt else 'None'
         return '(SRC %s, ct %s, ut %s: %s)'%(self.ID,creation_dt_str,update_dt_str,self.get_display_string())
 
+    def __copy__(self):
+        # want to make sure that the copy made of this route container copies the underlying data route objects, so that route containers don't end up sharing these.  for this reason, this copy function should be used sparingly
+        #  note the assumption here that ideas will never be changed at a low level, so copying the reference is fine
+        #  the nones in the instantiation will be taken care of in the following lines
+        newone = type(self)(ro_ID=self.ID, dmrs=None, dv_utilization_by_dmr_id=None, creation_dt=self.creation_dt, update_dt=self.update_dt)
+        newone.dmrs_by_id = {ID:copy(dmr) for ID,dmr in self.dmrs_by_id.items()}
+        newone.dv_utilization_by_dmr_id = copy(self.dv_utilization_by_dmr_id)
+        return newone
+        
     def get_display_string(self):
         return 'utilization_by_dmr: %s'%({'DMR %s - '%(dr_id) +self.dmrs_by_id[dr_id].get_display_string():util for dr_id,util in self.dv_utilization_by_dmr_id.items()})
+
+    def get_start(self,time_opt='regular'):
+        # get earliest start of all dmrs
+        return min(dmr.get_start(time_opt) for dmr in self.dmrs_by_id.values())
+
+    def get_end(self,time_opt='regular'):
+        # get latest end of all dmrs
+        return max(dmr.get_end(time_opt) for dmr in self.dmrs_by_id.values())
+
 
     def get_dmr_utilization(self,dmr):
         return self.dv_utilization_by_dmr_id[dmr]
@@ -241,22 +293,27 @@ class SimRouteContainer:
 
     def find_matching_data_conts(self,data_conts):
         """ find those data containers that match this same route container
-        
-        This method is essentially the linchpin in matching schedule intent ( represented by the sim route container) to execution ( represented by the data container). A data container is said to match a route container if its underlying data route matches at least one of the data routes underlying the Sim route container on a window by window basis. that is, the data container has the same observation and same cross-links as a data route within the Sim route container, up to and including the latest cross-link in the data container. This could also include the final downlink, but it's likely not useful to do this matching process after the downlink has occurred. Note that no data volume constraints are set on this match -  only the windows in the routes.
+
+        # todo: update this description
+        This method is essentially the linchpin in matching schedule intent ( represented by the sim route container) to execution ( represented by the data container). A data container is said to match a route container if its latest planned data route matches at least one of the data routes underlying the Sim route container on a window by window basis. that is, the data container has the same observation and same cross-links as a data route within the Sim route container, up to and including the latest cross-link in the data container. This could also include the final downlink, but it's likely not useful to do this matching process after the downlink has occurred. Note that no data volume constraints are set on this match -  only the windows in the routes.
         :param data_conts:  data containers to check for matches
         :type data_conts: iterable
         :returns:  matching data containers
         :rtype: {list(SimDataContainer)}
         """
 
+        # note that the success of this matching process depends on having up-to-date plans ( route containers) and marking those updates for each data container. If plans have not been updated, then you might end up in a situation where there is a route container that expresses routing plans, but no data container can be found to service those plans
+
         matches = []
 
         for dc in data_conts:
-            dc_dr = dc.data_route
+            # dc_dr = dc.data_route
+            dc_planned_route = dc.latest_planned_route
 
             #  check each data multi-route to see if it matches the route of the data container
             for dmr in self.dmrs_by_id.values():
-                match_found= dmr.contains_route(dc_dr)
+                # match_found= dmr.contains_route(dc_dr)
+                match_found =  dmr == dc_planned_route
 
                 if match_found: 
                     matches.append(dc)
