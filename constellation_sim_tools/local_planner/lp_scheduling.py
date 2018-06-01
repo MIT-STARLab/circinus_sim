@@ -51,6 +51,7 @@ class LPScheduling(AgentScheduling):
         self.solver_params = lp_general_params['solver_params']
 
         self.dv_epsilon = lp_general_params['dv_epsilon_Mb']
+        self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
 
     @staticmethod
     def get_act_model_objs(act,model):
@@ -71,6 +72,9 @@ class LPScheduling(AgentScheduling):
         all_flows = inflows + outflows
 
         unified_flows = []
+        existing_unified_flows = []
+        injected_unified_flows = []
+        injected_inflows = []
         unified_flow_indx = 0
         #  how much data volume each flow can deliver/carry. note that these capacity numbers already factor in the utilizations of the data routes
         capacity_by_partial_flow_id = {}
@@ -82,13 +86,22 @@ class LPScheduling(AgentScheduling):
             capacity_by_partial_flow_id[inflow.ID] = inflow.data_vol
             possible_unified_flows_ids_by_inflow_id.setdefault(inflow.ID,[])
 
+            if inflow.injected:
+                injected_inflows.append(inflow)
+
             for outflow in outflows:
                 capacity_by_partial_flow_id[outflow.ID] = outflow.data_vol
                 possible_unified_flows_ids_by_outflow_id.setdefault(outflow.ID,[])
 
                 #  if the data delivered from this inflow is available before the outflow, then they can be combined into a unified flow
                 if inflow.flow_precedes(outflow):
-                    unified_flows.append(self.UnifiedFlow(ID=unified_flow_indx,inflow=inflow, outflow=outflow))
+                    uf = self.UnifiedFlow(ID=unified_flow_indx,inflow=inflow, outflow=outflow)
+                    unified_flows.append(uf)
+                    #  if the inflow and the outflow have the same route ID, then this is the existing mapping of inflow to outflow
+                    if inflow.rt_ID == outflow.rt_ID:
+                        existing_unified_flows.append(uf)
+                    if inflow.injected:
+                        injected_unified_flows.append(uf)
 
                     possible_unified_flows_ids_by_inflow_id[inflow.ID].append(unified_flow_indx)
                     possible_unified_flows_ids_by_outflow_id[outflow.ID].append(unified_flow_indx)
@@ -116,7 +129,7 @@ class LPScheduling(AgentScheduling):
                     outflows_ids_by_act_windid[act_windid].append(flow.ID)
 
 
-        return unified_flows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid
+        return unified_flows,existing_unified_flows,injected_unified_flows,injected_inflows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid
 
 
 
@@ -134,6 +147,9 @@ class LPScheduling(AgentScheduling):
         ##############################
 
         (unified_flows,
+            existing_unified_flows,
+            injected_unified_flows,
+            injected_inflows,
             capacity_by_partial_flow_id,
             possible_unified_flows_ids_by_inflow_id,
             possible_unified_flows_ids_by_outflow_id,
@@ -198,8 +214,11 @@ class LPScheduling(AgentScheduling):
         # self.mutable_acts_windids = mutable_acts_windids
 
         self.unified_flows = unified_flows
+        self.existing_unified_flows = existing_unified_flows
+        self.injected_unified_flows = injected_unified_flows
         self.inflows = inflows
         self.outflows = outflows
+        self.injected_inflows = injected_inflows
 
         # # these dmr subscripts probably should've been done using the unique IDs for the objects, rather than their arbitrary locations within a list. Live and learn, hélas...
 
@@ -212,8 +231,12 @@ class LPScheduling(AgentScheduling):
 
         # Make an index in the model for every inflow and outflow
         all_partial_flow_ids = [flow.ID for flow in inflows] + [flow.ID for flow in outflows]
+        injected_inflow_ids = [flow.ID for flow in injected_inflows]
         model.partial_flow_ids = pe.Set(initialize= all_partial_flow_ids)
+        model.injected_inflow_ids = pe.Set(initialize=injected_inflow_ids)
 
+        existing_unified_flow_ids = [flow.ID for flow in existing_unified_flows]
+        injected_unified_flow_ids = [flow.ID for flow in injected_unified_flows]
         model.unified_flow_ids = pe.Set(initialize= [flow.ID for flow in unified_flows])
 
         # # timepoints is the indices, which starts at 0
@@ -262,10 +285,13 @@ class LPScheduling(AgentScheduling):
         model.par_partial_flow_capacity = pe.Param(model.partial_flow_ids,initialize =capacity_by_partial_flow_id)
 
         #  the maximum unified flow capacity cannot exceed the amount of data volume delivered by inflows or the amount of data volume carried out by outflows
-        model.par_max_possible_unified_flow_capacity = min(
+        model.par_possible_unified_flow_capacity = min(
             sum(capacity_by_partial_flow_id[i] for i in inflow_ids),
             sum(capacity_by_partial_flow_id[o] for o in outflow_ids)
         )
+
+        model.par_possible_injected_inflow_capacity = sum(capacity_by_partial_flow_id[i] for i in injected_inflow_ids)
+
         # model.par_link_capacity = pe.Param(model.lnk_windids,initialize =dv_by_link_act_windid)
         model.par_act_capacity = pe.Param(model.all_act_windids,initialize =capacity_by_act_windid)
         # #  data volume for each data multi-route
@@ -323,6 +349,8 @@ class LPScheduling(AgentScheduling):
         #  indicates if a given incoming/outgoing flow pair combination is chosen (I_(i,o))
         model.var_unified_flow_indic  = pe.Var (model.unified_flow_ids, within = pe.Binary)
 
+        model.var_partial_flow_indic  = pe.Var (model.partial_flow_ids, within = pe.Binary)
+
 
         # a utilization number for existing routes that will be bounded by the input existing route utilization (can't get more  "existing route" reward for a route than the route's previous utilization) [8]
         # model.var_existing_dmr_utilization_reward  = pe.Var (model.existing_dmr_ids, bounds =(0,1))
@@ -369,22 +397,26 @@ class LPScheduling(AgentScheduling):
 
         def c1_rule( model,i):
             return (sum(model.var_unified_flow_dv[u] for u in possible_unified_flows_ids_by_inflow_id[i])
-                    <= model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i])
+                    == model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i])
         model.c1 =pe.Constraint ( inflow_ids,  rule=c1_rule)
 
         def c2_rule( model,o):
             return (sum(model.var_unified_flow_dv[u] for u in possible_unified_flows_ids_by_outflow_id[o])
-                    <= model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o])
+                    == model.par_partial_flow_capacity[o] * model.var_partial_flow_utilization[o])
         model.c2 =pe.Constraint ( outflow_ids,  rule=c2_rule)
 
         def c3_rule( model,u):
             return model.var_unified_flow_dv[u] >= model.par_min_obs_dv_dlnk_req*model.var_unified_flow_indic[u]
         model.c3 =pe.Constraint ( model.unified_flow_ids,  rule=c3_rule)
 
+        def c3b_rule( model,io):
+            return model.par_partial_flow_capacity[io] * model.var_partial_flow_utilization[io] >=  model.par_min_obs_dv_dlnk_req*model.var_partial_flow_indic[io]
+        model.c3b =pe.Constraint ( model.partial_flow_ids,  rule=c3b_rule)
 
         def c4_rule( model,a):
             return model.var_act_indic[a] >=  model.var_activity_utilization[a]
         model.c4 =pe.Constraint ( model.all_act_windids,  rule=c4_rule)
+
 
         def c5a_rule( model,a):
             return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i] for i in inflows_ids_by_act_windid[a]) >= 0
@@ -582,7 +614,20 @@ class LPScheduling(AgentScheduling):
             #  note the first two objectives are for all observations, not just mutable observations
 
             # obj [1]
-            total_dv_term = self.obj_weights['obs_dv'] * 1/model.par_max_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in model.unified_flow_ids)
+            total_dv_term = self.obj_weights['flow_dv'] * 1/model.par_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in model.unified_flow_ids)
+            
+            #  for total existing data volume, we only reward those unified flows that map and existing inflow to an existing outflow that it was already mapped to.  we do not reward unified flows that map in existing inflow to an existing outflow that it was NOT already mapped to. i.e., we don't just reward existing inflows and outflows; we reward the existing mapping from inflows to outflows
+            total_existing_dv_term = self.obj_weights['existing_flow_dv'] * 1/model.par_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in existing_unified_flow_ids)                
+
+            #  we also want to reward existing routes for performing the minimum data volume requirement ( so that injected data volume doesn't totally replace existing volume)
+            existing_indicators_term = self.obj_weights['existing_flow_indicators'] * 1/len(existing_unified_flow_ids) * sum(model.var_unified_flow_indic[u] for u in existing_unified_flow_ids)
+
+            #  follow the same pattern for injected flows
+            total_injected_inflow_dv_term = self.obj_weights['injected_inflow_dv'] * 1/model.par_possible_injected_inflow_capacity * sum(model.var_unified_flow_dv[u] for u in injected_unified_flow_ids)
+
+            #  for the indicators term though, we want to look at the indicators for the injected inflows as opposed to unified flows - because we want to reward meeting minimum data volume for each injected inflow, not for maximizing the number of unified flows the inflows spread themselves out over
+            injected_inflow_indicators_term = self.obj_weights['injected_flow_indicators'] * 1/len(injected_inflow_ids) * sum(model.var_partial_flow_indic[i] for i in model.injected_inflow_ids)
+
 
             # # obj [2]
             # latency_term = self.obj_weights['route_latency'] * 1/len(model.obs_windids) * sum(model.var_latency_sf_obs[o] for o in model.obs_windids)
@@ -590,10 +635,8 @@ class LPScheduling(AgentScheduling):
             # # obj [5]
             # energy_margin_term = self.obj_weights['energy_storage'] * 1/rsrc_norm_f * sum(model.var_sats_estore[sat_indx,tp_indx]/model.par_sats_estore_max[sat_indx] for tp_indx in decimated_tp_indcs for sat_indx in model.sat_indcs)
 
-            # # obj [6]
-            # existing_routes_term = self.obj_weights['existing_routes'] * 1/sum_existing_route_utilization * sum(model.var_existing_dmr_utilization_reward[p] for p in model.existing_dmr_ids) if len(model.existing_dmr_ids) > 0 else 0
 
-            return total_dv_term #+ latency_term + energy_margin_term + existing_routes_term
+            return total_dv_term + total_existing_dv_term + existing_indicators_term + total_injected_inflow_dv_term + injected_inflow_indicators_term  #+ latency_term + energy_margin_term 
 
         model.obj = pe.Objective( rule=obj_rule, sense=pe.maximize )
 
@@ -614,7 +657,7 @@ class LPScheduling(AgentScheduling):
 
         for flow in self.unified_flows:
             #  if this unified flow possibility was actually chosen
-            if pe.value(self.model.var_unified_flow_dv[flow.ID]) >= self.min_obs_dv_dlnk_req:
+            if pe.value(self.model.var_unified_flow_dv[flow.ID]) >= self.min_obs_dv_dlnk_req - self.dv_epsilon:
                 flow_dv = pe.value(self.model.var_unified_flow_dv[flow.ID])
 
                 #  if the inflow ID is the same as the outflow ID, this must be an already planned/executed route
@@ -632,7 +675,8 @@ class LPScheduling(AgentScheduling):
                     # - the new utilization for the route is less than or equal to the previous utilization
                     # -  we have not already added this route to updated routes ( that would imply that the route is present more than once in the unified flows which should not be possible)
                     assert(rt_id in existing_planned_routes_by_id.keys())
-                    assert( new_utilization <= utilization_by_planned_route_id[rt_id])
+                    # the *2  factor is included because we added utilization epsilon in lp_processing when we constructed the partial flow, so it's possible that due to round off we actually end up slightly above that utilization. so epsilon is doubling here both as an allowance for extra data volume to meet minimum data volume requirements and a round off precision bound ( this should be okay though, because it should be small)
+                    assert( new_utilization <= utilization_by_planned_route_id[rt_id] + 2*self.existing_utilization_epsilon)
                     assert(rt not in scheduled_routes)
 
                     scheduled_routes.append(rt)

@@ -428,6 +428,8 @@ class SatExecutive(Executive):
                 collected_dcs.append(dc)
                 # Add the planned route container to the data container's history
                 dc.add_to_plan_hist(rt_cont)
+                #  make sure that if we are route containers, the activity is not marked as injected
+                assert(not exec_act.injected)
                 
                 remaining_obs_dv_collected -= dc_dv
 
@@ -436,7 +438,7 @@ class SatExecutive(Executive):
 
             #  if we still have data volume remaining, then go ahead and create a new data container
             if remaining_obs_dv_collected > self.dv_epsilon: 
-                dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=remaining_obs_dv_collected)
+                dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=remaining_obs_dv_collected,injected=exec_act.injected)
                 self._curr_dc_indx += 1
                 collected_dcs.append(dc)
                 # Add a null route container to the data container's history -  signifying that there was no route planned for this collected observation data.  this can happen, for example, in the case where this is an injected observation

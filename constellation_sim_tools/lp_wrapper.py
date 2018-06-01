@@ -87,6 +87,7 @@ class LocalPlannerWrapper:
 
 
         existing_route_data['utilization_by_executed_route_id'] = {}
+        existing_route_data['injected_executed_route_ids'] = []
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
         executed_routes = []
         for dc in existing_data_conts:
@@ -102,6 +103,10 @@ class LocalPlannerWrapper:
                 executed_routes.append(copy(edr))
                 #  utilization for executed route is by definition 100%
                 existing_route_data['utilization_by_executed_route_id'][edr.ID] = 1.0
+
+                if dc.injected:
+                    existing_route_data['injected_executed_route_ids'].append(edr.ID)
+
 
         existing_route_data['executed_routes'] = executed_routes
         

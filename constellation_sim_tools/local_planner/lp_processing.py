@@ -27,7 +27,7 @@ class LPProcessing:
         self.planning_end_dt  = lp_inst_planning_params['planning_end_dt']
 
         lp_general_params = lp_params['const_sim_inst_params']['lp_general_params']
-        self.fixed_utilization_epsilon = lp_general_params['fixed_utilization_epsilon']
+        self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
         
 
     def determine_flows(self,existing_route_data):
@@ -103,7 +103,7 @@ class LPProcessing:
             #  reduce the data volume by the planned utilization of the route. note that we have now divorced ourselves entirely from the original data volume for the route, because we could potentially be splitting the route ( in the case that it's a data multi-route). we will need to do the final bookkeeping for all data volume after running LP scheduling.
             if has_tx_in_planning_window:
                 #  add in an epsilon to the utilization number, because it may be that the utilization was precisely chosen to meet the minimum data volume requirement -  don't want to not make the minimum data volume requirement this time because of round off error
-                dv = tx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID]+self.fixed_utilization_epsilon)
+                dv = tx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID]+self.existing_utilization_epsilon)
                 flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, tx_winds_in_planning_window,direction='outflow')
                 flow_indx += 1
                 outflows.append(flobject)
@@ -113,7 +113,7 @@ class LPProcessing:
 
 
             if has_rx_in_planning_window: 
-                dv = rx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID] +self.fixed_utilization_epsilon)
+                dv = rx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID] +self.existing_utilization_epsilon)
                 flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow')
                 flow_indx += 1
                 inflows.append(flobject)
@@ -122,8 +122,11 @@ class LPProcessing:
 
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
         for rt in existing_route_data['executed_routes']:
+            # If the route was injected (i.e. observation data was collected where it wasn't planned in advance)
+            inflow_injected = rt.ID in existing_route_data['injected_executed_route_ids']
+
             dv = rt.data_vol * existing_route_data['utilization_by_executed_route_id'][rt.ID]
-            flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, winds_in_planning_window= [],direction='inflow')
+            flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, winds_in_planning_window= [],direction='inflow',injected=inflow_injected)
             flow_indx += 1
             inflows.append(flobject)
 

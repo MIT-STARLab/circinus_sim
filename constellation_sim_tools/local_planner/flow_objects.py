@@ -7,7 +7,7 @@ class PartialFlow:
     valid_directions = ['inflow','outflow']
     # valid_flow_types = ['route_container','data_container']
 
-    def __init__(self,flow_indx,sat_indx,route,data_vol,winds_in_planning_window,direction): #,flow_type='route_container'):
+    def __init__(self,flow_indx,sat_indx,route,data_vol,winds_in_planning_window,direction,injected=False): #,flow_type='route_container'):
         self.ro_ID = RoutingObjectID(creator_agent_ID='lp',creator_agent_ID_indx=flow_indx,rt_obj_type='partial_flow')
 
         self.data_vol = data_vol
@@ -25,6 +25,9 @@ class PartialFlow:
 
         if not direction in self.valid_directions:
             raise NotImplementedError
+
+        #  indicates whether or not the observation that created this inflow was injected
+        self.injected = injected
 
         # if not flow_type in self.valid_flow_types:
         #     raise NotImplementedError

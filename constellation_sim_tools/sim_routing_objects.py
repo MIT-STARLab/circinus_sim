@@ -12,7 +12,7 @@ class SimDataContainer:
 
     # note this route is simple:  there are no forks in the route; there is a simple linear path from an observation to a downlink through which data flows. all windows must be in temporal order.
 
-    def __init__(self,agent_id,sat_indx,dc_indx,route,dv=0):
+    def __init__(self,agent_id,sat_indx,dc_indx,route,dv=0,injected=False):
 
         if agent_id is not None:
             self.ID = RoutingObjectID(agent_id,dc_indx,rt_obj_type='obs_data_pkt')
@@ -28,6 +28,9 @@ class SimDataContainer:
             self._executed_dr = route
         else:
             raise NotImplementedError
+
+        #  indicates whether or not the observation that created this data container was injected
+        self.injected = injected
 
         # keeps track of the IDs held by this route, in the course of forking
         self._ID_hist = []
