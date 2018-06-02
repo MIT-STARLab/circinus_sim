@@ -140,9 +140,6 @@ class LPScheduling(AgentScheduling):
 
     def make_model ( self,inflows,outflows, verbose = False):
         # all the items in outflows,inflows are PartialFlow objects
-        # note: all flows in inflows,outflows
-
-        # important assumption: all activity window IDs are unique!
 
         model = pe.ConcreteModel()
         self.model = model
@@ -210,9 +207,6 @@ class LPScheduling(AgentScheduling):
         #             # store the dmr object at this timepoint, silenty dropping any time points that appear outside of the planning window bounds ( we don't need to enforce resource constraints on out-of-bounds intervals)
         #             ds_route_dancecards[interv.sat_indx].add_item_in_interval(dmr.ID,interv.start,interv.end,drop_out_of_bounds=True)
 
-        # except IndexError:
-        #     raise RuntimeWarning('sat_indx out of range. Are you sure all of your input files are consistent? (including pickles)')
-        # self.dmr_ids_by_act_windid = dmr_ids_by_act_windid
         # self.all_acts_windids = all_acts_windids
         # self.obs_windids = all_obs_windids
         # self.lnk_windids = all_lnk_windids
@@ -225,8 +219,6 @@ class LPScheduling(AgentScheduling):
         self.inflows = inflows
         self.outflows = outflows
         self.injected_inflows = injected_inflows
-
-        # # these dmr subscripts probably should've been done using the unique IDs for the objects, rather than their arbitrary locations within a list. Live and learn, hélas...
 
         inflow_ids = [flow.ID for flow in inflows]
         outflow_ids = [flow.ID for flow in outflows]
@@ -370,30 +362,6 @@ class LPScheduling(AgentScheduling):
 
         model.var_latency_sf_inflow = pe.Var (model.inflow_ids,  bounds = (0,1.0))
 
-        # allow_act_timing_constr_violations = False
-        # if allow_act_timing_constr_violations:
-        #     print('allow_act_timing_constr_violations is True')
-
-        # #  variables for handling the allowance of inter-activity timing constraint violations. these are only generated if allow_act_timing_constr_violations is True
-        # model.var_intra_sat_act_constr_violations = pe.VarList()
-        # model.var_inter_sat_act_constr_violations = pe.VarList()
-        # model.intra_sat_act_constr_bounds  = pe.ConstraintList()
-        # model.inter_sat_act_constr_bounds  = pe.ConstraintList()
-
-        # #  stores all of the lower bounds of the constraint violation variables, for use in normalization for objective function
-        # min_var_intra_sat_act_constr_violation_list = []
-        # min_var_inter_sat_act_constr_violation_list = []
-
-        # constraint_violation_model_objs = {}
-        # constraint_violation_model_objs['intra_sat_act_constr_violation_acts_list'] = []
-        # constraint_violation_model_objs['inter_sat_act_constr_violation_acts_list'] = []
-        # constraint_violation_model_objs['var_intra_sat_act_constr_violations'] = model.var_intra_sat_act_constr_violations
-        # constraint_violation_model_objs['var_inter_sat_act_constr_violations'] = model.var_inter_sat_act_constr_violations
-        # constraint_violation_model_objs['intra_sat_act_constr_bounds'] = model.intra_sat_act_constr_bounds
-        # constraint_violation_model_objs['inter_sat_act_constr_bounds'] = model.inter_sat_act_constr_bounds
-        # constraint_violation_model_objs['min_var_intra_sat_act_constr_violation_list'] = min_var_intra_sat_act_constr_violation_list
-        # constraint_violation_model_objs['min_var_inter_sat_act_constr_violation_list'] = min_var_inter_sat_act_constr_violation_list
-
         ##############################
         #  Make constraints
         ##############################
@@ -448,30 +416,7 @@ class LPScheduling(AgentScheduling):
             act_model_objs_getter=self.get_act_model_objs
         )
 
-        # print_verbose('make overlap constraints',verbose)
-
-        # #  intra-satellite activity overlap constraints [4],[5],[5b]
-        # #  well, 5B is activity minimum time duration
-        # model.c4_5  = pe.ConstraintList() # this now contains all of the activity overlap constraints
-        # model.c5b  = pe.ConstraintList()
-        # # pass the model objects getter function so it can be called in place
-        # (self.c5b_binding_exprs_by_act,
-        #     self.c4_5_binding_exprs_by_act) =  self.gen_intra_sat_act_overlap_constraints(
-        #         model.c4_5,
-        #         model.c5b,
-        #         sats_mutable_acts,
-        #         self.get_act_model_objs,
-        #         constraint_violation_model_objs
-        #     )
-
-        # # inter-satellite downlink overlap constraints [9],[10]
-        # model.c9_10  = pe.ConstraintList()
-        # self.c9_10_binding_exprs_by_act = self.gen_inter_sat_act_overlap_constraints(
-        #     model.c9_10,
-        #     sats_mutable_dlnks,
-        #     self.get_act_model_objs,
-        #     constraint_violation_model_objs
-        # )
+        #  note: not adding activity overlap constraints, because the GP-scheduled activities should not be overlapping at all, and we can assume that any overlap from injected activities is handled outside the LP (for this version)
 
         # print_verbose('make energy, data constraints',verbose)
 
@@ -621,6 +566,9 @@ class LPScheduling(AgentScheduling):
             # obj [2]
             latency_term = self.obj_weights['injected_inflow_latency'] * 1/len(model.injected_inflow_ids) * sum(model.var_latency_sf_inflow[i] for i in model.injected_inflow_ids)
 
+            if self.obj_weights['energy_storage'] > 0:
+                raise NotImplementedError("haven't gotten to energy storage yet...")
+
             # # obj [5]
             # energy_margin_term = self.obj_weights['energy_storage'] * 1/rsrc_norm_f * sum(model.var_sats_estore[sat_indx,tp_indx]/model.par_sats_estore_max[sat_indx] for tp_indx in decimated_tp_indcs for sat_indx in model.sat_indcs)
 
@@ -633,9 +581,6 @@ class LPScheduling(AgentScheduling):
 
     def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, planned_rt_ids_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
-
-        # inflow_by_id = [inflow.ID:inflow for inflow in inflows]
-        # outflow_by_id = [outflow.ID:outflow for outflow in outflows]
 
         scheduled_routes = []
         # includes utilization for both scheduled routes and existing routes that have been "un-scheduled"
