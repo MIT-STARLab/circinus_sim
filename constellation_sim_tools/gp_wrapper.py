@@ -80,8 +80,7 @@ class GlobalPlannerWrapper:
         existing_route_data = {}
         existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
         #  we need to copy all of the existing routes here, because we update the schedule data volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the data route objects that satellites have in their Sim route containers ( and effectively propagating information instantaneously to the satellites - double plus ungood!). 
-        # We don't deepcopy because we DO want to retain the same window objects contained within the routes.  todo:  note that this passing around of the original window objects is not necessarily the best idea. We do it for now because it saves memory.
-        # note that this should not interfere with checking equality/comparing of data routes and windows later, because all of that is done using the ID for the routes and windows ( which is the same when copied)
+        # We don't deepcopy because we don't want to make copise of the (many!) window objects contained within the routes. This is just to save memory, not because we are dependent on the objects staying the same (note: this is at least the intent - any behavior not conforming is a bug, as of June 3 2018)
         existing_routes_copy = []
         for existing_route in existing_routes:
             existing_routes_copy.append(copy(existing_route))
