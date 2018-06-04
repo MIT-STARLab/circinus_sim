@@ -292,6 +292,10 @@ class ConstellationSim:
             global_time = global_time+self.sim_tick
             first_iter = False
 
+        #  save a pickle for the end ฅ^•ﻌ•^ฅ (meow)
+        if self.sim_run_params['pickle_checkpoints']:
+            self.pickle_checkpoint(global_time, self.gs_network, self.sats_by_id, self.gs_by_id)
+
     def post_run(self):
 
         # report events

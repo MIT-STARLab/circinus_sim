@@ -8,9 +8,11 @@ class SimPlotting():
 
         plot_params = sim_params['const_sim_inst_params']['sim_plot_params']
         sat_params = sim_params['orbit_prop_params']['sat_params']
+        gs_params = sim_params['orbit_prop_params']['gs_params']
         sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
         # self.obs_params = gp_params['orbit_prop_params']['obs_params']
         self.sat_id_order = sat_params['sat_id_order']
+        self.gs_id_order = gs_params['gs_id_order']
         self.input_plot_params = plot_params
 
         self.plots_start_dt = plot_params['start_utc_dt']
@@ -222,7 +224,7 @@ class SimPlotting():
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['gs_acts_plot']['time_units']
-        plot_params['agent_id_order'] = self.sat_id_order
+        plot_params['agent_id_order'] = self.gs_id_order
 
         plot_params['plot_xlnks_choices'] = False
         plot_params['plot_dlnks_choices'] = True
