@@ -98,8 +98,8 @@ class ConstellationSim:
         ) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
-                station['id'],
-                self.gs_id_order.index(station['id']),
+                str(station['id']),
+                self.gs_id_order.index(str(station['id'])),
                 station['name'], 
                 gs_network,
                 self.sim_start_dt,
