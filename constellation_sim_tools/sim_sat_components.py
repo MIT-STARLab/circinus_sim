@@ -376,6 +376,20 @@ class SatExecutive(Executive):
         if type(act) is XlnkWindow and not is_tx:
             curr_exec_context['curr_txsat_data_cont'] = None
 
+        # stipulates how much data volume is available for an observation
+        if type(act) is ObsWindow:
+            # this is ugly, and kinda hacky. todo: make it better.  
+            # because we are not actively adding the data volume to data tstorage during observations in _execute_act() below, we need to account for the data volume claimed by any other observations that might be going on right here.
+            dv_avail = self.state_sim.get_available_data_storage(new_time_dt)
+            for other_exec_act in self._curr_exec_acts:
+                if type(other_exec_act) == ObsWindow:
+                    dv_avail -= self._execution_context_by_exec_act[other_exec_act]['obs_dv_available']
+            #  this should never go negative, because the available data volume for each observation maxes out at the observations data volume, and we shouldn't be subscribing for more DV than is available
+            assert(dv_avail >= 0)
+
+            # limit our claim to the maximum data volume for the observation
+            curr_exec_context['obs_dv_available'] = min(dv_avail,act.data_vol)
+
         #  returning this not because it's expected to be used, but to be consistent with superclass
         return curr_exec_context
 
@@ -402,8 +416,12 @@ class SatExecutive(Executive):
 
             collected_dcs = []
 
+
             #  for every route container, we create a data container for all of the data volume intended be collected for that route container
             for rt_cont in collected_rt_conts:
+                if remaining_obs_dv_collected < self.dv_epsilon:
+                    break
+
                 dc_dv = min(rt_cont.data_vol_for_wind(curr_act_wind),remaining_obs_dv_collected)
                 dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=dc_dv)
                 self._curr_dc_indx += 1
@@ -415,8 +433,6 @@ class SatExecutive(Executive):
                 
                 remaining_obs_dv_collected -= dc_dv
 
-                if remaining_obs_dv_collected < self.dv_epsilon:
-                    break
 
             #  if we still have data volume remaining, then go ahead and create a new data container
             if remaining_obs_dv_collected > self.dv_epsilon: 
@@ -511,12 +527,14 @@ class SatExecutive(Executive):
         if type(curr_act_wind) == ObsWindow:
             #  for now we just mark off that we collected observation data, and will deal with creating data containers for the observation data in the cleanup phase, in _cleanup_act_execution_context() above. this means that the observation data is not released until after the activity has finished. this is okay for the current code version because no activities should depend upon the execution of another activity halfway in progress.
             #  note that it would be possible to create data containers right here, and iterate through the route containers as those data containers are created. however, when I started incrementing the logic for this it got very hairy very quickly
+            # todo: this is kinda a hacky way of doing this, needs cleanup
 
             #  reduce this number by any restrictions due to data volume storage availability
             #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
-            delta_dv = min(delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
+            delta_dv = min(delta_dv,curr_exec_context['obs_dv_available'])
 
             curr_exec_context['dv_used'] += delta_dv
+            curr_exec_context['obs_dv_available'] -= delta_dv
             #  we don't consider any data volumes have been executed here - will handle the addition of executed data volume in the cleanup stage ( for observations only)
             executed_delta_dv += 0
 
