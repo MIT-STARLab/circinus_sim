@@ -121,6 +121,14 @@ class SimPlotting():
 
         return get_start,get_end
 
+    def get_time_getters_choices(self):
+        def get_start(wind):
+            return wind.start
+        def get_end(wind):
+            return wind.end
+
+        return get_start,get_end
+
     def sim_plot_all_sats_acts(self,
             sats_ids_list,
             sats_obs_winds_choices,
@@ -175,6 +183,9 @@ class SimPlotting():
         start_getter_reg,end_getter_reg = self.get_time_getters()
         plot_params['start_getter_reg'] = start_getter_reg
         plot_params['end_getter_reg'] = end_getter_reg
+        start_getter_choices,end_getter_choices = self.get_time_getters_choices()
+        plot_params['start_getter_choices'] = start_getter_choices
+        plot_params['end_getter_choices'] = end_getter_choices
 
 
 
@@ -261,7 +272,7 @@ class SimPlotting():
         plot_params['fig_name'] = 'plots/const_sim_energy.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
+        plot_params['time_units'] = self.input_plot_params['energy_usage_plot']['time_units']
         plot_params['sat_id_order'] = self.sat_id_order
 
         plot_params['sats_emin_Wh'] = [self.parsed_power_params_by_sat_id[sat_id]['sat_batt_storage']['e_min'] for sat_id in self.sat_id_order]
@@ -293,7 +304,7 @@ class SimPlotting():
         plot_params['fig_name'] = 'plots/const_sim_data.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
+        plot_params['time_units'] = self.input_plot_params['data_usage_plot']['time_units']
         plot_params['sat_id_order'] = self.sat_id_order
 
         plot_params['sats_dmin_Gb'] = [self.parsed_data_params_by_sat_id[sat_id]['d_min'] for sat_id in self.sat_id_order]

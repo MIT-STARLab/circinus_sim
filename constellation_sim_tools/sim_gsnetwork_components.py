@@ -3,6 +3,7 @@
 # @author Kit Kennedy
 
 from collections import namedtuple
+from copy import deepcopy
 
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from .sim_agent_components import Executive,PlannerScheduler,StateRecorder
@@ -108,7 +109,8 @@ class GroundNetworkStateRecorder(StateRecorder):
 
     def add_planned_act_hist(self,act):
         #  note: implicitly update any entry that might've been in this dictionary before for this activity
-        self.act_hist_by_wind_id[act.window_ID] = act
+        # deepcopy the act though so that no changes to any of its attributes elsewhere can affect this history (though it can still be updatd by calling this function again)
+        self.act_hist_by_wind_id[act.window_ID] = deepcopy(act)
 
     def get_all_sats_planned_act_hists(self):
         # all_sats_act_hists = []

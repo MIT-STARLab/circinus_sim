@@ -273,23 +273,20 @@ class ConstellationSim:
 
 
             #####################
-            # Replanning
+            # Planning info sharing (currenly assuming update via backbone network to sats)
 
             # todo: seems kinda bad to cross levels of abstraction like this...
             if self.gs_network.scheduler.check_plans_updated():
-                # todo: this is a testing HACK to provide plans to the sats.  remove!
+                # when the GS replans, assume we have the ability to instantaneously update the satellites, and receive a state update from them ( kinda a hack for now...)
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
-                # end hack
+                    # todo: finish this
+                    sat.send_planning_info(self.gs_network)
 
                 #  every time the ground network re-plans, want to send that updated planning information to the ground stations
                 for gs in self.gs_by_id.values():
                     self.gs_network.send_planning_info(gs)
                 self.gs_network.scheduler.set_plans_updated(False)
-
-            # todo: this should be added back in when the local planner is included
-            # for sat in self.sats_by_id.values():
-            #     sat.replan_step()
 
 
             global_time = global_time+self.sim_tick
@@ -297,6 +294,7 @@ class ConstellationSim:
 
     def post_run(self):
 
+        # report events
         event_logs = {'sats':[],'gs': []}
         for sat in self.sats_by_id.values():
             sat.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in sat.state_sim.get_curr_data_conts()])

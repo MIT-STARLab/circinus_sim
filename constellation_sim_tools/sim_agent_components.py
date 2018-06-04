@@ -4,6 +4,7 @@
 
 from collections import namedtuple
 from datetime import timedelta
+from copy import deepcopy
 
 from circinus_tools import io_tools
 from circinus_tools.sat_state_tools import propagate_sat_ES
@@ -297,6 +298,15 @@ class Executive:
                 # curr_act_indx = index_from_key(self._scheduled_exec_acts,key= ea: ea.act,value=latest_exec_act.act)
                 # note that this searches by the activity window itself (the hash of the exec act)
                 curr_act_indx = self._scheduled_exec_acts.index(latest_exec_act)
+
+                #  test if the routing plans for the current activity being executed have changed, we need to do something about that
+                updated_exec_act = self._scheduled_exec_acts[curr_act_indx]
+                if not latest_exec_act.plans_match(updated_exec_act):
+                    self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
+                    # raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
+
+                self._last_scheduled_exec_act_windex = curr_act_indx
+                
             except ValueError:
                 no_current_act = True
                 #  assume that we have canceled this activity, and reported in the log (it could also be the case that we're not currently executing an act, and latest_exec_act was simply the last act we executed) # todo: maybe filter for this?
@@ -306,14 +316,6 @@ class Executive:
                 
                 # - what does it mean if current act is not in new sched? cancel current act?
                 # raise RuntimeWarning("Couldn't find activity in new schedule: %s"%(self._curr_exec_act.act))
-
-            #  test if the routing plans for the current activity being executed have changed, we need to do something about that
-            updated_exec_act = self._scheduled_exec_acts[curr_act_indx]
-            if not latest_exec_act.plans_match(updated_exec_act):
-                self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
-                # raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
-
-            self._last_scheduled_exec_act_windex = curr_act_indx
 
         if no_current_act:
             # if there are activities in the schedule and we're not currently executing anything, then assume for the moment we're starting from beginning of it (actual index will be resolved in update step)
@@ -653,7 +655,8 @@ class ExecutiveAgentStateRecorder(StateRecorder):
 
     def add_act_hist(self,act):
         # note that the execution times, dv for act are stored in attributes: executable_start,executable_end,executable_data_vol
-        self.act_hist.append(act)
+        # do a deepcopy so it can't be changed out from under us
+        self.act_hist.append(deepcopy(act))
 
     def get_act_hist(self):
         acts_exe = {'dlnk': []}
@@ -802,6 +805,22 @@ class PlanningInfoDB:
         """ Update other with planning information from self"""
 
         other.update_routes(self.sim_rt_conts_by_id.values(),curr_time_dt)
+
+        #  also update satellite state history record
+        for sat_id in self.sat_id_order:
+            if len(self.sat_state_hist_by_id[sat_id]) > 0:
+                other.update_sat_state_hist(sat_id,self.sat_state_hist_by_id[sat_id][-1])
+
+    def update_sat_state_hist(self,sat_id,sat_state_entry):
+        """ update the latest satellite state entry for given satellite ID, if necessary"""
+
+        if len(self.sat_state_hist_by_id[sat_id]) > 0:
+            latest = self.sat_state_hist_by_id[sat_id][-1]
+            if latest.update_dt < sat_state_entry.update_dt:
+                self.sat_state_hist_by_id[sat_id].append(sat_state_entry)
+        else:
+            self.sat_state_hist_by_id[sat_id].append(sat_state_entry)
+            
 
     def get_sat_states(self, curr_time_dt):
         """ get satellite states at the input time. Propagates each satellite's state forward from its last known state to the current time. Includes any known scheduled activities in this propagation"""

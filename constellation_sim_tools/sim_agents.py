@@ -249,3 +249,6 @@ class SimGroundNetwork(SimAgent):
 
     def get_all_gs_planned_act_hists(self):
         return self.state_recorder.get_all_gs_planned_act_hists()
+
+    def post_planning_info_rx(self):
+        pass
