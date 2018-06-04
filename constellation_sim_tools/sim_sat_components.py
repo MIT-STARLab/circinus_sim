@@ -51,7 +51,7 @@ class SatStateSimulator(StateSimulator):
 
         self.ES_state = sat_initial_state['batt_e_Wh']
 
-        self.sat_edot_by_mode,self.sat_batt_storage,power_units = io_tools.parse_power_consumption_params(sat_power_params)
+        self.sat_edot_by_mode,self.sat_batt_storage,power_units,_,_ = io_tools.parse_power_consumption_params(sat_power_params)
 
         if not power_units['power_consumption'] == 'W':
             raise NotImplementedError
@@ -231,6 +231,9 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # see superclass for documentation
         self.replan_release_wait_time_s = sat_arbiter_params['replan_release_wait_time_s']
 
+        #  can be used to disable running of the LP
+        self.allow_lp_execution = sat_arbiter_params['allow_lp_execution']
+
     def _check_internal_planning_update_req(self):
 
         # todo: update this code
@@ -248,6 +251,9 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         if self.act_was_injected:
             replan_required = True
+
+        if not self.allow_lp_execution:
+            replan_required = False
 
         return replan_required
 
@@ -287,6 +293,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         #  run the global planner
         # debug_tools.debug_breakpt()
+        temp = self.latest_lp_route_indx
         new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
 
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
@@ -296,40 +303,15 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         return new_rt_conts
 
-        # lp_wrapper.run_lp(self._curr_time_dt,)
-
-        # run lp
-        #     - wrapper
-        #         - feed in existing route conts
-        #         -  create new route containers for every un-routed data container, feed those in
-        #         - give it current state as well
-        #     - run lp
-        #         - figures out which rt containers to use, utilization for them
-        # - receive updated list of route containers, update planning info database with these
-
-
-    def _process_updated_routes(self,rt_conts):
+    def _process_updated_routes(self,rt_conts,curr_time_dt):
         #  see superclass for docs
 
-        pass
-        # #  mark all of the route containers with their release time
-        # for rt_cont in rt_conts:
-        #     rt_cont.set_times_safe(self._curr_time_dt)
+        #  mark all of the route containers with their release time
+        for rt_cont in rt_conts:
+            rt_cont.set_times_safe(self._curr_time_dt)
 
-        # # update plan database
-        # self.plan_db.update_routes(rt_conts)
-
-        # #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
-        # #  filter rationale: want any route containers that have at least one window overlapping past start time
-        # rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
-
-        # # distill the activities out of the route containers
-        # #  filter rationale:  only want windows that are completely past the start time, because we don't want to update our planned activity history with activities from the past
-        # executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='totally_within')
-
-        # # update any acts that have changed within our plans (note: activity plans CAN change up to right before they get executed, though the GP is incentivized to keep planned activities the same once it chooses them)
-        # for exec_act in executable_acts:        
-        #     self.state_recorder.add_planned_act_hist(exec_act.act)
+        # update plan database
+        self.plan_db.update_routes(rt_conts,curr_time_dt)
 
     def flag_act_injected(self): 
         self.act_was_injected = True
@@ -412,7 +394,7 @@ class SatExecutive(Executive):
         curr_act_wind = curr_exec_context['act']
         if type(curr_act_wind) == ObsWindow:
             #  these are the route containers that were planned for collection
-            collected_rt_conts = curr_exec_context['rt_conts']
+            collected_rt_conts = [rt_cont for rt_cont in  curr_exec_context['rt_conts'] if rt_cont.data_vol > self.dv_epsilon]
 
             #  this is the amount of observation data volume that was executed in _execute_act() below
             obs_dv_collected = curr_exec_context['dv_used']
@@ -489,9 +471,9 @@ class SatExecutive(Executive):
                 remaining_dv_by_rt_cont[curr_rc] -= delta_dv
                 remaining_dv_by_data_cont[curr_dc] -= delta_dv 
 
-            if remaining_dv_by_rt_cont[curr_rc] > dv_epsilon:
-                # todo: remove this
-                raise RuntimeWarning('insufficient data packet data volume to send over route containers')
+            # todo: this is for debug, but probably ought to be logged somewhere...
+            # if remaining_dv_by_rt_cont[curr_rc] > dv_epsilon:
+            #     raise RuntimeWarning('insufficient data packet data volume to send over route containers. Routes might be stale...')
 
         return executable_data_conts_by_rt_cont
 
@@ -518,9 +500,6 @@ class SatExecutive(Executive):
         #  determine how much data volume can be produced or consumed based upon the activity average data rate ( the statement is valid for all types ObsWindow, XlnkWindow, DlnkWindow)
         delta_dv = curr_act_wind.ave_data_rate * delta_t_s
 
-        #  reduce this number by any restrictions due to data volume storage availability
-        #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
-        delta_dv = min(delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
 
         #  the data volume that actually gets collected or lost
         executed_delta_dv = 0
@@ -532,6 +511,10 @@ class SatExecutive(Executive):
         if type(curr_act_wind) == ObsWindow:
             #  for now we just mark off that we collected observation data, and will deal with creating data containers for the observation data in the cleanup phase, in _cleanup_act_execution_context() above. this means that the observation data is not released until after the activity has finished. this is okay for the current code version because no activities should depend upon the execution of another activity halfway in progress.
             #  note that it would be possible to create data containers right here, and iterate through the route containers as those data containers are created. however, when I started incrementing the logic for this it got very hairy very quickly
+
+            #  reduce this number by any restrictions due to data volume storage availability
+            #  note that storage availability is affected by activity execution order at the current time step ( if more than one activity is to be executed)
+            delta_dv = min(delta_dv,self.state_sim.get_available_data_storage(self._curr_time_dt))
 
             curr_exec_context['dv_used'] += delta_dv
             #  we don't consider any data volumes have been executed here - will handle the addition of executed data volume in the cleanup stage ( for observations only)
@@ -556,6 +539,10 @@ class SatExecutive(Executive):
                     # figure out data cont, amount of data to transmit, the planned route container that specified which data container and amount of data to send
                     tx_dc, dv_to_send, tx_rc = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
 
+                    # if we don't have anything to tx
+                    if tx_dc is None:
+                        break
+
                     # Add the planned route container to the data container's history
                     tx_dc.add_to_plan_hist(tx_rc)
 
@@ -571,8 +558,7 @@ class SatExecutive(Executive):
 
                     #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                     else:
-                        # todo: added this temporarily for debugging purposes -  remove once functionality verified!
-                        raise RuntimeWarning('saw failure to receive')
+                        self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','failure to transmit to sat %s during xlnk activity %s'%(xsat_exec.sim_sat.sat_id,curr_act_wind))
                         break
 
                     tx_delta_dv -= dv_txed
@@ -582,6 +568,7 @@ class SatExecutive(Executive):
                     #  because  we are transmitting, we are losing data volume
                     executed_delta_dv -= dv_txed
 
+        # transmitting over dlnks
         elif type(curr_act_wind) == DlnkWindow:
             gs_indx = curr_act_wind.gs_indx
             gs_exec = self.sim_sat.get_gs_from_indx(gs_indx).get_exec()
@@ -594,6 +581,10 @@ class SatExecutive(Executive):
             
                 # figure out data cont, amount of data to transmit
                 tx_dc, dv_to_send, tx_rc = self.select_tx_data_cont(curr_exec_context['executable_tx_data_conts_by_rt_cont'],tx_delta_dv,self.dv_epsilon)
+
+                # if we don't have anything to tx
+                if tx_dc is None:
+                    break
 
                 # Add the planned route container to the data container's history
                 tx_dc.add_to_plan_hist(tx_rc)
@@ -610,8 +601,7 @@ class SatExecutive(Executive):
 
                 #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                 else:
-                    # todo: added this temporarily for debugging purposes -  remove once functionality verified!
-                    raise RuntimeWarning('saw failure to receive')
+                    self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','failure to transmit to gs %s during dlnk activity %s'%(gs_exec.sim_gs.gs_indx,curr_act_wind))
                     break
 
                 tx_delta_dv -= dv_txed
@@ -648,6 +638,10 @@ class SatExecutive(Executive):
 
             if exec_dc_choice:
                 break
+
+        # there's no data we have to send!
+        if not exec_dc_choice:
+            return None,0.0,None
 
         #  the amount of data volume to send is the minimum of how much we can send during current activity, how much we plan to send for a given data container, and how much data is available from that data container
         dv_to_send = min(tx_dv_possible,exec_dc_choice.remaining_dv,exec_dc_choice.data_vol)

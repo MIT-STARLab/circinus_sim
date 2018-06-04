@@ -71,7 +71,7 @@ class GroundNetworkPS(PlannerScheduler):
 
         return new_rt_conts
 
-    def _process_updated_routes(self,rt_conts):
+    def _process_updated_routes(self,rt_conts,curr_time_dt):
         #  see superclass for docs
 
         #  mark all of the route containers with their release time
@@ -79,7 +79,7 @@ class GroundNetworkPS(PlannerScheduler):
             rt_cont.set_times_safe(self._curr_time_dt)
 
         # update plan database
-        self.plan_db.update_routes(rt_conts)
+        self.plan_db.update_routes(rt_conts,curr_time_dt)
 
         #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
         #  filter rationale: want any route containers that have at least one window overlapping past start time

@@ -170,6 +170,7 @@ class SimRouteContainer:
 
         # allowable difference in utilization before a DMR is considered "changed" in utilization
         self.dv_utilization_epsilon = 0.001
+        self.dv_epsilon = 0.01  # Mb
 
         self.output_date_str_format = 'short'
 
@@ -293,7 +294,8 @@ class SimRouteContainer:
 
         wind_sum = sum(dmr.data_vol_for_wind(wind)*self.dv_utilization_by_dmr_id[dmr.ID] for dmr in self.dmrs_by_id.values())
 
-        if wind_sum == 0:
+        # only throw error if this route is actual scheduled for dv
+        if wind_sum == 0 and self.data_vol > self.dv_epsilon:
             raise KeyError('Found zero data volume for window, which assumedly means it is not in the route. self: %s, wind: %s'%(self,wind))
 
         return wind_sum
@@ -305,11 +307,16 @@ class SimRouteContainer:
             if wind in dmr.get_winds():
                 return True
 
-    def find_matching_data_conts(self,data_conts):
+    def find_matching_data_conts(self,data_conts,match_method='planned'):
         """ find those data containers that match this same route container
 
         # todo: update this description
-        This method is essentially the linchpin in matching schedule intent ( represented by the sim route container) to execution ( represented by the data container). A data container is said to match a route container if its latest planned data route matches at least one of the data routes underlying the Sim route container on a window by window basis. that is, the data container has the same observation and same cross-links as a data route within the Sim route container, up to and including the latest cross-link in the data container. This could also include the final downlink, but it's likely not useful to do this matching process after the downlink has occurred. Note that no data volume constraints are set on this match -  only the windows in the routes.
+        This method is essentially the linchpin in matching schedule intent ( represented by the sim route container) to execution ( represented by the data container). A data container is said to match a route container in two possible ways:
+        1. "planned": if its latest planned data route matches at least one of the data routes underlying the Sim route container 
+        2. "executed": if its executed route matches at least one of the data routes underlying the Sim route container 
+        
+        This route matching is on a window by window basis. that is, the data container route has the same observation and same cross-links as a data route within the Sim route container, up to and including the latest cross-link in the data container. This could also include the final downlink, but it's likely not useful to do this matching process after the downlink has occurred. Note that no data volume constraints are set on this match -  only the windows in the routes.
+
         :param data_conts:  data containers to check for matches
         :type data_conts: iterable
         :returns:  matching data containers
@@ -322,12 +329,25 @@ class SimRouteContainer:
 
         for dc in data_conts:
             # dc_dr = dc.data_route
-            dc_planned_route = dc.latest_planned_rt_cont
+            if match_method == 'planned':
+                dc_route = dc.latest_planned_rt_cont
+            elif match_method == 'executed':
+                dc_route = dc.executed_data_route
+                if not dc_route: raise RuntimeWarning('Could not find an executed route for data container %s'%(dc))
+            else:
+                raise NotImplementedError
+
+            #  if we can't find a route, then it's not possible to match to this data container
+            if not dc_route:
+                continue
 
             #  check each data multi-route to see if it matches the route of the data container
             for dmr in self.dmrs_by_id.values():
-                # match_found= dmr.contains_route(dc_dr)
-                match_found =  dmr == dc_planned_route
+                if match_method == 'planned':
+                    match_found =  dmr == dc_route
+                # in this case, we want to check if the dmr contains the same windows as dc_route
+                elif match_method == 'executed':
+                    match_found= dmr.contains_route(dc_route)
 
                 if match_found: 
                     matches.append(dc)

@@ -1,4 +1,6 @@
 
+from datetime import datetime
+
 from .lp_processing import LPProcessing
 from .lp_scheduling import LPScheduling
 
@@ -39,18 +41,15 @@ class LocalPlannerRunner:
     def run(self,existing_route_data,verbose=False):
 
         #   determine outflow and inflow routes
-        inflows,outflows,planned_rt_ids_in_planning_window = self.lp_proc.determine_flows(existing_route_data)
+        inflows,outflows,planned_rts_in_planning_window = self.lp_proc.determine_flows(existing_route_data)
 
         existing_planned_routes_by_id = {rt.ID:rt for rt in existing_route_data['planned_routes']}
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
-        scheduled_routes, updated_utilization_by_route_id = self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],planned_rt_ids_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
+        scheduled_routes, all_updated_routes, updated_utilization_by_route_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],planned_rts_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
 
-
-        # debug_tools.debug_breakpt()
-
-        return None
+        return scheduled_routes,all_updated_routes,updated_utilization_by_route_id,latest_dr_uid
 
 class PipelineRunner:
 
@@ -70,14 +69,14 @@ class PipelineRunner:
         lp_runner = LocalPlannerRunner (lp_params)
 
         existing_route_data = data['existing_route_data']
-        # scheduled_routes,all_updated_routes,viz_outputs,latest_dr_uid = gp_runner.run (existing_route_data,verbose)
-        stuff = lp_runner.run (existing_route_data,verbose)
+        scheduled_routes,all_updated_routes,updated_utilization_by_route_id,latest_dr_uid = lp_runner.run (existing_route_data,verbose)
 
         output = {}
         output['version'] = OUTPUT_JSON_VER
-        # output['scheduled_routes'] = scheduled_routes
-        # output['all_updated_routes'] = all_updated_routes
-        # output['latest_dr_uid'] = latest_dr_uid
-        # output['update_time'] = datetime.utcnow().isoformat()
+        output['scheduled_routes'] = scheduled_routes
+        output['all_updated_routes'] = all_updated_routes
+        output['updated_utilization_by_route_id'] = updated_utilization_by_route_id
+        output['latest_dr_uid'] = latest_dr_uid
+        output['update_wall_clock_utc'] = datetime.utcnow().isoformat()
 
         return output

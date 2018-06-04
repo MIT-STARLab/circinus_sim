@@ -122,7 +122,7 @@ class PlannerScheduler:
 
             #  if we don't have to wait to release new plans
             if self.replan_release_wait_time_s == 0:
-                self._process_updated_routes(new_rt_conts)
+                self._process_updated_routes(new_rt_conts,self._curr_time_dt)
                 #  update replan time
                 self._last_replan_time_dt = self._curr_time_dt
                 self._planning_info_updated = True
@@ -131,7 +131,7 @@ class PlannerScheduler:
             #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
             #  note: this is intended for the global planner
             elif self._first_step and self.release_first_plans_immediately:
-                self._process_updated_routes(new_rt_conts)
+                self._process_updated_routes(new_rt_conts,self._curr_time_dt)
                 self._last_replan_time_dt = self._curr_time_dt
                 self._planning_info_updated = True
                 self._planning_info_updated_internal_hist.append(self._curr_time_dt)
@@ -144,7 +144,7 @@ class PlannerScheduler:
         #  release any ripe plans from the queue
         while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
             q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
-            self._process_updated_routes(q_entry.rt_conts)
+            self._process_updated_routes(q_entry.rt_conts,self._curr_time_dt)
             self._last_replan_time_dt = self._curr_time_dt
             self._planning_info_updated = True
             self._planning_info_updated_internal_hist.append(self._curr_time_dt)
@@ -604,6 +604,9 @@ class StateRecorder:
         self.DS_state_hist = [] # assumed to be in Mb
         self.base_time = sim_start_dt
 
+
+        self.event_hist_by_type ={}
+
     def add_DS_hist(self,t_dt,val):
         # todo: add decimation?
         t_s = (t_dt - self.base_time).total_seconds()
@@ -621,6 +624,13 @@ class StateRecorder:
             d.append(pt[1]) # converted to Gb
 
         return t,d
+
+    def log_event(self,time_dt,source,event_type,message):
+        self.event_hist_by_type.setdefault(event_type,[])
+        self.event_hist_by_type[event_type].append([time_dt.isoformat(),source,message])
+
+    def get_events(self):
+        return self.event_hist_by_type
         
 class ExecutiveAgentStateRecorder(StateRecorder):
     """Convenient interface for storing state history for executive agents"""
@@ -692,6 +702,8 @@ class PlanningInfoDB:
         # todo: make this a dictionary by sat index? Could be a bit faster
         # todo: should add distinction between active and old routes
         self.sim_rt_conts_by_id = {}  # The id here is the Sim route container 
+        # stores the times at which rt conts were updated
+        self.sim_rt_cont_update_hist_by_id = {}
         self.sim_start_dt = sim_start_dt
         self.sim_end_dt = sim_end_dt
 
@@ -726,21 +738,23 @@ class PlanningInfoDB:
             self.sat_state_hist_by_id[sat_id].append(SatStateEntry(update_dt=self.sim_start_dt, state_info=plan_db_inputs['initial_state_by_sat_id'][sat_id]))
 
             self.parsed_power_params_by_sat_id[sat_id] = {}
-            sat_edot_by_mode,sat_batt_storage,power_units = io_tools.parse_power_consumption_params(plan_db_inputs['power_params_by_sat_id'][sat_id])
+            sat_edot_by_mode,sat_batt_storage,power_units,_,_ = io_tools.parse_power_consumption_params(plan_db_inputs['power_params_by_sat_id'][sat_id])
             self.parsed_power_params_by_sat_id[sat_id] = {
                 "sat_edot_by_mode": sat_edot_by_mode,
                 "sat_batt_storage": sat_batt_storage,
                 "power_units": power_units,
             } 
 
-    def update_routes(self,rt_conts):
+    def update_routes(self,rt_conts,curr_time_dt):
         for rt_cont in rt_conts:
             if rt_cont.ID in self.sim_rt_conts_by_id.keys():
                 # todo: is this the way to always do updates?
                 if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
                     self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
+                    self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(curr_time_dt)
             else:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
+                self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[curr_time_dt])
 
     def get_filtered_sim_routes(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
 
@@ -773,10 +787,10 @@ class PlanningInfoDB:
 
         return all_rt_conts
 
-    def push_planning_info(self,other):
+    def push_planning_info(self,other,curr_time_dt):
         """ Update other with planning information from self"""
 
-        other.update_routes(self.sim_rt_conts_by_id.values())
+        other.update_routes(self.sim_rt_conts_by_id.values(),curr_time_dt)
 
     def get_sat_states(self, curr_time_dt):
         """ get satellite states at the input time. Propagates each satellite's state forward from its last known state to the current time. Includes any known scheduled activities in this propagation"""

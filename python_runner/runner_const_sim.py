@@ -53,7 +53,7 @@ class PipelineRunner:
 
         sim_other_params = {}
 
-        if orbit_prop_inputs['version'] == "0.5":
+        if orbit_prop_inputs['version'] == "0.6":
             # do some useful transformations while preserving the structure of the inputs ( important for avoiding namespace clashes)
             orbit_prop_inputs['scenario_params']['start_utc_dt'] = tt.iso_string_to_dt ( orbit_prop_inputs['scenario_params']['start_utc'])
             orbit_prop_inputs['scenario_params']['end_utc_dt'] = tt.iso_string_to_dt ( orbit_prop_inputs['scenario_params']['end_utc'])

@@ -14,8 +14,6 @@ from datetime import datetime,timedelta
 
 from .sim_routing_objects import SimRouteContainer
 
-# from circinus_tools.scheduling.routing_objects import 
-
 from circinus_tools import debug_tools
 
 EXPECTED_GP_OUTPUT_VER = '0.2'

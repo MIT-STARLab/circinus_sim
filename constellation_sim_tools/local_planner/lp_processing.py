@@ -39,7 +39,7 @@ class LPProcessing:
         outflows = []
         inflows = []
 
-        planned_rt_ids_in_planning_window = set()
+        planned_rts_in_planning_window = set()
 
         # utilization_by_flow_id = {}
 
@@ -110,7 +110,7 @@ class LPProcessing:
                 flow_indx += 1
                 outflows.append(flobject)
 
-                planned_rt_ids_in_planning_window.add(rt.ID)
+                planned_rts_in_planning_window.add(rt)
                 
                 #This sanity check is to make sure that all of the windows we have found for this route constitute a single outflow direction.  it is possible that a route could pass through satellite, go to other satellites, and then circle back to the original satellite, only to pass on to additional satellites and finally a downlink. in that case it is possible that we would double count some of this dv as outflow ( note: I don't really expect to see this ever)
                 assert(tx_dv_in_planning_window == rt.data_vol)
@@ -122,7 +122,7 @@ class LPProcessing:
                 flow_indx += 1
                 inflows.append(flobject)
 
-                planned_rt_ids_in_planning_window.add(rt.ID)
+                planned_rts_in_planning_window.add(rt)
                 
                 assert(rx_dv_in_planning_window == rt.data_vol)
 
@@ -136,5 +136,5 @@ class LPProcessing:
             flow_indx += 1
             inflows.append(flobject)
                 
-        return inflows,outflows,planned_rt_ids_in_planning_window
+        return inflows,outflows,planned_rts_in_planning_window
 

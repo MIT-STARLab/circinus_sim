@@ -14,8 +14,11 @@ SAT_STATE_JSON_VER = '0.1'
 class SimAgent:
     """Super class for simulation agents within constellation"""
 
-    def __init__(self,ID):
+    def __init__(self,ID,sim_start_dt,sim_end_dt):
         self.ID = ID
+
+        # current time for the agent. note that individual components within the agent store their own times
+        self._curr_time_dt = sim_start_dt
 
     def get_plan_db(self):
         """ get planning info database used by this agent """
@@ -33,7 +36,7 @@ class SimAgent:
         other_plan_db = other.get_plan_db()
 
         #  push data from self to the other
-        my_plan_db.push_planning_info(other_plan_db)
+        my_plan_db.push_planning_info(other_plan_db,self._curr_time_dt)
 
         other.post_planning_info_rx()
 
@@ -45,8 +48,8 @@ class SimAgent:
 class SimExecutiveAgent(SimAgent):
     """ superclass for agents that are capable of executing plans in the simulation (e.g. satellites, ground stations)"""
 
-    def __init__(self,ID):
-        super().__init__(ID)
+    def __init__(self,ID,sim_start_dt,sim_end_dt):
+        super().__init__(ID,sim_start_dt,sim_end_dt)
 
     def execution_step(self,new_time_dt):
         self.exec.execute_acts(new_time_dt)
@@ -70,9 +73,6 @@ class SimSatellite(SimExecutiveAgent):
         initializes based on parameters
         :type params: dict
         """
-
-        # current time for the agent. note that individual components within the agent store their own times
-        self._curr_time_dt = sim_start_dt
 
         #  the satellite index. this is used for indexing in internal data structures
         self.sat_indx = sat_indx
@@ -105,7 +105,7 @@ class SimSatellite(SimExecutiveAgent):
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
-        super().__init__(ID)
+        super().__init__(ID,sim_start_dt,sim_end_dt)
 
     @property
     def sat_id(self):
@@ -167,9 +167,6 @@ class SimGroundStation(SimExecutiveAgent):
         :type params: dict
         """
 
-        # current time for the agent. note that individual components within the agent store their own times
-        self._curr_time_dt = sim_start_dt
-
         self.gs_indx = gs_indx
         self.name = name
         self.gs_network = gs_network
@@ -185,7 +182,7 @@ class SimGroundStation(SimExecutiveAgent):
         self.exec.scheduler = self.scheduler_pass_thru
         self.exec.state_recorder = self.state_recorder
 
-        super().__init__(ID)
+        super().__init__(ID,sim_start_dt,sim_end_dt)
 
     @property
     def gs_id(self):
@@ -229,15 +226,12 @@ class SimGroundNetwork(SimAgent):
         self.name = name
         self.gs_list = []
 
-        # current time for the agent. note that individual components within the agent store their own times
-        self._curr_time_dt = sim_start_dt
-
         self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,sim_gs_network_params['gsn_ps_params'])
         self.state_recorder = GroundNetworkStateRecorder(sim_start_dt,num_sats,num_gs)
 
         self.scheduler.state_recorder = self.state_recorder
 
-        super().__init__(ID)
+        super().__init__(ID,sim_start_dt,sim_end_dt)
 
     def state_update_step(self,new_time_dt,gp_wrapper):
         if new_time_dt < self._curr_time_dt:

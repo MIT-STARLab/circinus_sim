@@ -11,14 +11,12 @@ from copy import copy
 # import pickle
 from datetime import datetime,timedelta
 
-# from .sim_routing_objects import SimRouteContainer
+from .sim_routing_objects import SimRouteContainer
 from constellation_sim_tools.local_planner.runner_lp import PipelineRunner as LPPipelineRunner
-
-# from circinus_tools.scheduling.routing_objects import 
 
 from circinus_tools import debug_tools
 
-EXPECTED_LP_OUTPUT_VER = '0.2'
+EXPECTED_LP_OUTPUT_VER = '0.1'
 
 def datetime_to_iso8601(dt):
     """ Converts a Python datetime object into an ISO8601 string. (including trailing Z)"""
@@ -85,7 +83,7 @@ class LocalPlannerWrapper:
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
         existing_route_data['utilization_by_planned_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
 
-
+        # deal with data containers (packets) on sat
         existing_route_data['utilization_by_executed_route_id'] = {}
         existing_route_data['injected_executed_route_ids'] = []
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
@@ -132,42 +130,46 @@ class LocalPlannerWrapper:
         lp_pr = LPPipelineRunner()
         lp_output = lp_pr.run(lp_inputs,verbose=True)
 
+        ##############################
+        # handle output
 
-         # make sure to set latest_planned_route for data containers !!!!
+        if not lp_output['version'] == EXPECTED_LP_OUTPUT_VER:
+            raise RuntimeWarning("Saw gp output version %s, expected %s"%(lp_output['version'],EXPECTED_LP_OUTPUT_VER))
 
-        # ##############################
-        # # handle output
 
-        # if not gp_output['version'] == EXPECTED_GP_OUTPUT_VER:
-        #     raise RuntimeWarning("Saw gp output version %s, expected %s"%(gp_output['version'],EXPECTED_GP_OUTPUT_VER))
-
-        # scheduled_routes = gp_output['scheduled_routes']
-        # all_updated_routes = gp_output['all_updated_routes']
-        # latest_lp_route_indx = lp_output['latest_dr_uid']
+        scheduled_routes = lp_output['scheduled_routes']
+        all_updated_routes = lp_output['all_updated_routes']
+        updated_utilization_by_route_id = lp_output['updated_utilization_by_route_id']
+        latest_lp_route_indx = lp_output['latest_dr_uid']
 
         # scheduled_routes_set = set(scheduled_routes)
         # existing_routes_set = set(existing_routes)
-        # sim_routes = []
-        # for dmr in all_updated_routes:
-        #     #  we only want to consider this route if it was actually scheduled (delivers real data volume) or is an existing route.  any new routes that were constructed in the global planner that don't get scheduled we can ignore ( there's no point in keeping track of them because they're useless -  and we haven't yet told any of the satellites about them so we can discard them now).  this is in contrast to existing routes which, even if they get unscheduled by the global planner, we have to keep track of because we could've already told the satellites about them after a previous global planning session ( so now we you tell them that decisions have changed)
-        #     if not (dmr in scheduled_routes_set or dmr in existing_routes_set):
-        #         continue
+        sim_routes = []
+        for dmr in all_updated_routes:
+            #  we only want to consider this route if it was actually scheduled (delivers real data volume) or is an existing route.  any new routes that were constructed in the global planner that don't get scheduled we can ignore ( there's no point in keeping track of them because they're useless -  and we haven't yet told any of the satellites about them so we can discard them now).  this is in contrast to existing routes which, even if they get unscheduled by the global planner, we have to keep track of because we could've already told the satellites about them after a previous global planning session ( so now we you tell them that decisions have changed)
+            # if not (dmr in scheduled_routes_set or dmr in existing_routes_set):
+            #     continue
 
-        #     dmr_dv_util = dmr.get_sched_utilization()
+            # note that LP doesn't send us any routes that it freshly created but decided not to use (unlike GP, currently)
+
+            dmr_dv_util = min(updated_utilization_by_route_id[dmr.ID],1.0)
 
 
-        #     # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
-        #     # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
-        #     old_esrc = esrcs_by_id.get(dmr.ID,None)
-        #     creation_dt = old_esrc.creation_dt if old_esrc else None
-        #     update_dt = old_esrc.update_dt if (old_esrc and old_esrc.not_updated_check(dmr,dmr_dv_util)) else None
+            # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
+            # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
+            old_esrc = esrcs_by_id.get(dmr.ID,None)
+            creation_dt = old_esrc.creation_dt if old_esrc else None
+            update_dt = old_esrc.update_dt if (old_esrc and old_esrc.not_updated_check(dmr,dmr_dv_util)) else None
 
-        #     # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
-        #     #   note only one Sim route container per DMR
-        #     # honestly we probably could just use a copy() here...
-        #     sim_routes.append(
-        #         SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt)
-        #     )
+            # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
+            #   note only one Sim route container per DMR
+            # honestly we probably could just use a copy() here...
+            new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt)
+            sim_routes.append(new_src)
 
-        # return sim_routes, latest_lp_route_indx
-        return [], 12
+            # Figure out if this route container is intended to service an existing data container. if yes, then add that to the data container's plan history ( which is used elsewhere to make routing decisions for the data  container)
+            matched_dcs = new_src.find_matching_data_conts(existing_data_conts,'executed')
+            for dc in matched_dcs:
+                dc.add_to_plan_hist(new_src)
+
+        return sim_routes, latest_lp_route_indx

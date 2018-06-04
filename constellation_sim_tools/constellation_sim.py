@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import pickle
+import json
 
 from circinus_tools.scheduling.io_processing import SchedIOProcessor
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
@@ -296,6 +297,18 @@ class ConstellationSim:
 
     def post_run(self):
 
+        event_logs = {'sats':[],'gs': []}
+        for sat in self.sats_by_id.values():
+            sat.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in sat.state_sim.get_curr_data_conts()])
+            event_logs['sats'].append(sat.state_recorder.get_events())
+        for gs in self.gs_by_id.values():
+            gs.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in gs.state_sim.get_curr_data_conts()])
+            event_logs['gs'].append(gs.state_recorder.get_events())
+
+        event_log_file = 'logs/agent_events.json'
+        with open(event_log_file,'w') as f:
+            json.dump(event_logs ,f)
+            
         # Get the activities executed for all the satellites
         obs_exe = [[] for indx in range(self.num_sats)]
         dlnks_exe = [[] for indx in range(self.num_sats)]

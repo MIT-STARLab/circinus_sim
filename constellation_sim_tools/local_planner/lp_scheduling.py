@@ -579,10 +579,11 @@ class LPScheduling(AgentScheduling):
 
         self.model_constructed = True
 
-    def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, planned_rt_ids_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
+    def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, planned_rts_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
 
         scheduled_routes = []
+        all_updated_routes = []
         # includes utilization for both scheduled routes and existing routes that have been "un-scheduled"
         updated_utilization_by_route_id = {}
         scheduled_rt_ids = []
@@ -614,6 +615,7 @@ class LPScheduling(AgentScheduling):
                     assert(rt not in scheduled_routes)
 
                     scheduled_routes.append(rt)
+                    all_updated_routes.append(rt)
                     updated_utilization_by_route_id[rt_id] = new_utilization
                     scheduled_rt_ids.append(rt.ID)
 
@@ -625,19 +627,19 @@ class LPScheduling(AgentScheduling):
 
                     rt,latest_dr_uid = self.graft_routes(inflow,outflow,flow_dv,latest_dr_uid,lp_agent_ID)
                     scheduled_routes.append(rt)
+                    all_updated_routes.append(rt)
                     #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
 
 
         # For every existing routes that is not in the scheduled routes, mark its utilization as zero ( because a new scheduled route has taken its throughput) - but only do this for routes that were actually found in planning window!
-        for rt_id in planned_rt_ids_in_planning_window:
-            if not rt_id in scheduled_rt_ids:
-                updated_utilization_by_route_id[rt_id] = 0.0
+        for rt in planned_rts_in_planning_window:
+            if not rt.ID in scheduled_rt_ids:
+                all_updated_routes.append(rt)
+                updated_utilization_by_route_id[rt.ID] = 0.0
 
-        debug_tools.debug_breakpt()
-
-        return scheduled_routes, updated_utilization_by_route_id
+        return scheduled_routes, all_updated_routes, updated_utilization_by_route_id,latest_dr_uid
 
 
 
