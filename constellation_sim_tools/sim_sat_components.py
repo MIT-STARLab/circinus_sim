@@ -520,12 +520,15 @@ class SatExecutive(Executive):
             #  we don't consider any data volumes have been executed here - will handle the addition of executed data volume in the cleanup stage ( for observations only)
             executed_delta_dv += 0
 
+
+
         #  deal with cross-link if we are the transmitting satellite
         #  note: this code only deals with execution by the transmitting satellite. execution by the receiving satellite is dealt with within xlnk_receive_poll()
         elif type(curr_act_wind) == XlnkWindow:
 
             xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
-            xsat_exec = self.sim_sat.get_sat_from_indx(xsat_indx).get_exec()
+            xsat = self.sim_sat.get_sat_from_indx(xsat_indx)
+            xsat_exec = xsat.get_exec()
             is_tx = not curr_act_wind.is_rx(self.sim_sat.sat_indx)
 
             #  if we're the transmitting satellite, then we have the responsibility to start the data transfer transaction
@@ -556,6 +559,11 @@ class SatExecutive(Executive):
                         if not tx_dc in curr_exec_context['tx_data_conts']:
                             curr_exec_context['tx_data_conts'].append(tx_dc)
 
+                        # this is where we do planning info update 
+                        self.sim_sat.send_planning_info(xsat)
+                        # go ahead and assume bidirectional planning update....todo: is this okay?
+                        xsat.send_planning_info(self.sim_sat)
+
                     #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                     else:
                         self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','failure to transmit to sat %s during xlnk activity %s'%(xsat_exec.sim_sat.sat_id,curr_act_wind))
@@ -571,7 +579,8 @@ class SatExecutive(Executive):
         # transmitting over dlnks
         elif type(curr_act_wind) == DlnkWindow:
             gs_indx = curr_act_wind.gs_indx
-            gs_exec = self.sim_sat.get_gs_from_indx(gs_indx).get_exec()
+            gs = self.sim_sat.get_gs_from_indx(gs_indx)
+            gs_exec = gs.get_exec()
 
             # note that sat is always transmitting, if it's a downlink. So sat has responsibility to start the data transfer transaction
             tx_delta_dv = delta_dv
@@ -598,6 +607,10 @@ class SatExecutive(Executive):
                     tx_dc.remove_dv(dv_txed)
                     if not tx_dc in curr_exec_context['tx_data_conts']:
                         curr_exec_context['tx_data_conts'].append(tx_dc)
+
+                    # this is where we do planning info update. Order doesn't matter. Notice we assume an uplink is present, so we can get data from gs as well
+                    self.sim_sat.send_planning_info(gs)
+                    gs.send_planning_info(self.sim_sat)
 
                 #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                 else:

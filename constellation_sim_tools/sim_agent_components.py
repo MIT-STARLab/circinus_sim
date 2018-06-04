@@ -284,8 +284,10 @@ class Executive:
 
         # if we updated the schedule, need to deal with the consequences
 
-        # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new sched. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
+        # if we're currently executing an act, figure out where that act is in the new sched. That's the "anchor point" in the new schedx. (note in general the current act SHOULD be the first one in the new sched. But something may have changed...)
+        no_current_act = True
         if len(self._curr_exec_acts) > 0:
+            no_current_act = False
             # store most recent (by executable_start) exec act seen. 
             latest_exec_act = scheduled_exec_acts_copy[self._last_scheduled_exec_act_windex]
             assert(latest_exec_act in self._curr_exec_acts)
@@ -296,25 +298,32 @@ class Executive:
                 # note that this searches by the activity window itself (the hash of the exec act)
                 curr_act_indx = self._scheduled_exec_acts.index(latest_exec_act)
             except ValueError:
-                # todo: add cleanup?
+                no_current_act = True
+                #  assume that we have canceled this activity, and reported in the log (it could also be the case that we're not currently executing an act, and latest_exec_act was simply the last act we executed) # todo: maybe filter for this?
+                self._cancelled_acts.add(latest_exec_act)
+                
+                self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','latest exec act not found in new schedule: %s'%(latest_exec_act))
+                
                 # - what does it mean if current act is not in new sched? cancel current act?
-                raise RuntimeWarning("Couldn't find activity in new schedule: %s"%(self._curr_exec_act.act))
+                # raise RuntimeWarning("Couldn't find activity in new schedule: %s"%(self._curr_exec_act.act))
 
             #  test if the routing plans for the current activity being executed have changed, we need to do something about that
             updated_exec_act = self._scheduled_exec_acts[curr_act_indx]
             if not latest_exec_act.plans_match(updated_exec_act):
-                raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
+                self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
+                # raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
 
             self._last_scheduled_exec_act_windex = curr_act_indx
 
-        # if there are activities in the schedule and we're not currently executing anything, then assume for the moment we're starting from beginning of it (actual index will be resolved in update step)
-        elif len(self._scheduled_exec_acts) > 0:
-            self._last_scheduled_exec_act_windex = 0
+        if no_current_act:
+            # if there are activities in the schedule and we're not currently executing anything, then assume for the moment we're starting from beginning of it (actual index will be resolved in update step)
+            if len(self._scheduled_exec_acts) > 0:
+                self._last_scheduled_exec_act_windex = 0
 
-        # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
-        else:
-            # todo: no act, so what is index? Is the below correct?
-            self._last_scheduled_exec_act_windex = None
+            # no acts in schedule, for whatever reason (near end of sim scenario, a fault...)
+            else:
+                # todo: no act, so what is index? Is the below correct?
+                self._last_scheduled_exec_act_windex = None
 
         self._scheduled_exec_acts_updated_hist.append(self._curr_time_dt)
 
@@ -370,6 +379,9 @@ class Executive:
             #  in this case, remove all of the next acts
             next_exec_acts = []
 
+
+        # remove cancelled acts from next exec acts
+        next_exec_acts = [exec_act for exec_act in next_exec_acts if not exec_act in self._cancelled_acts]
 
         # handle execution context setup/takedown
         
@@ -516,7 +528,6 @@ class Executive:
         received_dv = min(proposed_dv,rx_delta_dv)
 
 
-        # todo: need to add planning info exchange too
         # todo: need to add recording of tlm, cmd update
 
         #  if we're not able to receive data, then return immediately
