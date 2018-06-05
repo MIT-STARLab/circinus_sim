@@ -76,7 +76,7 @@ def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,
         
         #  these are the amounts of data volume used for every route passing through this window ( well, every route within our filter)
         dvs_used = [exec_act.dv_used for exec_act in exec_acts]
-        dv_used = sum(dvs_used)
+        dv_used = min(sum(dvs_used),act.data_vol)
         #  merge all of the route containers for this activity into a single list
         synth_rt_conts = []
         for exec_act in exec_acts:

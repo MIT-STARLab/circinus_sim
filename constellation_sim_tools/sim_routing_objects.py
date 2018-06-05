@@ -283,7 +283,7 @@ class SimRouteContainer:
                         wind=wind,
                         # t_utilization=self.t_utilization_by_dr_id[dmr.ID],
                         rt_conts=[self],
-                        dv_used=self.dv_utilization_by_dmr_id[dmr.ID]*dmr.data_vol,
+                        dv_used=self.dv_utilization_by_dmr_id[dmr.ID]*dmr.data_vol_for_wind(wind),
                     )
                 )
 
