@@ -109,7 +109,12 @@ class GlobalPlannerWrapper:
 
         #  do some funny business to get access to the global planner code
         # path to runner_gp
-        sys.path.append (os.path.join(self.gp_wrapper_params['gp_path'],'python_runner'))
+        if sys.platform == 'win32':
+            # todo: this is probably not the right way to support windows users...
+            sys.path.append (os.path.join(self.gp_wrapper_params['gp_path'].replace('/','\\'),'python_runner'))
+        else:
+            sys.path.append (os.path.join(self.gp_wrapper_params['gp_path'],'python_runner'))
+
         # path to gp_tools
         sys.path.append (self.gp_wrapper_params['gp_path'])
         from runner_gp import PipelineRunner as GPPipelineRunner
