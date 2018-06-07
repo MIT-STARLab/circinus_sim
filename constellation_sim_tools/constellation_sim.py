@@ -5,6 +5,7 @@ import json
 from circinus_tools.scheduling.io_processing import SchedIOProcessor
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from circinus_tools  import time_tools as tt
+from circinus_tools.metrics.metrics_calcs import MetricsCalcs
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .lp_wrapper import LocalPlannerWrapper
@@ -310,7 +311,13 @@ class ConstellationSim:
         event_log_file = 'logs/agent_events.json'
         with open(event_log_file,'w') as f:
             json.dump(event_logs ,f)
-            
+          
+
+        self.run_metrics()
+
+        debug_tools.debug_breakpt()
+
+
         # Get the activities executed for all the satellites
         obs_exe = [[] for indx in range(self.num_sats)]
         dlnks_exe = [[] for indx in range(self.num_sats)]
@@ -376,4 +383,17 @@ class ConstellationSim:
 
 
         return None
+
+    def run_metrics(self):
+
+        # metrics calculation
+        mc = MetricsCalcs(self.params)
+
+        # data containers mark their data vol in their data routes with the "data_vol" attribute, not "scheduled_dv"
+        def dc_dr_dv_getter(dr):
+            return dr.data_vol
+
+        # get the routes for all the packets at each GS at sim end
+        executed_routes = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts()]
+        mc.assess_dv_by_obs({}, executed_routes,dr_sched_dv_getter=dc_dr_dv_getter ,verbose = True)
 

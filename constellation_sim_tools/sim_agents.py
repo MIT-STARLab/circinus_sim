@@ -51,6 +51,9 @@ class SimExecutiveAgent(SimAgent):
     def __init__(self,ID,sim_start_dt,sim_end_dt):
         super().__init__(ID,sim_start_dt,sim_end_dt)
 
+        # to be created in subclass
+        self.state_sim = None
+
     def execution_step(self,new_time_dt):
         self.exec.execute_acts(new_time_dt)
 
@@ -63,6 +66,10 @@ class SimExecutiveAgent(SimAgent):
     def get_DS_hist(self):
         return self.state_recorder.get_DS_hist()
 
+    def get_curr_data_conts(self):
+
+        return self.state_sim.get_curr_data_conts()
+
 
 class SimSatellite(SimExecutiveAgent):
     """class for simulation satellites"""
@@ -73,6 +80,8 @@ class SimSatellite(SimExecutiveAgent):
         initializes based on parameters
         :type params: dict
         """
+
+        super().__init__(ID,sim_start_dt,sim_end_dt)
 
         #  the satellite index. this is used for indexing in internal data structures
         self.sat_indx = sat_indx
@@ -105,7 +114,6 @@ class SimSatellite(SimExecutiveAgent):
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
-        super().__init__(ID,sim_start_dt,sim_end_dt)
 
     @property
     def sat_id(self):
@@ -166,6 +174,7 @@ class SimGroundStation(SimExecutiveAgent):
         initializes based on parameters
         :type params: dict
         """
+        super().__init__(ID,sim_start_dt,sim_end_dt)
 
         self.gs_indx = gs_indx
         self.name = name
@@ -182,7 +191,6 @@ class SimGroundStation(SimExecutiveAgent):
         self.exec.scheduler = self.scheduler_pass_thru
         self.exec.state_recorder = self.state_recorder
 
-        super().__init__(ID,sim_start_dt,sim_end_dt)
 
     @property
     def gs_id(self):

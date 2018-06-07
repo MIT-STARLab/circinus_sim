@@ -29,6 +29,7 @@ class SatStateSimulator(StateSimulator):
 
     def __init__(self,sim_sat,sim_start_dt,state_simulator_params,sat_power_params,sat_data_storage_params,sat_initial_state,dv_epsilon=0.01):
         #  should probably add more robust physical units checking
+        super().__init__(sim_sat)
 
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
@@ -80,8 +81,6 @@ class SatStateSimulator(StateSimulator):
 
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
-
-        super().__init__(sim_sat)
 
     def update(self,new_time_dt):
         """ Update state to new time by propagating state forward from last time to new time. Note that we use state at self._curr_time_dt to propagate forward to new_time_dt"""
@@ -200,9 +199,6 @@ class SatStateSimulator(StateSimulator):
 
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
-
-    def get_curr_data_conts(self):
-        return self.data_store.get_curr_data_conts()
 
     def cleanup_data_conts(self,data_conts):
         self.data_store.cleanup(data_conts)

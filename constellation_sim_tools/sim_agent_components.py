@@ -23,11 +23,17 @@ class StateSimulator:
         # holds ref to the containing sim agent
         self.sim_executive_agent = sim_executive_agent
 
+        # to be created in subclass
+        self.data_store = None
+
     def update(self,new_time_dt):
         """ update state for state simulator"""
 
         #  intended to be implemented in the subclass
         raise NotImplementedError
+
+    def get_curr_data_conts(self):
+        return self.data_store.get_curr_data_conts()
 
 ReplanQEntry = namedtuple('ReplanQEntry', 'time_dt rt_conts')
 
