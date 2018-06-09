@@ -6,6 +6,7 @@ from circinus_tools.scheduling.io_processing import SchedIOProcessor
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
 from circinus_tools  import time_tools as tt
 from circinus_tools.metrics.metrics_calcs import MetricsCalcs
+from circinus_tools.plotting import plot_tools as pltl
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .lp_wrapper import LocalPlannerWrapper
@@ -402,5 +403,37 @@ class ConstellationSim:
         planned_routes = self.gs_network.get_all_planned_rt_conts()           
         # get the routes for all the packets at each GS at sim end
         executed_routes = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts()]
-        mc.assess_dv_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+        # note that the below functions assume that for all rt_conts:
+        # - the observation, downlink for all DMRs in the rt_cont are the same
+
+        dv_stats = mc.assess_dv_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+        lat_stats = mc.assess_latency_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+        # plot obs latency histogram, planned routes
+        pltl.plot_histogram(
+            data=lat_stats['poss_initial_lat_by_obs_exec'].values(),
+            num_bins = 40,
+            plot_type = 'histogram',
+            x_title='Latency (mins)',
+            y_title='Number of observations',
+            plot_title = 'Histogram of initial latency by obs - planned routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,6),
+            show=False,
+            fig_name='plots/obs_lat_planned_hist.pdf'
+        )
+
+        # plot obs latency histogram, executed routes
+        pltl.plot_histogram(
+            data=lat_stats['exec_initial_lat_by_obs_exec'].values(),
+            num_bins = 40,
+            plot_type = 'histogram',
+            x_title='Latency (mins)',
+            y_title='Number of observations',
+            plot_title = 'Histogram of initial latency by obs - executed routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,6),
+            show=False,
+            fig_name='plots/obs_lat_executed_hist.pdf'
+        )
 

@@ -205,9 +205,23 @@ class SimRouteContainer:
         return max(dmr.get_end(time_opt) for dmr in self.dmrs_by_id.values())
 
     def get_obs(self):
-        # get the observation of the first DMR in this SRC
+        """ get the observation of the first DMR in this SRC """
+        # note the assumption that all DRs here have the same obs
+        # todo: is this too hacky? Reasses at some point
         return list(self.dmrs_by_id.values())[0].get_obs()
 
+    def get_dlnk(self):
+        """ get the downlink of the first DMR in this SRC """
+        # note the assumption that all DRs here have the same obs
+        # todo: is this too hacky? Reasses at some point
+        return list(self.dmrs_by_id.values())[0].get_dlnk()
+
+    def get_latency(self,units='minutes',obs_option = 'original_end', dlnk_option = 'center'):
+        """ get the observation of the first DMR in this SRC """
+        # note the assumption that all DRs here have the same latency
+        # todo: is this too hacky? Reasses at some point
+        return list(self.dmrs_by_id.values())[0].get_latency(units,obs_option,dlnk_option)
+    
 
     def get_dmr_utilization(self,dmr):
         return self.dv_utilization_by_dmr_id[dmr]
