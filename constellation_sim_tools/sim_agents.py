@@ -252,6 +252,9 @@ class SimGroundNetwork(SimAgent):
     def get_plan_db(self):
         return self.scheduler.get_plan_db()
 
+    def get_all_planned_rt_conts(self):
+        return self.scheduler.get_plan_db().get_all_rt_conts()
+
     def get_all_sats_planned_act_hists(self):
         return self.state_recorder.get_all_sats_planned_act_hists()
 

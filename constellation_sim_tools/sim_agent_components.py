@@ -862,3 +862,23 @@ class PlanningInfoDB:
 
     def get_ecl_winds(self, sat_id):
         return self.sat_events['ecl_winds_by_sat_id'][sat_id]
+
+    def get_rt_conts_by_obs(self):
+        """Get dict of every route container seen for each observation """
+
+        rt_conts_by_obs = {}
+
+        # each of these should be a single route container
+        for rt_cont in self.sim_rt_conts_by_id.values():
+            rt_conts_by_obs.setdefault(rt_cont.get_obs(), []).append(rt_cont)
+
+        return rt_conts_by_obs
+
+    def get_all_rt_conts(self):
+        """Get list of every route container seen for all observations """
+
+        # each of these should be a single route container
+        return [rt_cont for rt_cont in self.sim_rt_conts_by_id.values()]
+
+
+

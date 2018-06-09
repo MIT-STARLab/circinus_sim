@@ -393,7 +393,14 @@ class ConstellationSim:
         def dc_dr_dv_getter(dr):
             return dr.data_vol
 
+        # Get the planned dv for a route container. Note that this includes utilization rt_cont
+        # it's the same code as the dc_dr one, but including for clarity
+        def rt_cont_plan_dv_getter(rt_cont):
+            return rt_cont.data_vol
+
+        # get all the rt containers that the gs network ever saw
+        planned_routes = self.gs_network.get_all_planned_rt_conts()           
         # get the routes for all the packets at each GS at sim end
         executed_routes = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts()]
-        mc.assess_dv_by_obs({}, executed_routes,dr_sched_dv_getter=dc_dr_dv_getter ,verbose = True)
+        mc.assess_dv_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 

@@ -204,6 +204,10 @@ class SimRouteContainer:
         # get latest end of all dmrs
         return max(dmr.get_end(time_opt) for dmr in self.dmrs_by_id.values())
 
+    def get_obs(self):
+        # get the observation of the first DMR in this SRC
+        return list(self.dmrs_by_id.values())[0].get_obs()
+
 
     def get_dmr_utilization(self,dmr):
         return self.dv_utilization_by_dmr_id[dmr]
