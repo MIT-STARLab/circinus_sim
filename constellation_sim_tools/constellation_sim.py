@@ -312,11 +312,6 @@ class ConstellationSim:
         event_log_file = 'logs/agent_events.json'
         with open(event_log_file,'w') as f:
             json.dump(event_logs ,f)
-          
-
-        self.run_metrics()
-
-        debug_tools.debug_breakpt()
 
 
         # Get the activities executed for all the satellites
@@ -347,7 +342,17 @@ class ConstellationSim:
         obs_gsn_sched,dlnks_gsn_sched,xlnks_gsn_sched = self.gs_network.get_all_sats_planned_act_hists()
         gs_dlnks_gsn_sched = self.gs_network.get_all_gs_planned_act_hists()
 
+        ##########
+        # Run Metrics
+
+        self.run_metrics(energy_usage)
+
+
         # debug_tools.debug_breakpt()
+
+
+        ##########
+        # Plot stuff
 
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
@@ -385,7 +390,7 @@ class ConstellationSim:
 
         return None
 
-    def run_metrics(self):
+    def run_metrics(self,energy_usage):
 
         # metrics calculation
         mc = MetricsCalcs(self.params)
@@ -407,13 +412,57 @@ class ConstellationSim:
         # note that the below functions assume that for all rt_conts:
         # - the observation, downlink for all DMRs in the rt_cont are the same
 
+        print('------------------------------')
+
         dv_stats = mc.assess_dv_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
+        print('------------------------------')
         lat_stats = mc.assess_latency_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+        print('------------------------------')
+        print('Average AoI by obs, at collection time')
+        obs_aoi_stats_at_collection = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=False,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        
+        print('------------------------------')
+        print('Average AoI by obs, with routing')
+        obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+
+        print('------------------------------')
+        rsrc_stats = mc.assess_resource_margin(energy_usage,verbose = True)
+
+        ###### 
+        # metrics plots
 
         # plot obs latency histogram, planned routes
         pltl.plot_histogram(
-            data=lat_stats['poss_initial_lat_by_obs_exec'].values(),
+            data=obs_aoi_stats_w_routing['av_aoi_by_targID_exec'].values(),
+            num_bins = 40,
+            plot_type = 'histogram',
+            x_title='AoI (hours)',
+            y_title='Number of observations',
+            plot_title = 'Histogram of average AoI, with routing, by obs - executed routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,6),
+            show=False,
+            fig_name='plots/obs_aoi_routing_executed_hist.pdf'
+        )
+
+        # plot obs latency histogram, planned routes
+        pltl.plot_histogram(
+            data=obs_aoi_stats_at_collection['av_aoi_by_targID_exec'].values(),
+            num_bins = 40,
+            plot_type = 'histogram',
+            x_title='AoI (hours)',
+            y_title='Number of observations',
+            plot_title = 'Histogram of average AoI, from collection times, by obs - executed routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,6),
+            show=False,
+            fig_name='plots/obs_aoi_collection_executed_hist.pdf'
+        )
+
+        # plot obs latency histogram, planned routes
+        pltl.plot_histogram(
+            data=lat_stats['possible_initial_lat_by_obs_exec'].values(),
             num_bins = 40,
             plot_type = 'histogram',
             x_title='Latency (mins)',
@@ -426,7 +475,7 @@ class ConstellationSim:
 
         # plot obs latency histogram, executed routes
         pltl.plot_histogram(
-            data=lat_stats['exec_initial_lat_by_obs_exec'].values(),
+            data=lat_stats['executed_initial_lat_by_obs_exec'].values(),
             num_bins = 40,
             plot_type = 'histogram',
             x_title='Latency (mins)',
