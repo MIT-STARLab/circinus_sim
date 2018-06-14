@@ -8,6 +8,7 @@ from circinus_tools  import time_tools as tt
 from circinus_tools.metrics.metrics_calcs import MetricsCalcs
 from circinus_tools.plotting import plot_tools as pltl
 import circinus_tools.metrics.metrics_utils as met_util
+from circinus_tools  import io_tools
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .lp_wrapper import LocalPlannerWrapper
@@ -402,7 +403,7 @@ class ConstellationSim:
     def run_metrics(self,energy_usage):
 
         # metrics calculation
-        mc = MetricsCalcs(self.params)
+        mc = MetricsCalcs(self.get_metrics_params())
 
         # data containers mark their data vol in their data routes with the "data_vol" attribute, not "scheduled_dv"
         def dc_dr_dv_getter(dr):
@@ -508,3 +509,46 @@ class ConstellationSim:
             fig_name='plots/obs_lat_executed_hist.pdf'
         )
 
+    def get_metrics_params(self):
+        metrics_params = {}
+
+        scenario_params = self.params['orbit_prop_params']['scenario_params']
+        sat_params = self.params['orbit_prop_params']['sat_params']
+        obs_params = self.params['orbit_prop_params']['obs_params']
+        sim_metrics_params = self.params['const_sim_inst_params']['sim_metrics_params']
+        sim_plot_params = self.params['const_sim_inst_params']['sim_plot_params']
+        as_params = self.params['gp_general_params']['activity_scheduling_params']
+
+        # these are used for AoI calculation
+        metrics_params['met_obs_start_dt']  = self.params['const_sim_inst_params']['sim_run_params']['start_utc_dt']
+        metrics_params['met_obs_end_dt']  = self.params['const_sim_inst_params']['sim_run_params']['end_utc_dt']
+
+        # gp_inst_planning_params = gp_params['gp_instance_params']['planning_params']
+        # gp_general_other_params = gp_params['gp_general_params']['other_params']
+        # metrics_params = gp_params['gp_general_params']['metrics_params']
+        # plot_params = gp_params['gp_general_params']['plot_params']
+
+        # self.scenario_start_dt  = scenario_params['start_utc_dt']
+        metrics_params['num_sats']=sat_params['num_sats']
+        metrics_params['num_targ'] = obs_params['num_targets']
+        metrics_params['all_targ_IDs'] = [targ['id'] for targ in obs_params['targets']]
+        metrics_params['min_obs_dv_dlnk_req'] = as_params['min_obs_dv_dlnk_req_Mb']
+
+        metrics_params['latency_calculation_params'] = sim_metrics_params['latency_calculation']
+        metrics_params['targ_id_ignore_list'] = sim_metrics_params['targ_id_ignore_list']
+        metrics_params['aoi_units'] = sim_metrics_params['aoi_units']
+        metrics_params['aoi_plot_t_units']=sim_plot_params['aoi_plots']['x_axis_time_units']
+
+        metrics_params['sats_emin_Wh'] = []
+        metrics_params['sats_emax_Wh'] = []        
+        for p_params in sat_params['power_params_by_sat_id'].values():
+            sat_edot_by_mode,sat_batt_storage,power_units,charge_eff,discharge_eff = io_tools.parse_power_consumption_params(p_params)
+
+        # metrics_params['sats_emin_Wh'] = [p_params['battery_storage_Wh']['e_min'][p_params['battery_option']] for p_params in metrics_params['power_params']]
+        # metrics_params['sats_emax_Wh'] = [p_params['battery_storage_Wh']['e_max'][p_params['battery_option']] for p_params in metrics_params['power_params']]
+            metrics_params['sats_emin_Wh'].append(sat_batt_storage['e_min'])
+            metrics_params['sats_emax_Wh'].append(sat_batt_storage['e_max'])
+
+        metrics_params['timestep_s'] = scenario_params['timestep_s']
+
+        return metrics_params
