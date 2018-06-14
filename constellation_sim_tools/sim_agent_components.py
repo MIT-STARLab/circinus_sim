@@ -40,9 +40,9 @@ ReplanQEntry = namedtuple('ReplanQEntry', 'time_dt rt_conts')
 class PlannerScheduler:
     """ superclass for planning/scheduling elements running on ground and satellites"""
 
-    def __init__(self,sim_start_dt,sim_end_dt):
+    def __init__(self,sim_start_dt,sim_end_dt,sim_agent):
 
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt)
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sim_agent)
 
         #  this is the FIFO waiting list for newly produced plans.  when current time reaches the time for the first entry, that entry will be popped and the planning info database will be updated with those plans (each entry is a ReplanQEntry named tuple). this too should always stay sorted in ascending order of entry add time
         self._replan_release_q = []
@@ -173,7 +173,7 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
 
     def __init__(self,sim_executive_agent,sim_start_dt,sim_end_dt):
-        super().__init__(sim_start_dt,sim_end_dt)
+        super().__init__(sim_start_dt,sim_end_dt,sim_executive_agent)
 
         # holds ref to the containing sim agent
         self.sim_executive_agent = sim_executive_agent
@@ -711,6 +711,9 @@ class DataStore:
 
 #  record of satellite state. update_dt is the date time at which this state was valid.
 SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
+# record of update to a sim route container
+# update_agent_id is the agent that last updated the SRC
+SRCUpdateHistEntry = namedtuple('SRCUpdateHistEntry', 't utilization update_agent_id')
 
 class PlanningInfoDB:
     """database for information relevant for planning and scheduling on any agent"""
@@ -718,11 +721,12 @@ class PlanningInfoDB:
     filter_opts = ['totally_within','partially_within']
     expected_state_info = {'batt_e_Wh'}  #  this is set notation
 
-    def __init__(self,sim_start_dt,sim_end_dt):
-        # todo: make this a dictionary by sat index? Could be a bit faster
+
+    def __init__(self,sim_start_dt,sim_end_dt,sim_agent):
         # todo: should add distinction between active and old routes
         self.sim_rt_conts_by_id = {}  # The id here is the Sim route container 
         # stores the times at which rt conts were updated
+        # each update hist entry is A SRCUpdateHistEntry namedtuple
         self.sim_rt_cont_update_hist_by_id = {}
         self.sim_start_dt = sim_start_dt
         self.sim_end_dt = sim_end_dt
@@ -738,6 +742,8 @@ class PlanningInfoDB:
         self.sat_events = {}
         #  holds power parameters for each satellite ID,  after parsing
         self.parsed_power_params_by_sat_id = {}
+
+        self.sim_agent = sim_agent
 
     def initialize(self,plan_db_inputs):
         self.sat_id_order = plan_db_inputs['sat_id_order']
@@ -767,14 +773,19 @@ class PlanningInfoDB:
 
     def update_routes(self,rt_conts,curr_time_dt):
         for rt_cont in rt_conts:
+            # only account for a single dmr being present in rt_cont for now
+            rt_cont_utilization = rt_cont.get_first_dmr_utilization()
+
+            update_entry = SRCUpdateHistEntry(curr_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
+
             if rt_cont.ID in self.sim_rt_conts_by_id.keys():
                 # todo: is this the way to always do updates?
                 if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
                     self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
-                    self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(curr_time_dt)
+                    self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(update_entry)
             else:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
-                self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[curr_time_dt])
+                self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[update_entry])
 
     def get_filtered_sim_routes(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
 

@@ -106,7 +106,7 @@ class SatStateSimulator(StateSimulator):
         act_edot = 0
         for act in current_acts:
             sat_indx = self.sim_sat.sat_indx
-            act_edot = self.sat_edot_by_mode[act.get_code(sat_indx)]
+            act_edot = self.sat_edot_by_mode[act.get_e_dot_codename(sat_indx)]
 
         #  base-level satellite energy usage (not including additional activities)
         base_edot = self.sat_edot_by_mode['base']

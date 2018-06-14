@@ -164,7 +164,7 @@ class LocalPlannerWrapper:
             # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
             #   note only one Sim route container per DMR
             # honestly we probably could just use a copy() here...
-            new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt)
+            new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,lp_agent_id)
             sim_routes.append(new_src)
 
             # Figure out if this route container is intended to service an existing data container. if yes, then add that to the data container's plan history ( which is used elsewhere to make routing decisions for the data  container)

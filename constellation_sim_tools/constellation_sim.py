@@ -348,7 +348,7 @@ class ConstellationSim:
         self.run_metrics(energy_usage)
 
 
-        # debug_tools.debug_breakpt()
+        debug_tools.debug_breakpt()
 
 
         ##########

@@ -155,7 +155,7 @@ class GlobalPlannerWrapper:
             #   note only one Sim route container per DMR
             # honestly we probably could just use a copy() here...
             sim_routes.append(
-                SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt)
+                SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,gp_agent_ID)
             )
 
         return sim_routes, latest_gp_route_indx

@@ -16,7 +16,7 @@ class GroundNetworkPS(PlannerScheduler):
 
     def __init__(self,sim_gsn,sim_start_dt,sim_end_dt,gsn_ps_params):
         #  initialize from superclass first
-        super().__init__(sim_start_dt,sim_end_dt)
+        super().__init__(sim_start_dt,sim_end_dt,sim_gsn)
 
         # holds ref to the containing sim ground network
         self.sim_gsn = sim_gsn

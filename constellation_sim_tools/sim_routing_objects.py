@@ -121,7 +121,7 @@ class SimRouteContainer:
     #  note that this container currently can only hold data multi-routes. 
     # note that i put the mechanisms in place here to have multiple DMRs in a single sim route container, but I don't use that capability currently. Mildly regretting doing so...
 
-    def __init__(self,ro_ID,dmrs,dv_utilization_by_dmr_id,creation_dt,update_dt):
+    def __init__(self,ro_ID,dmrs,dv_utilization_by_dmr_id,creation_dt,update_dt,creator_agent_ID):
 
         if not type(ro_ID) == RoutingObjectID:
             raise RuntimeWarning(' should not use anything but a RoutingObjectID as the ID for a DataMultiRoute')
@@ -174,6 +174,7 @@ class SimRouteContainer:
 
         self.output_date_str_format = 'short'
 
+        self.creator_agent_ID = creator_agent_ID
 
     @property
     def data_vol(self):
@@ -188,7 +189,7 @@ class SimRouteContainer:
         # want to make sure that the copy made of this route container copies the underlying data route objects, so that route containers don't end up sharing these.  for this reason, this copy function should be used sparingly
         #  note the assumption here that ideas will never be changed at a low level, so copying the reference is fine
         #  the nones in the instantiation will be taken care of in the following lines
-        newone = type(self)(ro_ID=self.ID, dmrs=None, dv_utilization_by_dmr_id=None, creation_dt=self.creation_dt, update_dt=self.update_dt)
+        newone = type(self)(ro_ID=self.ID, dmrs=None, dv_utilization_by_dmr_id=None, creation_dt=self.creation_dt, update_dt=self.update_dt, creator_agent_ID=self.creator_agent_ID)
         newone.dmrs_by_id = {ID:copy(dmr) for ID,dmr in self.dmrs_by_id.items()}
         newone.dv_utilization_by_dmr_id = copy(self.dv_utilization_by_dmr_id)
         return newone
@@ -380,6 +381,9 @@ class SimRouteContainer:
                 contains = True
 
         return contains
+
+    def get_first_dmr_utilization(self):
+        return list(self.dv_utilization_by_dmr_id.values())[0]
 
 
 class ExecutableDataContainer:
