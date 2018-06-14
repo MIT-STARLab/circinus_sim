@@ -7,6 +7,7 @@ from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, Xl
 from circinus_tools  import time_tools as tt
 from circinus_tools.metrics.metrics_calcs import MetricsCalcs
 from circinus_tools.plotting import plot_tools as pltl
+import circinus_tools.metrics.metrics_utils as met_util
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .lp_wrapper import LocalPlannerWrapper
@@ -42,6 +43,8 @@ class ConstellationSim:
         self.sat_id_order = self.sat_params['sat_id_order']
         self.gs_id_order = self.gs_params['gs_id_order']
         self.num_gs = len(self.gs_params['gs_id_order'])
+
+        self.gs_id_ignore_list= self.params['gp_general_params']['other_params']['gs_id_ignore_list']
 
         self.sim_tick = timedelta(seconds=self.sim_run_params['sim_tick_s'])
 
@@ -282,7 +285,6 @@ class ConstellationSim:
 
             # todo: seems kinda bad to cross levels of abstraction like this...
             if self.gs_network.scheduler.check_plans_updated():
-                debug_tools.debug_breakpt()
 
                 # when the GS replans, assume we have the ability to instantaneously update the satellites, and receive a state update from them ( kinda a hack for now...)
                 for sat in self.sats_by_id.values():
@@ -433,6 +435,19 @@ class ConstellationSim:
         print('------------------------------')
         print('Average AoI by obs, with routing')
         obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+
+        print('------------------------------')
+        #  this is indexed by sat index
+        sats_cmd_update_hist = met_util.get_all_sats_cmd_update_hist(self.sats_by_id.values(),self.gs_by_id.values(),self.gs_id_ignore_list)
+        aoi_sat_cmd_stats = mc.assess_aoi_sat_ttc_option(sats_cmd_update_hist,ttc_option='cmd',input_time_type='datetime',verbose = True)
+
+        #  this is  indexed by ground station index
+        def end_time_getter(sim_sat):
+            return sim_sat.sim_end_dt
+
+        sats_tlm_update_hist = met_util.get_all_sats_tlm_update_hist(self.sats_by_id.values(),self.gs_by_id.values(),self.gs_id_ignore_list,end_time_getter)
+        aoi_sat_tlm_stats = mc.assess_aoi_sat_ttc_option(sats_tlm_update_hist,ttc_option='tlm',input_time_type='datetime',verbose = True)
 
 
         print('------------------------------')

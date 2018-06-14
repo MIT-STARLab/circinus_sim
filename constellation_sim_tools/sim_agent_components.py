@@ -11,6 +11,7 @@ from circinus_tools.sat_state_tools import propagate_sat_ES
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.other_tools import index_from_key
 from circinus_tools.scheduling.custom_window import  DlnkWindow
+from circinus_tools.metrics.metrics_utils import  UpdateHistory
 from .schedule_tools  import synthesize_executable_acts,check_temporal_overlap
 
 from circinus_tools import debug_tools
@@ -716,8 +717,6 @@ SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
 # record of update to a sim route container
 # update_agent_id is the agent that last updated the SRC
 SRCUpdateHistEntry = namedtuple('SRCUpdateHistEntry', 't utilization update_agent_id')
-# used for storing TT&C update times. Note that it's implemented as two lists (t,last_update_time) of numbers as opposed to a single list of entries - inconsistent with the above. Did this because I'm trying to maximize code reuse from GP.
-UpdateHistory = namedtuple('UpdateHistory', 't last_update_time')
 
 class PlanningInfoDB:
     """database for information relevant for planning and scheduling on any agent"""
@@ -819,6 +818,9 @@ class PlanningInfoDB:
                 all_rt_conts.append(rt_cont)
 
         return all_rt_conts
+
+    def get_ttc_update_hist_for_agent_ids(self,agent_ids):
+        return [uh for ag_id,uh in self.ttc_update_hist_by_agent_id.items() if ag_id in agent_ids]
 
     def update_routes(self,rt_conts,curr_time_dt):
         for rt_cont in rt_conts:

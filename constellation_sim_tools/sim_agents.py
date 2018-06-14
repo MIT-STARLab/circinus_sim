@@ -4,6 +4,7 @@
 
 from datetime import timedelta
 
+import circinus_tools.metrics.metrics_utils as met_util
 from .sim_agent_components import DataStore, ExecutiveAgentStateRecorder
 from .sim_sat_components import SatScheduleArbiter,SatExecutive,SatStateSimulator,SatStateRecorder
 from .sim_gsnetwork_components import GroundNetworkPS,GroundNetworkStateRecorder
@@ -19,6 +20,8 @@ class SimAgent:
 
         # current time for the agent. note that individual components within the agent store their own times
         self._curr_time_dt = sim_start_dt
+        self.sim_start_dt = sim_start_dt
+        self.sim_end_dt = sim_end_dt
 
     def get_plan_db(self):
         """ get planning info database used by this agent """
@@ -112,7 +115,6 @@ class SimSatellite(SimExecutiveAgent):
 
         self.time_epsilon_td = timedelta(seconds = sim_satellite_params['time_epsilon_s'])
 
-
     @property
     def sat_id(self):
         return self.ID
@@ -162,6 +164,24 @@ class SimSatellite(SimExecutiveAgent):
 
     def inject_obs(self,obs_list):
         self.exec.inject_obs(obs_list)
+
+    def get_merged_cmd_update_hist(self,gs_agents,gs_id_ignore_list):
+        """ gets the merged command update history for this satellite
+        
+        Gets the update history for every ground station as seen by this satellite, and then merges these into a single update history. The update history for ground station gs_indx for this satellite  is a recording of when this satellite last heard from that ground station. By merging across all ground stations, we get a recording of when the satellite last heard from any ground station, which we assume is a good proxy for when ground commanding was last updated. ( note the underlying assumption that all ground stations have equal relevance for commanding the satellite)
+        :param all_gs_IDs: [description]
+        :type all_gs_IDs: [type]
+        :param gs_id_ignore_list: [description]
+        :type gs_id_ignore_list: [type]
+        :returns: [description]
+        :rtype: {[type]}
+        """
+
+        agent_ids = [gs_agent.ID for gs_agent in gs_agents if not gs_agent.ID in gs_id_ignore_list]
+
+        update_hists = self.get_plan_db().get_ttc_update_hist_for_agent_ids(agent_ids)
+
+        return met_util.merge_update_histories( update_hists,self.sim_end_dt)
 
 class SimGroundStation(SimExecutiveAgent):
     """class for simulation ground stations"""
@@ -218,6 +238,18 @@ class SimGroundStation(SimExecutiveAgent):
     def post_planning_info_rx(self):
         """ perform any actions required after receiving new planning information (satellite-specific)"""
         self.scheduler_pass_thru.flag_planning_info_rx_external()
+
+    def get_sat_tlm_update_hist(self,sat_agent):
+        """gets the telemetry update history for a single satellite
+        
+        Gets the update history for a single satellite as seen by this ground station. The update history for satellite sat_indx for this ground station is a recording of when this ground station last heard from that satellite. By merging the update history returned here across satellites, you can get the merged telemetry update history for a single satellite across the full ground station network
+        :param sat_indx: [description]
+        :type sat_indx: [type]
+        :returns: [description]
+        :rtype: {[type]}
+        """
+
+        return self.get_plan_db().get_ttc_update_hist_for_agent_ids([sat_agent.ID])[0]
 
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
