@@ -85,7 +85,6 @@ class PlannerScheduler:
         if self._first_step:
             if new_time_dt != self._curr_time_dt:
                 raise RuntimeWarning('Saw wrong initial time')
-            self._first_step = False
 
         replan_required = self._check_internal_planning_update_req()
 
@@ -94,6 +93,9 @@ class PlannerScheduler:
         self._schedule_cache_update()
 
         self._curr_time_dt = new_time_dt
+
+        if self._first_step:
+            self._first_step = False
 
     def get_plan_db(self):
         return self.plan_db
@@ -714,6 +716,8 @@ SatStateEntry = namedtuple('SatStateEntry','update_dt state_info')
 # record of update to a sim route container
 # update_agent_id is the agent that last updated the SRC
 SRCUpdateHistEntry = namedtuple('SRCUpdateHistEntry', 't utilization update_agent_id')
+# used for storing TT&C update times. Note that it's implemented as two lists (t,last_update_time) of numbers as opposed to a single list of entries - inconsistent with the above. Did this because I'm trying to maximize code reuse from GP.
+UpdateHistory = namedtuple('UpdateHistory', 't last_update_time')
 
 class PlanningInfoDB:
     """database for information relevant for planning and scheduling on any agent"""
@@ -743,6 +747,9 @@ class PlanningInfoDB:
         #  holds power parameters for each satellite ID,  after parsing
         self.parsed_power_params_by_sat_id = {}
 
+        # stores history of when we last heard from each agent ID, which we refer to as "a tt&c (telemetry, tracking, and command) update". Essentially this means that we "heard from" an agent when we get enough information from it to constitute a full update of telemetry and command messages (which we assume to be small relative to bulk data routing)
+        self.ttc_update_hist_by_agent_id = {}
+
         self.sim_agent = sim_agent
 
     def initialize(self,plan_db_inputs):
@@ -771,21 +778,16 @@ class PlanningInfoDB:
                 "power_units": power_units,
             } 
 
-    def update_routes(self,rt_conts,curr_time_dt):
-        for rt_cont in rt_conts:
-            # only account for a single dmr being present in rt_cont for now
-            rt_cont_utilization = rt_cont.get_first_dmr_utilization()
+            # note: assume we start sim off with zero age for our ttc info for every sat agent
+            self.ttc_update_hist_by_agent_id[sat_id] = UpdateHistory(t=[self.sim_start_dt],last_update_time=[self.sim_start_dt])
 
-            update_entry = SRCUpdateHistEntry(curr_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
+        for gs_id in self.gs_id_order:
+            # note: assume we start sim off with zero age for our ttc info for every gsagent
+            self.ttc_update_hist_by_agent_id[gs_id] = UpdateHistory(t=[self.sim_start_dt],last_update_time=[self.sim_start_dt])
 
-            if rt_cont.ID in self.sim_rt_conts_by_id.keys():
-                # todo: is this the way to always do updates?
-                if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
-                    self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
-                    self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(update_entry)
-            else:
-                self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
-                self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[update_entry])
+        for other_agent_id in plan_db_inputs['other_agent_ids']:
+            # note: assume we start sim off with zero age for our ttc info for every other agent
+            self.ttc_update_hist_by_agent_id[other_agent_id] = UpdateHistory(t=[self.sim_start_dt],last_update_time=[self.sim_start_dt])
 
     def get_filtered_sim_routes(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
 
@@ -818,6 +820,48 @@ class PlanningInfoDB:
 
         return all_rt_conts
 
+    def update_routes(self,rt_conts,curr_time_dt):
+        for rt_cont in rt_conts:
+            # only account for a single dmr being present in rt_cont for now
+            rt_cont_utilization = rt_cont.get_first_dmr_utilization()
+
+            update_entry = SRCUpdateHistEntry(curr_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
+
+            if rt_cont.ID in self.sim_rt_conts_by_id.keys():
+                # todo: is this the way to always do updates?
+                if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
+                    self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
+                    self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(update_entry)
+            else:
+                self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
+                self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[update_entry])
+
+    def pull_agent_ttc(self,curr_time_dt,other):
+        """pull any more recent tt&c update history from other planning info db"""
+
+        for agent_id, update_hist in self.ttc_update_hist_by_agent_id.items():
+
+            other_update_hist = other.ttc_update_hist_by_agent_id[agent_id]
+
+            last_ut =  update_hist.last_update_time[-1]
+            other_last_ut =  other_update_hist.last_update_time[-1]
+            
+            #  if our last update time is before the others last update time for this index, then we should add that more recent update time to our history
+            #  note that this should never end up updating the history for self's sat or gs indx
+            if  last_ut <  other_last_ut:
+                update_hist.t.append ( curr_time_dt)
+                update_hist.last_update_time.append (other_last_ut)
+
+
+    def update_self_ttc_time(self,curr_time_dt):
+        ag_id = self.sim_agent.ID
+        ag_update_hist = self.ttc_update_hist_by_agent_id[ag_id]
+
+        ag_update_hist.t.append ( curr_time_dt)
+        ag_update_hist.last_update_time.append (curr_time_dt)
+
+
+
     def push_planning_info(self,other,curr_time_dt):
         """ Update other with planning information from self"""
 
@@ -827,6 +871,11 @@ class PlanningInfoDB:
         for sat_id in self.sat_id_order:
             if len(self.sat_state_hist_by_id[sat_id]) > 0:
                 other.update_sat_state_hist(sat_id,self.sat_state_hist_by_id[sat_id][-1])
+
+        # update tt&c times on self agent before sharing ttc data to other
+        self.update_self_ttc_time(curr_time_dt)
+
+        other.pull_agent_ttc(curr_time_dt,self)
 
     def update_sat_state_hist(self,sat_id,sat_state_entry):
         """ update the latest satellite state entry for given satellite ID, if necessary"""

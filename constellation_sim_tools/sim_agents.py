@@ -29,8 +29,6 @@ class SimAgent:
     def send_planning_info(self,other):
         """ send planning info from one agent to another """
 
-        # todo: is it bad that this cuts through layers of abstraction to grab the planning db?
-
         #  get the planning info databases
         my_plan_db = self.get_plan_db()
         other_plan_db = other.get_plan_db()

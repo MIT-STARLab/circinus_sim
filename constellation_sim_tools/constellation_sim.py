@@ -76,10 +76,13 @@ class ConstellationSim:
         ecl_winds_by_sat_id = {self.sat_id_order[sat_indx]:ecl_winds[sat_indx] for sat_indx in range(self.num_sats)}
         self.ecl_winds = ecl_winds
 
+        gsn_id = 'gsn'
+
         #  note: use sim tick as resource delta T.
         plan_db_inputs = {
             "sat_id_order": self.sat_id_order,
             "gs_id_order": self.gs_id_order,
+            "other_agent_ids": [gsn_id],
             "initial_state_by_sat_id": self.sat_params['initial_state_by_sat_id'],
             "ecl_winds_by_sat_id": ecl_winds_by_sat_id,
             "power_params_by_sat_id": self.sat_params['power_params_by_sat_id'],
@@ -90,7 +93,7 @@ class ConstellationSim:
         gs_by_id = {}
         all_gs = []
         gs_network = SimGroundNetwork(
-            'gsn',
+            gsn_id,
             self.gs_params['gs_network_name'],
             self.sim_start_dt,
             self.sim_end_dt,
@@ -279,6 +282,8 @@ class ConstellationSim:
 
             # todo: seems kinda bad to cross levels of abstraction like this...
             if self.gs_network.scheduler.check_plans_updated():
+                debug_tools.debug_breakpt()
+
                 # when the GS replans, assume we have the ability to instantaneously update the satellites, and receive a state update from them ( kinda a hack for now...)
                 for sat in self.sats_by_id.values():
                     self.gs_network.send_planning_info(sat)
@@ -348,7 +353,7 @@ class ConstellationSim:
         self.run_metrics(energy_usage)
 
 
-        debug_tools.debug_breakpt()
+        # debug_tools.debug_breakpt()
 
 
         ##########
@@ -386,6 +391,8 @@ class ConstellationSim:
             self.ecl_winds
         )
         
+        debug_tools.debug_breakpt()
+
 
 
         return None

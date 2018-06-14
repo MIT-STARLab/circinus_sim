@@ -402,6 +402,7 @@ class SatExecutive(Executive):
 
         #  for this version of code, we handle the addition of data containers for observation activity data collected after executing the full observation. the code below adds these.
         curr_act_wind = curr_exec_context['act']
+
         if type(curr_act_wind) == ObsWindow:
             #  these are the route containers that were planned for collection
             collected_rt_conts = [rt_cont for rt_cont in  curr_exec_context['rt_conts'] if rt_cont.data_vol > self.dv_epsilon]
@@ -442,6 +443,22 @@ class SatExecutive(Executive):
             #  need to use the new time here because the state sim has already advanced in timestep ( shouldn't be a problem)
             self.state_sim.add_to_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
 
+        elif type(curr_act_wind) == XlnkWindow:
+            xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
+            xsat = self.sim_sat.get_sat_from_indx(xsat_indx)
+
+            # this is where we do planning info update 
+            self.sim_sat.send_planning_info(xsat)
+            # go ahead and assume bidirectional planning update....todo: this is hacky, should we actually explicitly model an activity for this?
+            xsat.send_planning_info(self.sim_sat)
+
+        elif type(curr_act_wind) == DlnkWindow:
+            gs_indx = curr_act_wind.gs_indx
+            gs = self.sim_sat.get_gs_from_indx(gs_indx)
+
+            # this is where we do planning info update. Order doesn't matter. Notice we assume an uplink is present, so we can get data from gs as well
+            self.sim_sat.send_planning_info(gs)
+            gs.send_planning_info(self.sim_sat)
 
         #  need to call this last because it has final takedown responsibilities
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
@@ -573,10 +590,7 @@ class SatExecutive(Executive):
                         if not tx_dc in curr_exec_context['tx_data_conts']:
                             curr_exec_context['tx_data_conts'].append(tx_dc)
 
-                        # this is where we do planning info update 
-                        self.sim_sat.send_planning_info(xsat)
-                        # go ahead and assume bidirectional planning update....todo: is this okay?
-                        xsat.send_planning_info(self.sim_sat)
+                        curr_exec_context['tx_success'] = True
 
                     #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                     else:
@@ -622,9 +636,7 @@ class SatExecutive(Executive):
                     if not tx_dc in curr_exec_context['tx_data_conts']:
                         curr_exec_context['tx_data_conts'].append(tx_dc)
 
-                    # this is where we do planning info update. Order doesn't matter. Notice we assume an uplink is present, so we can get data from gs as well
-                    self.sim_sat.send_planning_info(gs)
-                    gs.send_planning_info(self.sim_sat)
+                    curr_exec_context['tx_success'] = True
 
                 #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                 else:
