@@ -46,6 +46,7 @@ class ConstellationSim:
         self.num_sats=self.sat_params['num_sats']
         self.sat_id_order = self.sat_params['sat_id_order']
         self.gs_id_order = self.gs_params['gs_id_order']
+        self.obs_target_id_order = self.params['orbit_prop_params']['obs_params']['obs_target_id_order']
         self.num_gs = len(self.gs_params['gs_id_order'])
 
         self.gs_id_ignore_list= self.params['gp_general_params']['other_params']['gs_id_ignore_list']
@@ -380,10 +381,6 @@ class ConstellationSim:
 
         self.run_and_plot_metrics(energy_usage,sats_in_indx_order,gs_in_indx_order)
 
-
-        debug_tools.debug_breakpt()
-
-
         ##########
         # Plot stuff
 
@@ -497,8 +494,13 @@ class ConstellationSim:
         ###### 
         # metrics plots
 
-        self.sim_plotter.plot_obs_aoi(
-            obs_aoi_stats_w_routing['exec_targIDs_found'],
+        self.sim_plotter.plot_obs_aoi_at_colllection(
+            self.obs_target_id_order,
+            obs_aoi_stats_at_collection['aoi_curves_by_targID_exec']
+        )
+
+        self.sim_plotter.plot_obs_aoi_w_routing(
+            self.obs_target_id_order,
             obs_aoi_stats_w_routing['aoi_curves_by_targID_exec']
         )
 

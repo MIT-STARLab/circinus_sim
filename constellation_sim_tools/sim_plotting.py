@@ -324,7 +324,7 @@ class SimPlotting():
             plot_params)
 
 
-    def plot_obs_aoi(self,
+    def plot_obs_aoi_at_colllection(self,
             targ_ids_list,
             aoi_curves_by_targ_id):
 
@@ -333,10 +333,37 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Executed Observation Target AoI'
+        plot_params['plot_title'] = 'Executed Observation Target AoI, at collection'
         plot_params['plot_size_inches'] = (18,12)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_obs_aoi.pdf'
+        plot_params['fig_name'] = 'plots/const_sim_obs_aoi_collection.pdf'
+        plot_params['plot_fig_extension'] = 'pdf'
+
+        plot_params['ylabel'] = 'Target Index'
+        plot_params['time_units'] = self.input_plot_params['obs_aoi_plot']['x_axis_time_units']
+
+        plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['obs_aoi_plot']['plot_bound_min_aoi_hours']
+        plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['obs_aoi_plot']['plot_bound_max_aoi_hours']
+
+        pltl.plot_aoi_by_item(
+            targ_ids_list,
+            aoi_curves_by_targ_id,
+            plot_params
+        )
+
+    def plot_obs_aoi_w_routing(self,
+            targ_ids_list,
+            aoi_curves_by_targ_id):
+
+        plot_params = {}
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
+
+        plot_params['plot_title'] = 'Executed Observation Target AoI, with routing'
+        plot_params['plot_size_inches'] = (18,12)
+        plot_params['show'] = False
+        plot_params['fig_name'] = 'plots/const_sim_obs_aoi_routing.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['ylabel'] = 'Target Index'
