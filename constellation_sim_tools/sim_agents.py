@@ -32,6 +32,9 @@ class SimAgent:
     def send_planning_info(self,other,info_option='all'):
         """ send planning info from one agent to another """
 
+        if not info_option in ['all','ttc_only','routes_only']:
+            raise RuntimeWarning('unknown info sharing option: %s'%(info_option))
+
         #  get the planning info databases
         my_plan_db = self.get_plan_db()
         other_plan_db = other.get_plan_db()
@@ -39,9 +42,10 @@ class SimAgent:
         #  push data from self to the other
         my_plan_db.push_planning_info(other_plan_db,self._curr_time_dt,info_option)
 
-        other.post_planning_info_rx()
 
-    def post_planning_info_rx(self):
+        other.post_planning_info_rx(info_option)
+
+    def post_planning_info_rx(self,info_option):
         """ perform any actions required after receiving new planning information"""
         # intended to be implemented in subclass
         raise NotImplementedError
@@ -75,7 +79,7 @@ class SimExecutiveAgent(SimAgent):
 class SimSatellite(SimExecutiveAgent):
     """class for simulation satellites"""
     
-    def __init__(self,ID,sat_indx,sim_start_dt,sim_end_dt,sat_scenario_params,sim_satellite_params):
+    def __init__(self,ID,sat_indx,sim_start_dt,sim_end_dt,sat_scenario_params,sim_satellite_params,act_timing_helper):
         """initializes based on parameters
         
         initializes based on parameters
@@ -101,7 +105,7 @@ class SimSatellite(SimExecutiveAgent):
             sat_scenario_params['data_storage_params'],
             sat_scenario_params['initial_state'],
         )
-        self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt,sim_satellite_params['sat_schedule_arbiter_params'])
+        self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt,sim_satellite_params['sat_schedule_arbiter_params'],act_timing_helper)
         self.exec = SatExecutive(self,sim_start_dt)
         self.state_recorder = SatStateRecorder(sim_start_dt)
 
@@ -152,9 +156,13 @@ class SimSatellite(SimExecutiveAgent):
     def get_plan_db(self):
         return self.arbiter.get_plan_db()
 
-    def post_planning_info_rx(self):
+    def post_planning_info_rx(self,info_option):
         """ perform any actions required after receiving new planning information (satellite-specific)"""
-        self.arbiter.flag_planning_info_rx_external()
+
+        # todo: this terminology has gotten a bit overloaded, an update to it could be helpful
+        # only flag a planning info update (and thus cause replanning) if we received updated routes
+        if info_option in ['all','routes_only']:
+            self.arbiter.flag_planning_info_rx_external()
 
     def get_ecl_winds(self):
         return self.get_plan_db().get_ecl_winds(self.sat_id)
@@ -186,7 +194,7 @@ class SimSatellite(SimExecutiveAgent):
 class SimGroundStation(SimExecutiveAgent):
     """class for simulation ground stations"""
     
-    def __init__(self,ID,gs_indx,name,gs_network,sim_start_dt,sim_end_dt):
+    def __init__(self,ID,gs_indx,name,gs_network,sim_start_dt,sim_end_dt,act_timing_helper):
         """initializes based on parameters
         
         initializes based on parameters
@@ -200,7 +208,7 @@ class SimGroundStation(SimExecutiveAgent):
 
         #  internal ground station simulation objects
         self.state_sim = GSStateSimulator(self,sim_start_dt)
-        self.scheduler_pass_thru = GSSchedulePassThru(self,sim_start_dt,sim_end_dt)
+        self.scheduler_pass_thru = GSSchedulePassThru(self,sim_start_dt,sim_end_dt,act_timing_helper)
         self.exec = GSExecutive(self,sim_start_dt)
         self.state_recorder = ExecutiveAgentStateRecorder(sim_start_dt)
 
@@ -235,9 +243,10 @@ class SimGroundStation(SimExecutiveAgent):
     def get_plan_db(self):
         return self.scheduler_pass_thru.get_plan_db()
 
-    def post_planning_info_rx(self):
+    def post_planning_info_rx(self,info_option):
         """ perform any actions required after receiving new planning information (satellite-specific)"""
-        self.scheduler_pass_thru.flag_planning_info_rx_external()
+        if info_option in ['all','routes_only']:
+            self.scheduler_pass_thru.flag_planning_info_rx_external()
 
     def get_sat_tlm_update_hist(self,sat_agent):
         """gets the telemetry update history for a single satellite
@@ -254,7 +263,7 @@ class SimGroundStation(SimExecutiveAgent):
 class SimGroundNetwork(SimAgent):
     """class for simulation ground network"""
     
-    def __init__(self,ID,name,sim_start_dt,sim_end_dt,num_sats,num_gs,sim_gs_network_params):
+    def __init__(self,ID,name,sim_start_dt,sim_end_dt,num_sats,num_gs,sim_gs_network_params,act_timing_helper):
         """initializes based on parameters
         
         initializes based on parameters
@@ -264,7 +273,7 @@ class SimGroundNetwork(SimAgent):
         self.name = name
         self.gs_list = []
 
-        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,sim_gs_network_params['gsn_ps_params'])
+        self.scheduler = GroundNetworkPS(self,sim_start_dt,sim_end_dt,sim_gs_network_params['gsn_ps_params'],act_timing_helper)
         self.state_recorder = GroundNetworkStateRecorder(sim_start_dt,num_sats,num_gs)
 
         self.scheduler.state_recorder = self.state_recorder
@@ -291,5 +300,5 @@ class SimGroundNetwork(SimAgent):
     def get_all_gs_planned_act_hists(self):
         return self.state_recorder.get_all_gs_planned_act_hists()
 
-    def post_planning_info_rx(self):
+    def post_planning_info_rx(self,info_option):
         pass

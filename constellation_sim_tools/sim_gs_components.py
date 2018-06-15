@@ -98,8 +98,8 @@ class GSStateSimulator(StateSimulator):
 class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
 
-    def __init__(self,sim_gs,sim_start_dt,sim_end_dt):
-        super().__init__(sim_gs,sim_start_dt,sim_end_dt)
+    def __init__(self,sim_gs,sim_start_dt,sim_end_dt,act_timing_helper):
+        super().__init__(sim_gs,sim_start_dt,sim_end_dt,act_timing_helper)
 
         # holds ref to the containing sim sat
         self.sim_gs = sim_gs
@@ -122,7 +122,7 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
         #  the list elements are of type ExecutableActivity
         #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',gs_indx=self.sim_gs.gs_indx)
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',gs_indx=self.sim_gs.gs_indx,act_timing_helper=self.act_timing_helper)
 
         return executable_acts
     

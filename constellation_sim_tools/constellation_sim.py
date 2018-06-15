@@ -10,6 +10,7 @@ from circinus_tools.metrics.metrics_calcs import MetricsCalcs
 from circinus_tools.plotting import plot_tools as pltl
 import circinus_tools.metrics.metrics_utils as met_util
 from circinus_tools  import io_tools
+from circinus_tools.activity_bespoke_handling import ActivityTimingHelper
 from .sim_agents import SimGroundNetwork,SimGroundStation,SimSatellite
 from .gp_wrapper import GlobalPlannerWrapper
 from .lp_wrapper import LocalPlannerWrapper
@@ -37,6 +38,7 @@ class ConstellationSim:
         self.params = sim_params
         # self.scenario_params = self.params['orbit_prop_params']['scenario_params']
         self.sat_params = self.params['orbit_prop_params']['sat_params']
+        orbit_params = self.params['orbit_prop_params']['orbit_params']
         self.gs_params = self.params['orbit_prop_params']['gs_params']
         self.const_sim_inst_params = sim_params['const_sim_inst_params']
         self.sim_run_params = sim_params['const_sim_inst_params']['sim_run_params']
@@ -63,6 +65,8 @@ class ConstellationSim:
 
         # Also create local planner wrapper. it will store inputs that are common across all satellites. the instance parameters passed to it should be satellite-specific
         self.lp_wrapper = LocalPlannerWrapper(self.params)
+
+        self.act_timing_helper = ActivityTimingHelper(self.sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],self.sat_params['sat_id_order'],self.params['orbit_prop_params']['version'])
 
         self.init_data_structs()
 
@@ -105,6 +109,7 @@ class ConstellationSim:
             self.num_sats,
             self.num_gs,
             self.const_sim_inst_params['sim_gs_network_params'],
+            self.act_timing_helper
         ) 
         for station in self.gs_params['stations']:
             gs = SimGroundStation(
@@ -113,7 +118,8 @@ class ConstellationSim:
                 station['name'], 
                 gs_network,
                 self.sim_start_dt,
-                self.sim_end_dt
+                self.sim_end_dt,
+                self.act_timing_helper
             )
             gs_by_id[station['id']] = gs
             gs_network.gs_list.append(gs)
@@ -147,10 +153,11 @@ class ConstellationSim:
             sat = SimSatellite(
                 sat_id,
                 sat_indx,
-                sim_start_dt=self.sim_start_dt,
-                sim_end_dt=self.sim_end_dt,
-                sat_scenario_params=sat_id_scenario_params,
-                sim_satellite_params=sat_id_sim_satellite_params
+                self.sim_start_dt,
+                self.sim_end_dt,
+                sat_id_scenario_params,
+                sat_id_sim_satellite_params,
+                self.act_timing_helper
             )
             sats_by_id[sat_id] = sat
             all_sats.append(sat)

@@ -41,9 +41,9 @@ ReplanQEntry = namedtuple('ReplanQEntry', 'time_dt rt_conts')
 class PlannerScheduler:
     """ superclass for planning/scheduling elements running on ground and satellites"""
 
-    def __init__(self,sim_start_dt,sim_end_dt,sim_agent):
+    def __init__(self,sim_start_dt,sim_end_dt,sim_agent,act_timing_helper):
 
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sim_agent)
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sim_agent,act_timing_helper)
 
         #  this is the FIFO waiting list for newly produced plans.  when current time reaches the time for the first entry, that entry will be popped and the planning info database will be updated with those plans (each entry is a ReplanQEntry named tuple). this too should always stay sorted in ascending order of entry add time
         self._replan_release_q = []
@@ -59,7 +59,8 @@ class PlannerScheduler:
 
         #  this records whether or not the information in the planning database has been updated. we use this planning information to derive a schedule.  we assume that we start with no planning information available, so this is false for now ( we can't yet derive a schedule from the planning info)
         #  note that this is not really used in the ground station network planner
-        #  todo: not sure if this is too hacky of a way to do this, reassess once incorporated code for planning info sharing over links
+        #  todo: not sure if this is too hacky of a way to do this, reassess once incorporated code for planning info sharing over links.
+        # todo: this has indeed become mildy hacky, because the planning info db has been overloaded with storing tt&c update info as well. So now this _planning_info_updated actually means that DATA ROUTES in the planning info db have been updated, not just anything in it.
         self._planning_info_updated = False
         self._planning_info_updated_internal_hist = []
 
@@ -67,6 +68,7 @@ class PlannerScheduler:
         self._planning_info_updated_external = False
         self._planning_info_updated_external_hist = []
         
+        self.act_timing_helper = act_timing_helper
 
         # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
         self._curr_time_dt = sim_start_dt
@@ -175,8 +177,8 @@ class PlannerScheduler:
 class ExecutiveAgentPlannerScheduler(PlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
 
-    def __init__(self,sim_executive_agent,sim_start_dt,sim_end_dt):
-        super().__init__(sim_start_dt,sim_end_dt,sim_executive_agent)
+    def __init__(self,sim_executive_agent,sim_start_dt,sim_end_dt,act_timing_helper):
+        super().__init__(sim_start_dt,sim_end_dt,sim_executive_agent,act_timing_helper)
 
         # holds ref to the containing sim agent
         self.sim_executive_agent = sim_executive_agent
@@ -314,6 +316,12 @@ class Executive:
                     self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
                     # raise NotImplementedError('Saw updated plans for current ExecutableActivity, current: %s, new: %s'%(latest_exec_act,updated_exec_act))
 
+                # record any activites that were previously planned for the future, but are no longer present
+                for exec_act in scheduled_exec_acts_copy[self._last_scheduled_exec_act_windex:]:
+                    if not exec_act in self._scheduled_exec_acts:
+                        self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Previously planned future ExecutableActivity removed from new schedule: '%(exec_act))
+
+
                 self._last_scheduled_exec_act_windex = curr_act_indx
                 
             except ValueError:
@@ -393,6 +401,7 @@ class Executive:
 
         # remove cancelled acts from next exec acts
         next_exec_acts = [exec_act for exec_act in next_exec_acts if not exec_act in self._cancelled_acts]
+
 
         # handle execution context setup/takedown
         
@@ -731,7 +740,7 @@ class PlanningInfoDB:
     expected_state_info = {'batt_e_Wh'}  #  this is set notation
 
 
-    def __init__(self,sim_start_dt,sim_end_dt,sim_agent):
+    def __init__(self,sim_start_dt,sim_end_dt,sim_agent,act_timing_helper):
         # todo: should add distinction between active and old routes
         self.sim_rt_conts_by_id = {}  # The id here is the Sim route container 
         # stores the times at which rt conts were updated
@@ -757,6 +766,8 @@ class PlanningInfoDB:
 
         # stores history of update times for planning info. mainly diagnostic
         self.planning_info_update_hist = {'routes':[],'ttc':[]}
+
+        self.act_timing_helper = act_timing_helper
 
         self.sim_agent = sim_agent
 
@@ -888,7 +899,7 @@ class PlanningInfoDB:
         """ Update other with planning information from self"""
 
         if not info_option in ['all','ttc_only','routes_only']:
-            raise RuntimeWarning('unkown info sharing option: %s'%(info_option))
+            raise RuntimeWarning('unknown info sharing option: %s'%(info_option))
 
         if info_option in ['all','routes_only']:
             other.update_routes(self.sim_rt_conts_by_id.values(),curr_time_dt)
@@ -938,7 +949,7 @@ class PlanningInfoDB:
             rt_conts = self.get_filtered_sim_routes(filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,filter_opt='partially_within',sat_id=sat_id)
     
             #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
-            executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx)
+            executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=last_update_dt,filter_end_dt=curr_time_dt,sat_indx=sat_indx,act_timing_helper=self.act_timing_helper)
             #  strip out the executable activity objects and leave just the windows
             executable_acts_just_winds = [exec_act.act for exec_act in executable_acts]
             executable_acts_just_winds.sort(key = lambda wind: wind.executable_start)

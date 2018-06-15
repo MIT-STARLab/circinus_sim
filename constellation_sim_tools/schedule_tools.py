@@ -52,8 +52,10 @@ class ExecutableActivity:
 
         return True
 
-def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_indx=None,gs_indx=None):
+def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_indx=None,gs_indx=None,act_timing_helper=None):
     """ go through all of the route containers and synthesize a list of unique windows to execute with the correct time and the data volume utilization"""
+
+    # act_timing_helper is of type circinus_tools.activity_bespoke_handling.ActivityTimingHelper
 
     # if sat_indx == 1:
     #     debug_tools.debug_breakpt()
@@ -85,7 +87,8 @@ def synthesize_executable_acts(rt_conts,filter_start_dt=None,filter_end_dt=None,
         # make a deepcopy so we don't risk information crossing the ether in the simulation...
         act = deepcopy(act)
         dv_epsilon = exec_acts[0].dv_epsilon
-        act.set_executable_properties(dv_used,dv_epsilon)
+        act_min_duration_s = act_timing_helper.get_act_min_duration(act)
+        act.set_executable_properties(dv_used,act_min_duration_s,dv_epsilon)
 
         synth_exec_act = ExecutableActivity(
             wind=act,

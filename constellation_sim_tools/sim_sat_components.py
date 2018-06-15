@@ -207,8 +207,8 @@ class SatStateSimulator(StateSimulator):
 class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and their deconfliction with onboard updates. Calls the LP"""
 
-    def __init__(self,sim_sat,sim_start_dt,sim_end_dt,sat_arbiter_params):
-        super().__init__(sim_sat,sim_start_dt,sim_end_dt)
+    def __init__(self,sim_sat,sim_start_dt,sim_end_dt,sat_arbiter_params,act_timing_helper):
+        super().__init__(sim_sat,sim_start_dt,sim_end_dt,act_timing_helper)
 
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
@@ -269,7 +269,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
         #  the list elements are of type ExecutableActivity
         #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_indx=self.sim_sat.sat_indx)
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_indx=self.sim_sat.sat_indx,act_timing_helper=self.act_timing_helper)
 
         return executable_acts
         
@@ -535,7 +535,6 @@ class SatExecutive(Executive):
             executed_delta_dv += 0
 
 
-
         #  deal with cross-link if we are the transmitting satellite
         #  note: this code only deals with execution by the transmitting satellite. execution by the receiving satellite is dealt with within xlnk_receive_poll()
         elif type(curr_act_wind) == XlnkWindow:
@@ -596,6 +595,7 @@ class SatExecutive(Executive):
 
         # transmitting over dlnks
         elif type(curr_act_wind) == DlnkWindow:
+
             gs_indx = curr_act_wind.gs_indx
             gs = self.sim_sat.get_gs_from_indx(gs_indx)
             gs_exec = gs.get_exec()
@@ -636,7 +636,6 @@ class SatExecutive(Executive):
 
                 #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                 else:
-                    debug_tools.debug_breakpt()
                     self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','failure to transmit to gs %s during dlnk activity %s'%(gs_exec.sim_gs.gs_indx,curr_act_wind))
                     break
 

@@ -14,9 +14,9 @@ from circinus_tools import debug_tools
 class GroundNetworkPS(PlannerScheduler):
     """Handles calling of the GP, and ingestion of plan and state updates from satellites"""
 
-    def __init__(self,sim_gsn,sim_start_dt,sim_end_dt,gsn_ps_params):
+    def __init__(self,sim_gsn,sim_start_dt,sim_end_dt,gsn_ps_params,act_timing_helper):
         #  initialize from superclass first
-        super().__init__(sim_start_dt,sim_end_dt,sim_gsn)
+        super().__init__(sim_start_dt,sim_end_dt,sim_gsn,act_timing_helper)
 
         # holds ref to the containing sim ground network
         self.sim_gsn = sim_gsn
@@ -88,7 +88,7 @@ class GroundNetworkPS(PlannerScheduler):
 
         # distill the activities out of the route containers
         #  filter rationale:  only want windows that are completely past the start time, because we don't want to update our planned activity history with activities from the past
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='totally_within')
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='totally_within',act_timing_helper=self.act_timing_helper)
 
         # update any acts that have changed within our plans (note: activity plans CAN change up to right before they get executed, though the GP is incentivized to keep planned activities the same once it chooses them)
         for exec_act in executable_acts:        
