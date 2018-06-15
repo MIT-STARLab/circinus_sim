@@ -445,11 +445,18 @@ class ConstellationSim:
         obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
 
 
+        sats_in_indx_order = [None for sat in range(len(self.sats_by_id))]
+        gs_in_indx_order = [None for gs in range(len(self.gs_by_id))]
+        for sat in self.sats_by_id.values():
+            sats_in_indx_order[sat.sat_indx] = sat
+        for gs in self.gs_by_id.values():
+            gs_in_indx_order[gs.gs_indx] = gs
+
 
         time_units = sim_plot_params['sat_cmd_aoi_plot']['x_axis_time_units']
         print('------------------------------')
         #  this is indexed by sat index
-        sats_cmd_update_hist = met_util.get_all_sats_cmd_update_hist(self.sats_by_id.values(),self.gs_by_id.values(),self.gs_id_ignore_list)
+        sats_cmd_update_hist = met_util.get_all_sats_cmd_update_hist(sats_in_indx_order,gs_in_indx_order,self.gs_id_ignore_list)
         aoi_sat_cmd_stats = mc.assess_aoi_sat_ttc_option(sats_cmd_update_hist,ttc_option='cmd',input_time_type='datetime',aoi_x_axis_units=time_units,verbose = True)
 
 
@@ -460,7 +467,7 @@ class ConstellationSim:
         time_units = sim_plot_params['sat_tlm_aoi_plot']['x_axis_time_units']
 
         print('------------------------------')
-        sats_tlm_update_hist = met_util.get_all_sats_tlm_update_hist(self.sats_by_id.values(),self.gs_by_id.values(),self.gs_id_ignore_list,end_time_getter)
+        sats_tlm_update_hist = met_util.get_all_sats_tlm_update_hist(sats_in_indx_order,gs_in_indx_order,self.gs_id_ignore_list,end_time_getter)
         aoi_sat_tlm_stats = mc.assess_aoi_sat_ttc_option(sats_tlm_update_hist,ttc_option='tlm',input_time_type='datetime',aoi_x_axis_units=time_units,verbose = True)
 
 
