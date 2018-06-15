@@ -146,6 +146,18 @@ class GSExecutive(Executive):
         #  returning this not because it's expected to be used, but to be consistent with superclass
         return curr_exec_context
 
+    def _cleanup_act_execution_context(self,exec_act,new_time_dt):
+
+        curr_exec_context = self._execution_context_by_exec_act[exec_act]
+
+        # if successfully received data, want to update the gs network with new planning info
+        if curr_exec_context['rx_success']:
+            # todo: note assumption that we only are looking at routes for now - should be changed to "all" in future
+            self.sim_gs.send_planning_info(self.sim_gs.gs_network,info_option='routes_only')
+
+        
+        super()._cleanup_act_execution_context(exec_act,new_time_dt)
+
     def _execute_act(self,exec_act,new_time_dt):
         """ Execute the executable activity input, taking any actions that this ground stations is responsible for initiating """
 

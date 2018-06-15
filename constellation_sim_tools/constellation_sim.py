@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from collections import OrderedDict
 import pickle
 import json
 
@@ -269,9 +270,7 @@ class ConstellationSim:
 
              # start all the satellites with a first round of GP schedules, if so desired
             if first_iter and self.sim_run_params['sat_schedule_hotstart']:
-                for sat in self.sats_by_id.values():
-                    self.gs_network.send_planning_info(sat)
-                    self.gs_network.scheduler.set_plans_updated(False)
+                self.gsn_exchange_planning_info_all_exec_agents()
 
             # now update satellite and ground station states
             for sat_id,sat in self.sats_by_id.items():
@@ -280,42 +279,61 @@ class ConstellationSim:
                 gs.state_update_step(global_time)
 
 
-
             #####################
             # Planning info sharing (currenly assuming update via backbone network to sats)
 
             # todo: seems kinda bad to cross levels of abstraction like this...
             if self.gs_network.scheduler.check_plans_updated():
+                self.gsn_exchange_planning_info_all_exec_agents()
 
-                # when the GS replans, assume we have the ability to instantaneously update the satellites, and receive a state update from them ( kinda a hack for now...)
-                for sat in self.sats_by_id.values():
-                    self.gs_network.send_planning_info(sat)
-                    # todo: finish this
-                    sat.send_planning_info(self.gs_network)
-
-                #  every time the ground network re-plans, want to send that updated planning information to the ground stations
-                for gs in self.gs_by_id.values():
-                    self.gs_network.send_planning_info(gs)
-                self.gs_network.scheduler.set_plans_updated(False)
-
-
+                
             global_time = global_time+self.sim_tick
             first_iter = False
+
+
+        #### 
+        # end of sim
 
         #  save a pickle for the end ฅ^•ﻌ•^ฅ (meow)
         if self.sim_run_params['pickle_checkpoints']:
             self.pickle_checkpoint(global_time, self.gs_network, self.sats_by_id, self.gs_by_id)
 
+
+
+    def gsn_exchange_planning_info_all_exec_agents(self):
+        # when the GS replans, assume we have the ability to instantaneously update the satellites, and receive a state update from them ( kinda a hack for now...)
+        for sat in self.sats_by_id.values():
+            self.gs_network.send_planning_info(sat,info_option='routes_only')
+            sat.send_planning_info(self.gs_network,info_option='routes_only')
+
+        #  every time the ground network re-plans, want to send that updated planning information to the ground stations
+        for gs in self.gs_by_id.values():
+            self.gs_network.send_planning_info(gs,info_option='routes_only')
+            gs.send_planning_info(self.gs_network,info_option='routes_only')
+
+        self.gs_network.scheduler.set_plans_updated(False)
+
     def post_run(self):
 
-        # report events
-        event_logs = {'sats':[],'gs': []}
+        # get sats and gs in index order
+        sats_in_indx_order = [None for sat in range(len(self.sats_by_id))]
+        gs_in_indx_order = [None for gs in range(len(self.gs_by_id))]
         for sat in self.sats_by_id.values():
-            sat.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in sat.state_sim.get_curr_data_conts()])
-            event_logs['sats'].append(sat.state_recorder.get_events())
+            sats_in_indx_order[sat.sat_indx] = sat
         for gs in self.gs_by_id.values():
+            gs_in_indx_order[gs.gs_indx] = gs
+
+
+        # report events
+        event_logs = OrderedDict()
+        event_logs['sats'] = OrderedDict()
+        event_logs['gs'] = OrderedDict()
+        for sat in sats_in_indx_order:
+            sat.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in sat.state_sim.get_curr_data_conts()])
+            event_logs['sats'][sat.ID] = sat.state_recorder.get_events()
+        for gs in gs_in_indx_order:
             gs.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in gs.state_sim.get_curr_data_conts()])
-            event_logs['gs'].append(gs.state_recorder.get_events())
+            event_logs['gs'][gs.ID] = gs.state_recorder.get_events()
 
         event_log_file = 'logs/agent_events.json'
         with open(event_log_file,'w') as f:
@@ -353,10 +371,10 @@ class ConstellationSim:
         ##########
         # Run Metrics
 
-        self.run_and_plot_metrics(energy_usage)
+        self.run_and_plot_metrics(energy_usage,sats_in_indx_order,gs_in_indx_order)
 
 
-        # debug_tools.debug_breakpt()
+        debug_tools.debug_breakpt()
 
 
         ##########
@@ -400,7 +418,7 @@ class ConstellationSim:
 
         return None
 
-    def run_and_plot_metrics(self,energy_usage):
+    def run_and_plot_metrics(self,energy_usage,sats_in_indx_order,gs_in_indx_order):
 
         # metrics calculation
         mc = MetricsCalcs(self.get_metrics_params())
@@ -444,13 +462,6 @@ class ConstellationSim:
         print('Average AoI by obs, with routing')
         obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
 
-
-        sats_in_indx_order = [None for sat in range(len(self.sats_by_id))]
-        gs_in_indx_order = [None for gs in range(len(self.gs_by_id))]
-        for sat in self.sats_by_id.values():
-            sats_in_indx_order[sat.sat_indx] = sat
-        for gs in self.gs_by_id.values():
-            gs_in_indx_order[gs.gs_indx] = gs
 
 
         time_units = sim_plot_params['sat_cmd_aoi_plot']['x_axis_time_units']

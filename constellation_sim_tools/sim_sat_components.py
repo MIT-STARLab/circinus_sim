@@ -443,23 +443,6 @@ class SatExecutive(Executive):
             #  need to use the new time here because the state sim has already advanced in timestep ( shouldn't be a problem)
             self.state_sim.add_to_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
 
-        elif type(curr_act_wind) == XlnkWindow:
-            xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
-            xsat = self.sim_sat.get_sat_from_indx(xsat_indx)
-
-            # this is where we do planning info update 
-            self.sim_sat.send_planning_info(xsat)
-            # go ahead and assume bidirectional planning update....todo: this is hacky, should we actually explicitly model an activity for this?
-            xsat.send_planning_info(self.sim_sat)
-
-        elif type(curr_act_wind) == DlnkWindow:
-            gs_indx = curr_act_wind.gs_indx
-            gs = self.sim_sat.get_gs_from_indx(gs_indx)
-
-            # this is where we do planning info update. Order doesn't matter. Notice we assume an uplink is present, so we can get data from gs as well
-            self.sim_sat.send_planning_info(gs)
-            gs.send_planning_info(self.sim_sat)
-
         #  need to call this last because it has final takedown responsibilities
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
 
@@ -590,6 +573,13 @@ class SatExecutive(Executive):
                         if not tx_dc in curr_exec_context['tx_data_conts']:
                             curr_exec_context['tx_data_conts'].append(tx_dc)
 
+                        planning_info_send_option = 'all' if not curr_exec_context['tx_success'] else 'ttc_only'
+
+                        # this is where we do planning info update 
+                        self.sim_sat.send_planning_info(xsat,planning_info_send_option)
+                        # go ahead and assume bidirectional planning update....todo: this is hacky, should we actually explicitly model an activity for this?
+                        xsat.send_planning_info(self.sim_sat,planning_info_send_option)
+
                         curr_exec_context['tx_success'] = True
 
                     #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
@@ -636,10 +626,17 @@ class SatExecutive(Executive):
                     if not tx_dc in curr_exec_context['tx_data_conts']:
                         curr_exec_context['tx_data_conts'].append(tx_dc)
 
+                    planning_info_send_option = 'all' if not curr_exec_context['tx_success'] else 'ttc_only'
+
+                    # this is where we do planning info update. Order doesn't matter. Notice we assume an uplink is present, so we can get data from gs as well
+                    self.sim_sat.send_planning_info(gs)
+                    gs.send_planning_info(self.sim_sat)
+
                     curr_exec_context['tx_success'] = True
 
                 #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                 else:
+                    debug_tools.debug_breakpt()
                     self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','failure to transmit to gs %s during dlnk activity %s'%(gs_exec.sim_gs.gs_indx,curr_act_wind))
                     break
 

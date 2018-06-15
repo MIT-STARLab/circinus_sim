@@ -78,13 +78,13 @@ class SimPlotting():
 
             # return label_text
             rx_or_tx = 'rx' if xlnk.is_rx(sat_indx) else 'tx'
-            return "x%d,%s%d,dv %d/%d"%(xlnk.window_ID,rx_or_tx,xlnk.get_xlnk_partner(sat_indx),xlnk.executed_data_vol,xlnk.data_vol) 
+            return "x%d,%s%d,dv %d/%d (%d)"%(xlnk.window_ID,rx_or_tx,xlnk.get_xlnk_partner(sat_indx),xlnk.executed_data_vol,xlnk.executable_data_vol,xlnk.data_vol) 
 
         def dlnk_label_getter(dlnk):
-            return "d%d,g%d,dv %d/%d"%(dlnk.window_ID,dlnk.gs_indx,dlnk.executed_data_vol,dlnk.data_vol) 
+            return "d%d,g%d,dv %d/%d (%d)"%(dlnk.window_ID,dlnk.gs_indx,dlnk.executed_data_vol,dlnk.executable_data_vol,dlnk.data_vol) 
 
         def obs_label_getter(obs):
-            return "o%d, dv %d/%d"%(obs.window_ID,obs.executed_data_vol,obs.data_vol)
+            return "o%d, dv %d/%d (%d)"%(obs.window_ID,obs.executed_data_vol,obs.executable_data_vol,obs.data_vol)
 
         return obs_label_getter,dlnk_label_getter,xlnk_label_getter
 
@@ -245,6 +245,9 @@ class SimPlotting():
         start_getter_reg,end_getter_reg = self.get_time_getters()
         plot_params['start_getter_reg'] = start_getter_reg
         plot_params['end_getter_reg'] = end_getter_reg
+        start_getter_choices,end_getter_choices = self.get_time_getters_choices()
+        plot_params['start_getter_choices'] = start_getter_choices
+        plot_params['end_getter_choices'] = end_getter_choices
 
         pltl.plot_all_agents_acts(
             gs_ids_list,

@@ -429,6 +429,11 @@ class Executive:
         curr_exec_context['act'] = exec_act.act
         curr_exec_context['rt_conts'] = exec_act.rt_conts
 
+        # marks if the rx was successful at any point in the activity
+        curr_exec_context['rx_success'] = False
+        # marks if the tx was successful at any point in the activity
+        curr_exec_context['tx_success'] = False
+
         # note that if we want to allow activities to begin at a time different from their actual start, need to update code here
         #  the start time seen for this activity - new_time_dt is the time when the executive notices that we start executing the activity, but we want that account for the fact that the act can start in between timesteps for the executive
         curr_exec_context['start_dt'] = min(exec_act.act.executable_start,new_time_dt)
@@ -570,6 +575,7 @@ class Executive:
 
         #  Mark the data volume received
         curr_exec_context['dv_used'] += received_dv
+        curr_exec_context['rx_success'] = True
 
         #  factor this executed Delta into the total data volume Delta for this time step
         self.state_sim.add_to_data_storage(received_dv,curr_exec_context['rx_data_conts'],self._curr_time_dt)
@@ -749,6 +755,9 @@ class PlanningInfoDB:
         # stores history of when we last heard from each agent ID, which we refer to as "a tt&c (telemetry, tracking, and command) update". Essentially this means that we "heard from" an agent when we get enough information from it to constitute a full update of telemetry and command messages (which we assume to be small relative to bulk data routing)
         self.ttc_update_hist_by_agent_id = {}
 
+        # stores history of update times for planning info. mainly diagnostic
+        self.planning_info_update_hist = {'routes':[],'ttc':[]}
+
         self.sim_agent = sim_agent
 
     def initialize(self,plan_db_inputs):
@@ -820,7 +829,12 @@ class PlanningInfoDB:
         return all_rt_conts
 
     def get_ttc_update_hist_for_agent_ids(self,agent_ids):
-        return [uh for ag_id,uh in self.ttc_update_hist_by_agent_id.items() if ag_id in agent_ids]
+        uhs = [uh for ag_id,uh in self.ttc_update_hist_by_agent_id.items() if ag_id in agent_ids]
+
+        if len(uhs) == 0:
+            raise RuntimeWarning('no updates hists found. Agent ids %s are not correct'%(agent_ids))
+
+        return uhs
 
     def update_routes(self,rt_conts,curr_time_dt):
         for rt_cont in rt_conts:
@@ -863,21 +877,38 @@ class PlanningInfoDB:
         ag_update_hist.last_update_time.append (curr_time_dt)
 
 
+    def mark_routes_update_time(self,curr_time_dt):
+        self.planning_info_update_hist['routes'].append(curr_time_dt)
 
-    def push_planning_info(self,other,curr_time_dt):
+    def mark_ttc_update_time(self,curr_time_dt):
+        self.planning_info_update_hist['ttc'].append(curr_time_dt)
+
+
+    def push_planning_info(self,other,curr_time_dt,info_option):
         """ Update other with planning information from self"""
 
-        other.update_routes(self.sim_rt_conts_by_id.values(),curr_time_dt)
+        if not info_option in ['all','ttc_only','routes_only']:
+            raise RuntimeWarning('unkown info sharing option: %s'%(info_option))
 
-        #  also update satellite state history record
-        for sat_id in self.sat_id_order:
-            if len(self.sat_state_hist_by_id[sat_id]) > 0:
-                other.update_sat_state_hist(sat_id,self.sat_state_hist_by_id[sat_id][-1])
+        if info_option in ['all','routes_only']:
+            other.update_routes(self.sim_rt_conts_by_id.values(),curr_time_dt)
+            other.mark_routes_update_time(curr_time_dt)
 
-        # update tt&c times on self agent before sharing ttc data to other
-        self.update_self_ttc_time(curr_time_dt)
+        # allows for separate updates of ttc data only (it's mildy computationaly expensive to update routes as the planning info DB gets large)
+        if info_option in ['all','ttc_only']:
 
-        other.pull_agent_ttc(curr_time_dt,self)
+            #  also update satellite state history record
+            for sat_id in self.sat_id_order:
+                if len(self.sat_state_hist_by_id[sat_id]) > 0:
+                    other.update_sat_state_hist(sat_id,self.sat_state_hist_by_id[sat_id][-1])
+
+
+            # update tt&c times on self agent before sharing ttc data to other
+            self.update_self_ttc_time(curr_time_dt)
+
+            other.pull_agent_ttc(curr_time_dt,self)
+
+            other.mark_ttc_update_time(curr_time_dt)
 
     def update_sat_state_hist(self,sat_id,sat_state_entry):
         """ update the latest satellite state entry for given satellite ID, if necessary"""

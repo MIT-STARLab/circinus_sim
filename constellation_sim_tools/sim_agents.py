@@ -29,7 +29,7 @@ class SimAgent:
         #  intended to be a virtual method
         raise NotImplementedError
 
-    def send_planning_info(self,other):
+    def send_planning_info(self,other,info_option='all'):
         """ send planning info from one agent to another """
 
         #  get the planning info databases
@@ -37,7 +37,7 @@ class SimAgent:
         other_plan_db = other.get_plan_db()
 
         #  push data from self to the other
-        my_plan_db.push_planning_info(other_plan_db,self._curr_time_dt)
+        my_plan_db.push_planning_info(other_plan_db,self._curr_time_dt,info_option)
 
         other.post_planning_info_rx()
 
