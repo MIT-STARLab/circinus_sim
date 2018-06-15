@@ -53,7 +53,7 @@ class PipelineRunner:
 
         sim_other_params = {}
 
-        if orbit_prop_inputs['version'] == "0.7":
+        if orbit_prop_inputs['version'] == "0.8":
             # do some useful transformations while preserving the structure of the inputs ( important for avoiding namespace clashes)
             orbit_prop_inputs['scenario_params']['start_utc_dt'] = tt.iso_string_to_dt ( orbit_prop_inputs['scenario_params']['start_utc'])
             orbit_prop_inputs['scenario_params']['end_utc_dt'] = tt.iso_string_to_dt ( orbit_prop_inputs['scenario_params']['end_utc'])
@@ -65,14 +65,13 @@ class PipelineRunner:
             orbit_prop_inputs['sat_params']['data_storage_params_by_sat_id'], all_sat_ids2 = io_tools.unpack_sat_entry_list( orbit_prop_inputs['sat_params']['data_storage_params'],output_format='dict')
             orbit_prop_inputs['sat_params']['initial_state_by_sat_id'], all_sat_ids3 = io_tools.unpack_sat_entry_list( orbit_prop_inputs['sat_params']['initial_state'],output_format='dict')
 
-            #  check if  we saw the same list of satellite IDs from each unpacking. if not that's a red flag that the inputs could be wrongly specified
-            if all_sat_ids1 != all_sat_ids2 or all_sat_ids1 != all_sat_ids3:
-                raise Exception('Saw differing sat ID orders')
-
             #  grab the list for satellite ID order.  if it's "default", we will create it and save it for future use here
             sat_id_order=orbit_prop_inputs['sat_params']['sat_id_order']
             #  make the satellite ID order. if the input ID order is default, then will assume that the order is the same as all of the IDs found in the power parameters
-            sat_id_order = io_tools.make_and_validate_sat_id_order(sat_id_order,orbit_prop_inputs['sat_params']['num_sats'],all_sat_ids1)
+            sat_id_order = io_tools.make_and_validate_sat_id_order(sat_id_order,orbit_prop_inputs['sat_params']['sat_id_prefix'],orbit_prop_inputs['sat_params']['num_sats'],all_sat_ids1)
+            io_tools.validate_ids(validator=sat_id_order,validatee=all_sat_ids1)
+            io_tools.validate_ids(validator=sat_id_order,validatee=all_sat_ids2)
+            io_tools.validate_ids(validator=sat_id_order,validatee=all_sat_ids3)
             orbit_prop_inputs['sat_params']['sat_id_order'] = sat_id_order
 
             gs_id_order = io_tools.make_and_validate_gs_id_order(orbit_prop_inputs['gs_params'])
@@ -93,7 +92,7 @@ class PipelineRunner:
             raise NotImplementedError
 
         #  check that it's the right version
-        if const_sim_inst_params_inputs['version'] == "0.4":
+        if const_sim_inst_params_inputs['version'] == "0.5":
             const_sim_inst_params['sim_run_params']['start_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_run_params']['start_utc'])
             const_sim_inst_params['sim_run_params']['end_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_run_params']['end_utc'])
             const_sim_inst_params['sim_plot_params']['start_utc_dt'] = tt.iso_string_to_dt ( const_sim_inst_params['sim_plot_params']['start_utc'])
