@@ -331,28 +331,21 @@ class LPScheduling(AgentScheduling):
 
 
         # activity utilization variable indicating how much of an activity's capacity is used
+        # vars [1]
         model.var_activity_utilization  = pe.Var (model.all_act_windids, bounds =(0,1))
+        # vars [2]
         model.var_act_indic  = pe.Var (model.all_act_windids, within = pe.Binary)
 
-        # dmr utilization variable indicating how much of a dmr's capacity is used [2]
-        # model.var_dmr_utilization  = pe.Var (model.dmr_ids, bounds =(0,1))
-
-        #  utilization for each in/out flow (x_i,x_o)
+        #  utilization for each in/out flow (x_i,x_o) vars [3]
         model.var_partial_flow_utilization  = pe.Var (model.partial_flow_ids, bounds =(0,1))
 
-        #  indicator variables for whether or not dmrs [3] and activities [4] have been chosen
-        # model.var_dmr_indic  = pe.Var (model.dmr_ids, within = pe.Binary)
-
-        # data volume used for a given incoming/outgoing flow pair combination (v_(i,o))
+        # data volume used for a given incoming/outgoing flow pair combination (v_(i,o)) [4]
         model.var_unified_flow_dv  = pe.Var (model.unified_flow_ids, within = pe.PositiveReals)
-        #  indicates if a given incoming/outgoing flow pair combination is chosen (I_(i,o))
+        #  indicates if a given incoming/outgoing flow pair combination is chosen (I_(i,o)) [5]
         model.var_unified_flow_indic  = pe.Var (model.unified_flow_ids, within = pe.Binary)
 
+        # vars [6]
         model.var_partial_flow_indic  = pe.Var (model.partial_flow_ids, within = pe.Binary)
-
-
-        # a utilization number for existing routes that will be bounded by the input existing route utilization (can't get more  "existing route" reward for a route than the route's previous utilization) [8]
-        # model.var_existing_dmr_utilization_reward  = pe.Var (model.existing_dmr_ids, bounds =(0,1))
 
         # # satellite energy storage
         # model.var_sats_estore  = pe.Var (model.sat_indcs,  model.es_timepoint_indcs,  within = pe.NonNegativeReals)
@@ -360,6 +353,7 @@ class LPScheduling(AgentScheduling):
         # # satellite data storage (data buffers)
         # model.var_sats_dstore  = pe.Var (model.sat_indcs,  model.ds_timepoint_indcs,  within = pe.NonNegativeReals)
 
+        # vars [7]
         model.var_latency_sf_inflow = pe.Var (model.inflow_ids,  bounds = (0,1.0))
 
         ##############################
@@ -505,7 +499,7 @@ class LPScheduling(AgentScheduling):
 
 
 
-        #  inflow latency score factor constraints [8]
+        #  inflow latency score factor constraints [10]
         model.c10  = pe.ConstraintList()
         #  make this over all inflow IDs, as opposed to all unified flow IDs,  because we don't want to reward performing as many unified flows as possible
         for i in model.inflow_ids:
@@ -551,19 +545,23 @@ class LPScheduling(AgentScheduling):
             # obj [1]
             total_dv_term = self.obj_weights['flow_dv'] * 1/model.par_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in model.unified_flow_ids)
             
+            # obj [2]
             #  for total existing data volume, we only reward those unified flows that map and existing inflow to an existing outflow that it was already mapped to.  we do not reward unified flows that map in existing inflow to an existing outflow that it was NOT already mapped to. i.e., we don't just reward existing inflows and outflows; we reward the existing mapping from inflows to outflows
             total_existing_dv_term = self.obj_weights['existing_flow_dv'] * 1/model.par_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in existing_unified_flow_ids)                
 
+            # obj [3]
             #  we also want to reward existing routes for performing the minimum data volume requirement ( so that injected data volume doesn't totally replace existing volume)
             existing_indicators_term = self.obj_weights['existing_flow_indicators'] * 1/len(existing_unified_flow_ids) * sum(model.var_unified_flow_indic[u] for u in existing_unified_flow_ids)
 
+            # obj [4]
             #  follow the same pattern for injected flows
             total_injected_inflow_dv_term = self.obj_weights['injected_inflow_dv'] * 1/model.par_possible_injected_inflow_capacity * sum(model.var_unified_flow_dv[u] for u in injected_unified_flow_ids)
 
+            # obj [5]
             #  for the indicators term though, we want to look at the indicators for the injected inflows as opposed to unified flows - because we want to reward meeting minimum data volume for each injected inflow, not for maximizing the number of unified flows the inflows spread themselves out over
             injected_inflow_indicators_term = self.obj_weights['injected_inflow_indicators'] * 1/len(injected_inflow_ids) * sum(model.var_partial_flow_indic[i] for i in model.injected_inflow_ids)
 
-            # obj [2]
+            # obj [6]
             latency_term = self.obj_weights['injected_inflow_latency'] * 1/len(model.injected_inflow_ids) * sum(model.var_latency_sf_inflow[i] for i in model.injected_inflow_ids)
 
             if self.obj_weights['energy_storage'] > 0:
