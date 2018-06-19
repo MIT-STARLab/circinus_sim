@@ -313,13 +313,15 @@ class Executive:
                 #  test if the routing plans for the current activities being executed have changed. If so, we need to do something about that
                 for exec_act in self._curr_exec_acts:
                     if exec_act in self._scheduled_exec_acts:
+                        #  we're looking for the same simulation activity, but not the same object. grab a reference to that object
+                        updated_exec_act = self._scheduled_exec_acts[self._scheduled_exec_acts.index(exec_act)]
 
                         exec_act_has_been_updated = not (latest_exec_act.plans_match(updated_exec_act) and
-                            updated_exec_act.executable_start == latest_exec_act.executable_start and
-                            updated_exec_act.executable_end == latest_exec_act.executable_end)
+                            updated_exec_act.act.executable_start == latest_exec_act.act.executable_start and
+                            updated_exec_act.act.executable_end == latest_exec_act.act.executable_end)
 
                         if exec_act_has_been_updated:
-                            self._update_act_execution_context(exec_act)
+                            self._update_act_execution_context(latest_exec_act,updated_exec_act)
                             
 
                 # record any activites that were previously planned for the future, but are no longer present
@@ -463,19 +465,19 @@ class Executive:
 
         return curr_exec_context
 
-    def _update_act_execution_context(self,exec_act):
+    def _update_act_execution_context(self,old_exec_act,new_exec_act):
 
-        curr_exec_context = self._execution_context_by_exec_act[exec_act]
+        curr_exec_context = self._execution_context_by_exec_act[new_exec_act]
 
         #  go ahead and update with the new act window.  this will have all the information about execution time
-        curr_exec_context['act'] = exec_act.act
+        curr_exec_context['act'] = new_exec_act.act
 
         # assume for now act ends at the expected end
-        curr_exec_context['end_dt'] = exec_act.act.executable_end
+        curr_exec_context['end_dt'] = new_exec_act.act.executable_end
 
         # Note that we really should update curr_exec_context['rt_conts'] to reflect the new route containers within exec_act. it could be that more data volume got scheduled for the route, for example. however, for now let's just assume that the change is not important enough to deal with
         # todo: add code to take care of this at some point?
-        self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity; current: %s, new: %s; old executable times %s,%s, new executable times %s,%s'%(latest_exec_act,updated_exec_act,latest_exec_act.executable_start,latest_exec_act.executable_end,updated_exec_act.executable_start,updated_exec_act.executable_end))
+        self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity; current: %s, new: %s; old executable times %s,%s, new executable times %s,%s'%(old_exec_act,new_exec_act,old_exec_act.act.executable_start,old_exec_act.act.executable_end,new_exec_act.act.executable_start,new_exec_act.act.executable_end))
 
 
     def _cleanup_act_execution_context(self,exec_act,new_time_dt):
