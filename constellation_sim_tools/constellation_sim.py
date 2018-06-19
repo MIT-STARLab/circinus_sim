@@ -380,7 +380,7 @@ class ConstellationSim:
         ##########
         # Run Metrics
 
-        self.run_and_plot_metrics(energy_usage,sats_in_indx_order,gs_in_indx_order)
+        self.run_and_plot_metrics(energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order)
 
         ##########
         # Plot stuff
@@ -423,7 +423,7 @@ class ConstellationSim:
 
         return None
 
-    def run_and_plot_metrics(self,energy_usage,sats_in_indx_order,gs_in_indx_order):
+    def run_and_plot_metrics(self,energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order):
 
         # metrics calculation
         mc = MetricsCalcs(self.get_metrics_params())
@@ -488,7 +488,8 @@ class ConstellationSim:
 
 
         print('------------------------------')
-        rsrc_stats = mc.assess_resource_margin(energy_usage,verbose = True)
+        e_rsrc_stats = mc.assess_energy_resource_margin(energy_usage,verbose = True)
+        d_rsrc_stats = mc.assess_data_resource_margin(data_usage,verbose = True)
 
 
 
@@ -601,15 +602,25 @@ class ConstellationSim:
         metrics_params['targ_id_ignore_list'] = sim_metrics_params['targ_id_ignore_list']
         metrics_params['aoi_units'] = sim_metrics_params['aoi_units']
 
+        # note: I recognize having the parsing code here is dumb. So shoot me.
+
         metrics_params['sats_emin_Wh'] = []
         metrics_params['sats_emax_Wh'] = []        
         for p_params in sat_params['power_params_by_sat_id'].values():
             sat_edot_by_mode,sat_batt_storage,power_units,charge_eff,discharge_eff = io_tools.parse_power_consumption_params(p_params)
 
-        # metrics_params['sats_emin_Wh'] = [p_params['battery_storage_Wh']['e_min'][p_params['battery_option']] for p_params in metrics_params['power_params']]
-        # metrics_params['sats_emax_Wh'] = [p_params['battery_storage_Wh']['e_max'][p_params['battery_option']] for p_params in metrics_params['power_params']]
             metrics_params['sats_emin_Wh'].append(sat_batt_storage['e_min'])
             metrics_params['sats_emax_Wh'].append(sat_batt_storage['e_max'])
+
+        metrics_params['sats_dmin_Gb'] = []
+        metrics_params['sats_dmax_Gb'] = []        
+        for d_params in sat_params['data_storage_params_by_sat_id'].values():
+            storage_opt = d_params['storage_option']
+            d_min = d_params['data_storage_Gbit']['d_min'][storage_opt]
+            d_max = d_params['data_storage_Gbit']['d_max'][storage_opt]
+
+            metrics_params['sats_dmin_Gb'].append(d_min)
+            metrics_params['sats_dmax_Gb'].append(d_max)
 
         metrics_params['timestep_s'] = scenario_params['timestep_s']
 
