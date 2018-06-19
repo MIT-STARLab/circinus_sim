@@ -194,7 +194,7 @@ class SimSatellite(SimExecutiveAgent):
 class SimGroundStation(SimExecutiveAgent):
     """class for simulation ground stations"""
     
-    def __init__(self,ID,gs_indx,name,gs_network,sim_start_dt,sim_end_dt,act_timing_helper):
+    def __init__(self,ID,gs_indx,name,gs_network,sim_start_dt,sim_end_dt,sim_gs_params,act_timing_helper):
         """initializes based on parameters
         
         initializes based on parameters
@@ -217,6 +217,7 @@ class SimGroundStation(SimExecutiveAgent):
         self.exec.scheduler = self.scheduler_pass_thru
         self.exec.state_recorder = self.state_recorder
 
+        self.time_epsilon_td = timedelta(seconds = sim_gs_params['time_epsilon_s'])
 
     @property
     def gs_id(self):
@@ -269,6 +270,8 @@ class SimGroundNetwork(SimAgent):
         initializes based on parameters
         :type params: dict
         """
+        super().__init__(ID,sim_start_dt,sim_end_dt)
+        
 
         self.name = name
         self.gs_list = []
@@ -278,7 +281,8 @@ class SimGroundNetwork(SimAgent):
 
         self.scheduler.state_recorder = self.state_recorder
 
-        super().__init__(ID,sim_start_dt,sim_end_dt)
+        self.time_epsilon_td = timedelta(seconds = sim_gs_network_params['time_epsilon_s'])
+
 
     def state_update_step(self,new_time_dt,gp_wrapper):
         if new_time_dt < self._curr_time_dt:

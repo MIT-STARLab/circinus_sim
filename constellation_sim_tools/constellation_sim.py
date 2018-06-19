@@ -120,6 +120,7 @@ class ConstellationSim:
                 gs_network,
                 self.sim_start_dt,
                 self.sim_end_dt,
+                self.const_sim_inst_params['sim_gs_params'],
                 self.act_timing_helper
             )
             gs_by_id[station['id']] = gs

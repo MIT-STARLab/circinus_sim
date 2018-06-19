@@ -504,7 +504,7 @@ class SatExecutive(Executive):
 
         act_start_dt = curr_exec_context['start_dt']
         act_end_dt = curr_exec_context['end_dt'] 
-        ts_start_dt, ts_end_dt = self.find_act_start_end_times(act_start_dt,act_end_dt, self._last_time_dt, self._curr_time_dt,new_time_dt)
+        ts_start_dt, ts_end_dt = self.find_act_start_end_times(act_start_dt,act_end_dt, self._last_time_dt, self._curr_time_dt,new_time_dt,self.sim_sat.time_epsilon_td)
             
         #  time delta
         delta_t_s = (ts_end_dt - ts_start_dt).total_seconds()

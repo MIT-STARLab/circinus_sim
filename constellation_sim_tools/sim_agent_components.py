@@ -535,7 +535,7 @@ class Executive:
 
         act_start_dt = curr_exec_context['start_dt']
         act_end_dt = curr_exec_context['end_dt'] 
-        rx_ts_start_dt, rx_ts_end_dt = self.find_act_start_end_times(act_start_dt, act_end_dt, self._last_time_dt, self._curr_time_dt,new_time_dt)
+        rx_ts_start_dt, rx_ts_end_dt = self.find_act_start_end_times(act_start_dt, act_end_dt, self._last_time_dt, self._curr_time_dt,new_time_dt,self.sim_executive_agent.time_epsilon_td)
 
         ts_start_dt = max(tx_ts_start_dt,rx_ts_start_dt)
         ts_end_dt = min(tx_ts_end_dt,rx_ts_end_dt)
@@ -612,19 +612,19 @@ class Executive:
         return dc_indx
 
     @staticmethod
-    def find_act_start_end_times(act_start_dt,act_end_dt,last_time_dt,curr_time_dt,next_time_dt):
-        """ find the start and end time to use during this time step, accounting for activity start and end bound boundary conditions"""
+    def find_act_start_end_times(act_start_dt,act_end_dt,last_time_dt,curr_time_dt,next_time_dt,time_epsilon_td):
+        """ find the start and end time to use during this time step, accounting for activity start and end boundary conditions"""
 
         #  in order to allow relatively large time steps (to save computation time), we need to consider if the start/end of an activity falls between time steps for the executive
 
         # deal with the fact that the start might not fall exactly on a timepoint. If the start occurred between last time and current time, pick that instead of the current time
-        assert(act_start_dt <= curr_time_dt)
+        assert(act_start_dt <= curr_time_dt + time_epsilon_td)
         if act_start_dt > last_time_dt:
             ts_start_dt = act_start_dt
         else:
             ts_start_dt = curr_time_dt
 
-        assert(act_end_dt >= curr_time_dt)
+        assert(act_end_dt >= curr_time_dt - time_epsilon_td)
         #  deal with the fact that the end might not fall exactly on time point. if the end comes before the new time, use the end time
         if act_end_dt <= next_time_dt:
             #  we check the executable end here
