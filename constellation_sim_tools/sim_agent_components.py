@@ -183,7 +183,7 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
         # holds ref to the containing sim agent
         self.sim_executive_agent = sim_executive_agent
 
-        #  whether or not schedule instance has been updated since it was last grabbed by executive
+        #  whether or not schedule instance has been updated since it was last grabbed by executive. this is used for tracking if the cache has been updated from the latest sim route containers. it does not necessarily mean that any of the sim routes have changed
         self._schedule_cache_updated = False
         self._schedule_cache_updated_hist = []
 
@@ -193,7 +193,12 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
 
     @property
     def schedule_updated(self):
+        """ returns true if the schedule cache has been updated (though the activities need not have actually changed)"""
         return self._schedule_cache_updated
+
+    @property
+    def schedule_changed(self):
+        return self.plan_db.check_and_reset_sim_rt_conts_changed()
 
     def flag_planning_info_rx_external(self):
         # todo: Is this the right way to handle this?
@@ -278,6 +283,8 @@ class Executive:
         #  holds data structures that keep track of execution context for a given activity.  these are all of the data structures that keep track of what has been accomplished in the course of executing a given activity
         self._execution_context_by_exec_act = {}
 
+        self._schedule_changed_hist = []
+
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
 
@@ -291,6 +298,11 @@ class Executive:
         # if schedule updates are available, blow away what we had previously (assumption is that scheduler handles changes to schedule gracefully)
         if self.scheduler.schedule_updated:
             self._scheduled_exec_acts = self.scheduler.get_scheduled_executable_acts()
+
+            #  this will only report an event if the route containers actually changed ( so the global planner updated route containers, or satellite did - not just if a planning information update happened)
+            if self.scheduler.schedule_changed:
+                self._schedule_changed_hist.append(self._curr_time_dt)
+                self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','schedule update','scheduled route containers changed in plan_db')
         else:
             return
 
@@ -792,7 +804,15 @@ class PlanningInfoDB:
 
         self.act_timing_helper = act_timing_helper
 
+        # Will be true if any new or changed sim route containers were observed the last time planning information was received into this database
+        self.sim_rt_conts_changed = False
+
         self.sim_agent = sim_agent
+
+    def check_and_reset_sim_rt_conts_changed(self):
+        changed = self.sim_rt_conts_changed
+        self.sim_rt_conts_changed = False
+        return changed
 
     def initialize(self,plan_db_inputs):
         self.sat_id_order = plan_db_inputs['sat_id_order']
@@ -878,11 +898,12 @@ class PlanningInfoDB:
             update_entry = SRCUpdateHistEntry(curr_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
 
             if rt_cont.ID in self.sim_rt_conts_by_id.keys():
-                # todo: is this the way to always do updates?
                 if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
+                    self.sim_rt_conts_changed = True
                     self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
                     self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(update_entry)
             else:
+                self.sim_rt_conts_changed = True
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
                 self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[update_entry])
 
