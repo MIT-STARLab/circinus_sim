@@ -385,9 +385,12 @@ class ConstellationSim:
         ##########
         # Plot stuff
 
+        sats_to_plot = self.sat_id_order
+        # sats_to_plot = ['sat0']
+
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
-            self.sat_id_order,
+            sats_to_plot,
             obs_gsn_sched,
             obs_exe,
             dlnks_gsn_sched,
@@ -405,14 +408,14 @@ class ConstellationSim:
 
         #  plot satellite energy usage
         self.sim_plotter.sim_plot_all_sats_energy_usage(
-            self.sat_id_order,
+            sats_to_plot,
             energy_usage,
             self.ecl_winds
         )
 
         #  plot satellite data usage
         self.sim_plotter.sim_plot_all_sats_data_usage(
-            self.sat_id_order,
+            sats_to_plot,
             data_usage,
             self.ecl_winds
         )
