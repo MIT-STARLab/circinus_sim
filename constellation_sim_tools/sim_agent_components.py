@@ -328,12 +328,12 @@ class Executive:
                         #  we're looking for the same simulation activity, but not the same object. grab a reference to that object
                         updated_exec_act = self._scheduled_exec_acts[self._scheduled_exec_acts.index(exec_act)]
 
-                        exec_act_has_been_updated = not (latest_exec_act.plans_match(updated_exec_act) and
-                            updated_exec_act.act.executable_start == latest_exec_act.act.executable_start and
-                            updated_exec_act.act.executable_end == latest_exec_act.act.executable_end)
+                        exec_act_has_been_updated = not (exec_act.plans_match(updated_exec_act) and
+                            updated_exec_act.act.executable_start == exec_act.act.executable_start and
+                            updated_exec_act.act.executable_end == exec_act.act.executable_end)
 
                         if exec_act_has_been_updated:
-                            self._update_act_execution_context(latest_exec_act,updated_exec_act)
+                            self._update_act_execution_context(exec_act,updated_exec_act)
                             
 
                 # record any activites that were previously planned for the future, but are no longer present
