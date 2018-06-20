@@ -196,8 +196,7 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
         """ returns true if the schedule cache has been updated (though the activities need not have actually changed)"""
         return self._schedule_cache_updated
 
-    @property
-    def schedule_changed(self):
+    def check_schedule_changes(self):
         return self.plan_db.check_and_reset_sim_rt_conts_changed()
 
     def flag_planning_info_rx_external(self):
@@ -300,9 +299,10 @@ class Executive:
             self._scheduled_exec_acts = self.scheduler.get_scheduled_executable_acts()
 
             #  this will only report an event if the route containers actually changed ( so the global planner updated route containers, or satellite did - not just if a planning information update happened)
-            if self.scheduler.schedule_changed:
-                self._schedule_changed_hist.append(self._curr_time_dt)
-                self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','schedule update','scheduled route containers changed in plan_db')
+            schedule_changed,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added = self.scheduler.check_schedule_changes()
+            if schedule_changed:
+                self._schedule_changed_hist.append((self._curr_time_dt,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added))
+                self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','schedule update','route containers changed in plan_db: %d modified, %d added'%(num_sim_rt_conts_existing_changed,num_sim_rt_conts_added))
         else:
             return
 
@@ -806,13 +806,19 @@ class PlanningInfoDB:
 
         # Will be true if any new or changed sim route containers were observed the last time planning information was received into this database
         self.sim_rt_conts_changed = False
+        self.num_sim_rt_conts_existing_changed = 0
+        self.num_sim_rt_conts_added = 0
 
         self.sim_agent = sim_agent
 
     def check_and_reset_sim_rt_conts_changed(self):
         changed = self.sim_rt_conts_changed
+        num_sim_rt_conts_existing_changed = self.num_sim_rt_conts_existing_changed
+        num_sim_rt_conts_added = self.num_sim_rt_conts_added
         self.sim_rt_conts_changed = False
-        return changed
+        self.num_sim_rt_conts_existing_changed = 0
+        self.num_sim_rt_conts_added = 0
+        return changed,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added
 
     def initialize(self,plan_db_inputs):
         self.sat_id_order = plan_db_inputs['sat_id_order']
@@ -900,10 +906,12 @@ class PlanningInfoDB:
             if rt_cont.ID in self.sim_rt_conts_by_id.keys():
                 if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
                     self.sim_rt_conts_changed = True
+                    self.num_sim_rt_conts_existing_changed += 1
                     self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
                     self.sim_rt_cont_update_hist_by_id[rt_cont.ID].append(update_entry)
             else:
                 self.sim_rt_conts_changed = True
+                self.num_sim_rt_conts_added += 1
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
                 self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[update_entry])
 
