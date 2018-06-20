@@ -8,6 +8,7 @@
 import os.path
 import sys
 import json
+import pickle
 # from multiprocessing import Process, Queue
 from copy import copy
 # import pickle
@@ -107,9 +108,9 @@ class GlobalPlannerWrapper:
         with open('pickles/most_recent_gp_instance_params.json','w') as f:
             json.dump(  gp_instance_params,f)
 
-        # save off a json with these gp params so we can run this instance again (for debug)
-        with open('pickles/most_recent_gp_existing_routes_input.json','w') as f:
-            json.dump(  existing_route_data,f)
+        # save off a pickle with these gp params so we can run this instance again (for debug)
+        with open('pickles/most_recent_gp_existing_routes_input.pkl','wb') as f:
+            pickle.dump(  existing_route_data,f)
 
         ##############################
         #  run the GP
