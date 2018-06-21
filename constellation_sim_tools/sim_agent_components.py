@@ -745,6 +745,8 @@ class DataStore:
 
         #  database for data containers currently within the data store
         self.data_conts_by_id = {}
+        # all those dcs that have been dropped (e.g. because their SRC wasn't executed as expected)
+        self.dropped_data_conts_by_id = {}
 
     def add(self,data_conts):
         """Add data containers (packets) to the data store"""
@@ -753,7 +755,7 @@ class DataStore:
             # only add if it's not present yet
             self.data_conts_by_id.setdefault(dc.ID,dc)
 
-    def cleanup(self,data_conts,dv_epsilon = 0.001):
+    def remove_empty_dcs(self,data_conts,dv_epsilon = 0.001):
         """ remove any data containers that have effectively zero data volume"""
 
         # dv_epsilon  assumed to be in Mb
@@ -773,6 +775,11 @@ class DataStore:
     def get_total_dv(self):
         """Get the total amount of data volume stored currently"""
         return sum(dc.data_vol for dc in self.data_conts_by_id.values())
+
+    def drop_dc(self,dc):
+        if dc.ID in self.data_conts_by_id.keys():
+            self.data_conts_by_id.pop(dc.ID)
+            self.dropped_data_conts_by_id[dc.ID] = dc
 
 
 #  record of satellite state. update_dt is the date time at which this state was valid.
@@ -910,6 +917,9 @@ class PlanningInfoDB:
         return uhs
 
     def update_routes(self,rt_conts,curr_time_dt):
+        # todo: technically, this should update latest planned routes in existing data containers too.
+
+
         for rt_cont in rt_conts:
             # only account for a single dmr being present in rt_cont for now
             rt_cont_utilization = rt_cont.get_first_dmr_utilization()

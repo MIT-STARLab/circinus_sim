@@ -36,6 +36,7 @@ class SimDataContainer:
         self._ID_hist = []
 
         # Contains all of the route containers that specified the plans for routing this data. this history is added to every time data is moved between agents.
+        # Note that when planning info is updated, this planned route history should be updated as well, if the global planner is intended to update existing data conts
         self._planned_rt_hist = []
 
     @property
@@ -48,8 +49,7 @@ class SimDataContainer:
 
     @property
     def latest_planned_rt_cont(self):
-        """ get the latest planned route for this data container"""
-
+        """ get the latest planned route for this data container. This can be trusted as the specification of where the data is planned to be sent, at any given time"""
 
         # Note that it is an error for the planned route history to be empty -  it should always be populated by at least one entry after a new Sim data route is created
         latest_planned_rt_cont = self._planned_rt_hist[-1]
@@ -108,8 +108,17 @@ class SimDataContainer:
         else:
             self._planned_rt_hist.append(rt_cont)
 
+    def is_stale(self,time_dt):
+        rc = self.latest_planned_rt_cont
 
+        next_planned_wind = rc.get_next_planned_wind(self._executed_dr)
 
+        # if we're already past the next planned window for the planned route for this data cont, it's stale.
+        # use original_end to make the check less stringent
+        if next_planned_wind.original_end < time_dt:
+            return True
+        else:
+            return False
     
 class SimRouteContainer:
     """ This object wraps the data routes produced in both the global and local planners, for use in simulation. it can essentially be thought of as a data route, in the context of the constellation simulation.
@@ -241,6 +250,15 @@ class SimRouteContainer:
 
     def get_routes(self):
         return list(self.dmrs_by_id.values())
+
+    def get_next_planned_wind(self,rt):
+
+        for dmr in self.get_routes():
+            if dmr.contains_route(rt):
+                return dmr.get_next_planned_wind(rt)
+
+        # if we're checking for a next planned route, should be sure rt is contained in self first before calling this func. Raise warning here to warn about bad situations otherwise.
+        raise RuntimeWarning('did not find a matching planned dmr in self for rt (self: %s, other rt: %s)'%(self,rt))
 
     def get_dv_epsilon(self):
         """ get DV epsilon that is representative for this route container"""

@@ -93,7 +93,7 @@ class GSStateSimulator(StateSimulator):
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
 
     def cleanup_data_conts(self,data_conts):
-        self.data_store.cleanup(data_conts)        
+        self.data_store.remove_empty_dcs(data_conts)        
 
 class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
     """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""

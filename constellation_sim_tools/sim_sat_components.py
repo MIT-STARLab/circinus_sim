@@ -200,8 +200,17 @@ class SatStateSimulator(StateSimulator):
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
 
-    def cleanup_data_conts(self,data_conts):
-        self.data_store.cleanup(data_conts)
+    def cleanup_data_conts(self,data_conts,time_dt):
+        if not time_dt == self._curr_time_dt:
+            raise RuntimeWarning('Attempting to cleanup data conts in state sim off-timestep')
+
+        self.data_store.remove_empty_dcs(data_conts)
+
+        for dc in self.data_store.get_curr_data_conts():
+            if dc.is_stale(time_dt):
+                self.data_store.drop_dc(dc)
+                self.DS_state -= dc.data_vol
+                self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','data cont drop','dc has become stale, dropping: %s'%(dc))
 
 
 class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
@@ -393,8 +402,8 @@ class SatExecutive(Executive):
 
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
 
-        # flag any empty data conts that we transmitted for removal
-        self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'])
+        # flag any empty data conts that we transmitted for removal, and drop any ones that didn't get transmitted, but were supposed to.
+        self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'],new_time_dt)
 
         #  if the activity was injected, then we need to run the local planner afterwards to deal with the unplanned effects of the activity
         if exec_act.injected:
@@ -538,7 +547,7 @@ class SatExecutive(Executive):
         #  deal with cross-link if we are the transmitting satellite
         #  note: this code only deals with execution by the transmitting satellite. execution by the receiving satellite is dealt with within xlnk_receive_poll()
         elif type(curr_act_wind) == XlnkWindow:
-
+            
             xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
             xsat = self.sim_sat.get_sat_from_indx(xsat_indx)
             xsat_exec = xsat.get_exec()
