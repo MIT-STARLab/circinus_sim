@@ -418,6 +418,16 @@ class Executive:
             #  in this case, remove all of the next acts
             next_exec_acts = []
 
+        # deal with the fact that find_windows_in_wind_list() will return an exec_act even if we're at the very end of it. Want to go ahead and call those done right here and now
+        next_exec_acts_corner_cuss = []        
+        for exec_act in next_exec_acts:
+            # if new time is within epsilon of act end, call it done
+            if self.executable_time_accessor(exec_act,'end') <= new_time_dt + self.sim_executive_agent.time_epsilon_td:
+                continue
+            else:
+                next_exec_acts_corner_cuss.append(exec_act)
+        next_exec_acts = next_exec_acts_corner_cuss
+
 
         # remove cancelled acts from next exec acts
         next_exec_acts = [exec_act for exec_act in next_exec_acts if not exec_act in self._cancelled_acts]
@@ -559,6 +569,7 @@ class Executive:
         if not proposed_act in [exec_act.act for exec_act in self._curr_exec_acts]:
             received_dv = 0
             rx_success = False
+            self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','act execution anomaly','receive poll: proposed act %s not in self current exec acts (%s)'%(proposed_act,self._curr_exec_acts))
             return received_dv,rx_success
 
         #############
@@ -592,6 +603,8 @@ class Executive:
 
         #  if we're not able to receive data, then return immediately
         if received_dv < self.dv_epsilon:
+            self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','act execution anomaly','receive poll: insufficient dv availability (%s) to rx proposed dv (%s)'%(self.state_sim.get_available_data_storage(self._curr_time_dt,rx_delta_dv),proposed_dv))
+
             rx_success = False
             return received_dv,rx_success
 
