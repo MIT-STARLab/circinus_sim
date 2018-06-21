@@ -420,7 +420,7 @@ class ConstellationSim:
             self.ecl_winds
         )
         
-        debug_tools.debug_breakpt()
+        # debug_tools.debug_breakpt()
 
 
 
@@ -530,11 +530,11 @@ class ConstellationSim:
             num_bins = 40,
             plot_type = 'histogram',
             x_title='AoI (hours)',
-            y_title='Number of observations',
-            plot_title = 'Histogram of average AoI, with routing, by obs - executed routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_size_inches = (12,6),
+            y_title='Number of Obs Targets',
+            plot_title = 'CIRCINUS Sim: Average AoI Histogram, with routing (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,5),
             show=False,
-            fig_name='plots/obs_aoi_routing_executed_hist.pdf'
+            fig_name='plots/csim_obs_aoi_routing_executed_hist.pdf'
         )
 
         # plot obs latency histogram, planned routes
@@ -543,11 +543,11 @@ class ConstellationSim:
             num_bins = 40,
             plot_type = 'histogram',
             x_title='AoI (hours)',
-            y_title='Number of observations',
-            plot_title = 'Histogram of average AoI, from collection times, by obs - executed routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_size_inches = (12,6),
+            y_title='Number of Obs Targets',
+            plot_title = 'CIRCINUS Sim: Average AoI Histogram, at collection (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,5),
             show=False,
-            fig_name='plots/obs_aoi_collection_executed_hist.pdf'
+            fig_name='plots/csim_obs_aoi_collection_executed_hist.pdf'
         )
 
         # plot obs latency histogram, planned routes
@@ -556,11 +556,11 @@ class ConstellationSim:
             num_bins = 40,
             plot_type = 'histogram',
             x_title='Latency (mins)',
-            y_title='Number of observations',
-            plot_title = 'Histogram of initial latency by obs - planned routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_size_inches = (12,6),
+            y_title='Number of Obs Windows',
+            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, planned (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,5),
             show=False,
-            fig_name='plots/obs_lat_planned_hist.pdf'
+            fig_name='plots/csim_obs_lat_planned_hist.pdf'
         )
 
         # plot obs latency histogram, executed routes
@@ -569,11 +569,24 @@ class ConstellationSim:
             num_bins = 40,
             plot_type = 'histogram',
             x_title='Latency (mins)',
-            y_title='Number of observations',
-            plot_title = 'Histogram of initial latency by obs - executed routes (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_size_inches = (12,6),
+            y_title='Number of Obs Windows',
+            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,5),
             show=False,
-            fig_name='plots/obs_lat_executed_hist.pdf'
+            fig_name='plots/csim_obs_lat_executed_hist.pdf'
+        )
+
+        # plot obs latency histogram, executed routes
+        pltl.plot_histogram(
+            data=lat_stats['executed_initial_lat_by_obs_exec'].values(),
+            num_bins = 40,
+            plot_type = 'cdf',
+            x_title='Latency (mins)',
+            y_title='Number of Obs Windows',
+            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_size_inches = (12,5),
+            show=False,
+            fig_name='plots/csim_obs_lat_executed_cdf.pdf'
         )
 
     def get_metrics_params(self):

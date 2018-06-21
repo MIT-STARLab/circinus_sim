@@ -78,13 +78,16 @@ class SimPlotting():
 
             # return label_text
             rx_or_tx = 'rx' if xlnk.is_rx(sat_indx) else 'tx'
-            return "x%d,%s%d,dv %d/%d (%d)"%(xlnk.window_ID,rx_or_tx,xlnk.get_xlnk_partner(sat_indx),xlnk.executed_data_vol,xlnk.executable_data_vol,xlnk.data_vol) 
+            # return "x%d,%s%d,dv %d/%d (%d)"%(xlnk.window_ID,rx_or_tx,xlnk.get_xlnk_partner(sat_indx),xlnk.executed_data_vol,xlnk.executable_data_vol,xlnk.data_vol) 
+            return "x%d,%s%d,dv %d/%d"%(xlnk.window_ID,rx_or_tx,xlnk.get_xlnk_partner(sat_indx),xlnk.executed_data_vol,xlnk.executable_data_vol) 
 
         def dlnk_label_getter(dlnk):
-            return "d%d,g%d,dv %d/%d (%d)"%(dlnk.window_ID,dlnk.gs_indx,dlnk.executed_data_vol,dlnk.executable_data_vol,dlnk.data_vol) 
+            # return "d%d,g%d,dv %d/%d (%d)"%(dlnk.window_ID,dlnk.gs_indx,dlnk.executed_data_vol,dlnk.executable_data_vol,dlnk.data_vol) 
+            return "d%d,g%d,dv %d/%d"%(dlnk.window_ID,dlnk.gs_indx,dlnk.executed_data_vol,dlnk.executable_data_vol)
 
         def obs_label_getter(obs):
-            return "o%d, dv %d/%d (%d)"%(obs.window_ID,obs.executed_data_vol,obs.executable_data_vol,obs.data_vol)
+            # return "o%d, dv %d/%d (%d)"%(obs.window_ID,obs.executed_data_vol,obs.executable_data_vol,obs.data_vol)
+            return "o%d, dv %d/%d"%(obs.window_ID,obs.executed_data_vol,obs.executable_data_vol)
 
         return obs_label_getter,dlnk_label_getter,xlnk_label_getter
 
@@ -146,13 +149,13 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Executed and Planned Sat Acts'
+        plot_params['plot_title'] = 'CIRCINUS Sim: Planned and Executed Sat Acts'
         plot_params['y_label'] = 'Satellite Index'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/sim_sats_acts.pdf'
+        plot_params['fig_name'] = 'plots/csim_sats_acts.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
@@ -167,6 +170,16 @@ class SimPlotting():
         plot_params['plot_include_obs_labels'] = self.input_plot_params['sat_acts_plot']['include_obs_labels']
         plot_params['plot_include_xlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_xlnk_labels']
         plot_params['plot_include_dlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_dlnk_labels']
+
+        plot_params['obs_choices_legend_name'] =  "O plan"
+        plot_params['obs_exe_legend_name'] =  "O exec."
+        plot_params['dlnk_choices_legend_name'] =  "D plan"
+        plot_params['dlnk_exe_legend_name'] =  "D exec."
+        plot_params['xlnk_choices_legend_name'] =  "X plan"
+        plot_params['xlnk_exe_legend_name'] =  "X exec."
+
+        plot_params['label_fontsize'] =  "12"
+        
 
         plot_params['xlnk_route_index_to_use'] = 0
         plot_params['xlnk_color_rollover'] = 5
@@ -220,7 +233,7 @@ class SimPlotting():
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/sim_gs_dlnks.pdf'
+        plot_params['fig_name'] = 'plots/csim_gs_dlnks.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['gs_acts_plot']['time_units']
@@ -271,10 +284,10 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Energy Storage Utilization - Constellation Sim'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_title'] = 'CIRCINUS Sim: Executed Energy Storage Utilization'
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_energy.pdf'
+        plot_params['fig_name'] = 'plots/csim_sats_energy.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['energy_usage_plot']['time_units']
@@ -303,10 +316,10 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Data Storage Utilization - Constellation Sim'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_title'] = 'CIRCINUS Sim: Executed Data Storage Utilization'
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_data.pdf'
+        plot_params['fig_name'] = 'plots/csim_sats_data.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['data_usage_plot']['time_units']
@@ -333,17 +346,20 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Executed Observation Target AoI, at collection'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_title'] = 'CIRCINUS Sim: Executed Observation Target AoI, at collection'
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_obs_aoi_collection.pdf'
+        plot_params['fig_name'] = 'plots/csim_obs_aoi_collection.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['ylabel'] = 'Target Index'
+        plot_params['ylabel'] = 'Target Index,\nAoI (hours)\n'
         plot_params['time_units'] = self.input_plot_params['obs_aoi_plot']['x_axis_time_units']
 
         plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['obs_aoi_plot']['plot_bound_min_aoi_hours']
         plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['obs_aoi_plot']['plot_bound_max_aoi_hours']
+        
+        plot_params['include_legend'] = False
+
 
         pltl.plot_aoi_by_item(
             targ_ids_list,
@@ -360,17 +376,19 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Executed Observation Target AoI, with routing'
+        plot_params['plot_title'] = 'CIRCINUS Sim: Executed Observation Target AoI, with routing'
         plot_params['plot_size_inches'] = (18,12)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_obs_aoi_routing.pdf'
+        plot_params['fig_name'] = 'plots/csim_obs_aoi_routing.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['ylabel'] = 'Target Index'
+        plot_params['ylabel'] = 'Target Index,\nAoI (hours)\n'
         plot_params['time_units'] = self.input_plot_params['obs_aoi_plot']['x_axis_time_units']
 
         plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['obs_aoi_plot']['plot_bound_min_aoi_hours']
         plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['obs_aoi_plot']['plot_bound_max_aoi_hours']
+
+        plot_params['include_legend'] = False
 
         pltl.plot_aoi_by_item(
             targ_ids_list,
@@ -387,17 +405,19 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Satellite CMD Uplink AoI'
+        plot_params['plot_title'] = 'CIRCINUS Sim: Satellite CMD Uplink AoI'
         plot_params['plot_size_inches'] = (18,12)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_sat_cmd_aoi.pdf'
+        plot_params['fig_name'] = 'plots/csim_sat_cmd_aoi.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['ylabel'] = 'Satellite Index'
+        plot_params['ylabel'] = 'Satellite Index,\nAoI (hours)\n'
         plot_params['time_units'] = self.input_plot_params['sat_cmd_aoi_plot']['x_axis_time_units']
 
         plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['sat_cmd_aoi_plot']['plot_bound_min_aoi_hours']
         plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['sat_cmd_aoi_plot']['plot_bound_max_aoi_hours']
+
+        plot_params['include_legend'] = False
 
         pltl.plot_aoi_by_item(
             sat_ids_list,
@@ -414,17 +434,19 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Satellite TLM Downlink AoI'
+        plot_params['plot_title'] = 'CIRCINUS Sim: Satellite TLM Downlink AoI'
         plot_params['plot_size_inches'] = (18,12)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/const_sim_sat_tlm_aoi.pdf'
+        plot_params['fig_name'] = 'plots/csim_sat_tlm_aoi.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
-        plot_params['ylabel'] = 'Satellite Index'
+        plot_params['ylabel'] = 'Satellite Index,\nAoI (hours)\n'
         plot_params['time_units'] = self.input_plot_params['sat_tlm_aoi_plot']['x_axis_time_units']
 
         plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['sat_tlm_aoi_plot']['plot_bound_min_aoi_hours']
         plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['sat_tlm_aoi_plot']['plot_bound_max_aoi_hours']
+
+        plot_params['include_legend'] = False
 
         pltl.plot_aoi_by_item(
             sat_ids_list,
