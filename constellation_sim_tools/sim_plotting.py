@@ -228,7 +228,7 @@ class SimPlotting():
 
         plot_params['plot_title'] = 'Executed and Planned GS Downlinks'
         plot_params['y_label'] = 'Ground Station Index'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['plot_include_labels'] = self.input_plot_params['gs_acts_plot']['include_labels']
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
@@ -377,7 +377,7 @@ class SimPlotting():
         plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'CIRCINUS Sim: Executed Observation Target AoI, with routing'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/csim_obs_aoi_routing.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
@@ -406,7 +406,7 @@ class SimPlotting():
         plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'CIRCINUS Sim: Satellite CMD Uplink AoI'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/csim_sat_cmd_aoi.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
@@ -435,7 +435,7 @@ class SimPlotting():
         plot_params['base_time_dt'] = self.plots_base_dt
 
         plot_params['plot_title'] = 'CIRCINUS Sim: Satellite TLM Downlink AoI'
-        plot_params['plot_size_inches'] = (18,12)
+        plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
         plot_params['fig_name'] = 'plots/csim_sat_tlm_aoi.pdf'
         plot_params['plot_fig_extension'] = 'pdf'

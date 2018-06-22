@@ -420,7 +420,9 @@ class ConstellationSim:
             self.ecl_winds
         )
         
-        # debug_tools.debug_breakpt()
+        # [ID,item for ID,item in pdb.sim_rt_cont_update_hist_by_id.items() if len(item) > 1]
+        
+        debug_tools.debug_breakpt()
 
 
 

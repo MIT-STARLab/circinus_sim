@@ -109,7 +109,12 @@ class SimDataContainer:
             self._planned_rt_hist.append(rt_cont)
 
     def is_stale(self,time_dt):
+        """ check if there is still a valid plan for routing data container"""
         rc = self.latest_planned_rt_cont
+
+        # If there is no planned route for this data container, then it is definitely still
+        if rc is None:
+            return True
 
         next_planned_wind = rc.get_next_planned_wind(self._executed_dr)
 
