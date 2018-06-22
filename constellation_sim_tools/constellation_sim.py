@@ -49,6 +49,8 @@ class ConstellationSim:
         self.obs_target_id_order = self.params['orbit_prop_params']['obs_params']['obs_target_id_order']
         self.num_gs = len(self.gs_params['gs_id_order'])
 
+        self.restore_pickle_cmdline_arg = sim_params['restore_pickle_cmdline_arg']
+
         self.gs_id_ignore_list= self.params['gp_general_params']['other_params']['gs_id_ignore_list']
 
         self.sim_tick = timedelta(seconds=self.sim_run_params['sim_tick_s'])
@@ -233,11 +235,14 @@ class ConstellationSim:
         first_iter = True
 
         # unpickle from a checkpoint if so desired
-        if self.sim_run_params['restore_from_checkpoint']:
-            global_time, self.gs_network, self.sats_by_id, self.gs_by_id = self.unpickle_checkpoint(self.sim_run_params['restore_pkl_name'])
+        if self.sim_run_params['restore_from_checkpoint'] or self.restore_pickle_cmdline_arg != "":
+            # get pickle name from cmdline if it was provided
+            pickle_name = self.restore_pickle_cmdline_arg if self.restore_pickle_cmdline_arg != "" else self.sim_run_params['restore_pkl_name']
+
+            global_time, self.gs_network, self.sats_by_id, self.gs_by_id = self.unpickle_checkpoint(pickle_name)
             first_iter= False
             assert(global_time != self.sim_start_dt)  # to make sure it actually isn't the first iteration
-            print_verbose('Unpickled checkpoint file %s'%(self.sim_run_params['restore_pkl_name']),verbose)
+            print_verbose('Unpickled checkpoint file %s'%(pickle_name),verbose)
 
 
         #######################
@@ -386,7 +391,7 @@ class ConstellationSim:
         # Plot stuff
 
         sats_to_plot = self.sat_id_order
-        # sats_to_plot = ['sat0']
+        # sats_to_plot = ['sat3','sat4','sat5']
 
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
@@ -421,7 +426,7 @@ class ConstellationSim:
         )
         
         # [ID,item for ID,item in pdb.sim_rt_cont_update_hist_by_id.items() if len(item) > 1]
-        
+
         debug_tools.debug_breakpt()
 
 

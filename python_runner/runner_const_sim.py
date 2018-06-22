@@ -109,6 +109,7 @@ class PipelineRunner:
         sim_params['data_rates_params'] = data_rates_params
         sim_params['const_sim_inst_params'] = const_sim_inst_params
         sim_params['other_params'] = sim_other_params
+        sim_params['restore_pickle_cmdline_arg'] = data['restore_pickle_cmdline_arg']
         sim_runner = const_sim.ConstellationSim(sim_params)
         sim_runner.run()
         output = sim_runner.post_run()
@@ -149,6 +150,11 @@ if __name__ == "__main__":
                     default='crux/config/examples/const_sim_params_ex.json',
                     help='specify constellation simulation parameters file')
 
+    ap.add_argument('--restore_pickle',
+                    type=str,
+                    default="",
+                    help='pickle to restore sim run from. Must be matched with right params file!')
+
     args = ap.parse_args()
 
     pr = PipelineRunner()
@@ -174,7 +180,8 @@ if __name__ == "__main__":
         "orbit_link_inputs": orbit_link_inputs,
         "gp_general_params_inputs": gp_general_params_inputs,
         "data_rates_inputs": data_rates_inputs,
-        "const_sim_inst_params_inputs": const_sim_params_inputs
+        "const_sim_inst_params_inputs": const_sim_params_inputs,
+        "restore_pickle_cmdline_arg": args.restore_pickle
     }
 
     a = time.time()
