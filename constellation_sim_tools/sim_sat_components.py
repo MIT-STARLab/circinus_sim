@@ -200,7 +200,7 @@ class SatStateSimulator(StateSimulator):
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
 
-    def cleanup_data_conts(self,data_conts,time_dt):
+    def cleanup_data_conts(self,data_conts,exec_act,time_dt):
         if not time_dt == self._curr_time_dt:
             raise RuntimeWarning('Attempting to cleanup data conts in state sim off-timestep')
 
@@ -210,7 +210,7 @@ class SatStateSimulator(StateSimulator):
             if dc.is_stale(time_dt):
                 self.data_store.drop_dc(dc)
                 self.DS_state -= dc.data_vol
-                self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','data cont drop','dc has become stale, dropping: %s'%(dc))
+                self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','data cont drop','dc has become stale, dropping: %s, latest_planned_rt_cont: %s. Exec act being cleaned up: %s'%(dc,dc.latest_planned_rt_cont,exec_act))
 
 
 class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
@@ -407,7 +407,7 @@ class SatExecutive(Executive):
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
 
         # flag any empty data conts that we transmitted for removal, and drop any ones that didn't get transmitted, but were supposed to.
-        self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'],new_time_dt)
+        self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'],exec_act,new_time_dt)
 
         #  if the activity was injected, then we need to run the local planner afterwards to deal with the unplanned effects of the activity
         if exec_act.injected:
