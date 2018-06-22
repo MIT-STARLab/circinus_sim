@@ -445,7 +445,14 @@ class Executive:
         #  set up execution context for any activities that are just beginning
         #  note that we want to clean up before we initialize, because during initialization data structures are set up that may be dependent on an activity that ends in the time step for this new one. If at some point in the future we want to allow two ongoing activities to handle the same data (i.e. second activity grabs data from a first activity while the first is still ongoing), this initialization and cleanup approach will have to be changed. for the time being though, we assume that activities that execute at the same time handle mutually exclusive data
         for exec_act in added_exec_acts:
-            self._initialize_act_execution_context(exec_act,new_time_dt)
+            exec_context = self._initialize_act_execution_context(exec_act,new_time_dt)
+
+            # if initialization wasn't successful, remove from next acts and add to cancelled. 
+            # Saw this crop up as a bug at commit e52550650520eadb58652641311b318189ffa22c in 10 sat SSO ring scenario, not really sure why. Hunch that it's because a previous plan had an exec act that finished and then new plans from GP came in right after it finished with a new version of the act with a later start time # todo: debug this
+            if exec_context is None:
+                next_exec_acts.remove(exec_act)
+                self._cancelled_acts.add(exec_act)
+
 
         self._curr_exec_acts = next_exec_acts        
 
@@ -459,8 +466,11 @@ class Executive:
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
         """ Sets up the context dictionary used for the execution of a given activity. Should be run before starting to execute it"""
 
+        curr_exec_context = None
         if exec_act in self._execution_context_by_exec_act.keys():
-            raise RuntimeWarning('trying to re-initialize context for an executive act')
+            self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','act context reinitialization','Current ExecutableActivity has already been executed and cleaned up, cannot be re-started. exec act: %s'%exec_act )
+            # return None as a signal that exec context not created successfully
+            return curr_exec_context
 
         self._execution_context_by_exec_act[exec_act] = {}
 

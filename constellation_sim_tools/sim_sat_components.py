@@ -358,6 +358,10 @@ class SatExecutive(Executive):
 
         curr_exec_context = super()._initialize_act_execution_context(exec_act,new_time_dt)
 
+        # if there was an error in initialization, return None
+        if curr_exec_context is None:
+            return None
+
         act = exec_act.act
 
         #  transmitted data containers (packets) for this activity ( if transmitting)
@@ -547,7 +551,7 @@ class SatExecutive(Executive):
         #  deal with cross-link if we are the transmitting satellite
         #  note: this code only deals with execution by the transmitting satellite. execution by the receiving satellite is dealt with within xlnk_receive_poll()
         elif type(curr_act_wind) == XlnkWindow:
-            
+
             xsat_indx = curr_act_wind.get_xlnk_partner(self.sim_sat.sat_indx)
             xsat = self.sim_sat.get_sat_from_indx(xsat_indx)
             xsat_exec = xsat.get_exec()
