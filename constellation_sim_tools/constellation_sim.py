@@ -447,6 +447,7 @@ class ConstellationSim:
         def rt_cont_plan_dv_getter(rt_cont):
             return rt_cont.data_vol
 
+
         # get all the rt containers that the gs network ever saw
         planned_routes = self.gs_network.get_all_planned_rt_conts()           
         # get the routes for all the packets at each GS at sim end
@@ -455,6 +456,7 @@ class ConstellationSim:
         # note that the below functions assume that for all rt_conts:
         # - the observation, downlink for all DMRs in the rt_cont are the same
 
+        # debug_tools.debug_breakpt()
         print('------------------------------')
 
         dv_stats = mc.assess_dv_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
