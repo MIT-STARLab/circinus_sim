@@ -59,13 +59,14 @@ class GlobalPlannerWrapper:
             raise RuntimeWarning('should not be running GP after end of sim')
 
         gp_instance_params = {
-            "version": "0.6",
+            "version": "0.7",
             "planning_params": {
                 "planning_start" :  datetime_to_iso8601(get_inp_time(curr_time_dt,self.gp_params['planning_past_horizon_mins'])),
                 "planning_fixed_end" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_fixed_mins']))),
                 "planning_end_obs" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_obs_mins']))),
                 "planning_end_xlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_xlnk_mins']))),
-                "planning_end_dlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_dlnk_mins'])))
+                "planning_end_dlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_dlnk_mins']))),
+                "max_num_dlnks_allowed_after_planning_end_xlnk": self.gp_params['max_num_dlnks_allowed_after_planning_end_xlnk']
             },
             "activity_scheduling_params": {
                 "plot_activity_scheduling_results": False
