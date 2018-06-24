@@ -397,7 +397,7 @@ class SatExecutive(Executive):
             assert(dv_avail >= 0)
 
             # limit our claim to the maximum data volume for the observation
-            curr_exec_context['obs_dv_available'] = min(dv_avail,act.data_vol)
+            curr_exec_context['obs_dv_available'] = min(dv_avail,act.executable_data_vol)
 
         #  returning this not because it's expected to be used, but to be consistent with superclass
         return curr_exec_context
