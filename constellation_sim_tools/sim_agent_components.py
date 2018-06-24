@@ -398,18 +398,20 @@ class Executive:
         # update schedule if need be
         self._pull_schedule()
 
+        next_exec_acts = []
         # figure out next activities, index of that act in schedule
         regular_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_scheduled_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
         self._last_scheduled_exec_act_windex = exec_act_windices[1]
-        next_exec_acts = regular_exec_acts
+        next_exec_acts += regular_exec_acts
 
         # NOTE: for time being, assume that injected acts just wholesale replace whatever other activity might have been going on. Note that we don't account for transition times before or after injects. ¯\_(ツ)_/¯
-
 
         #  also consider injected activities ("spontaneous", unplanned activities)
         injected_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_injected_exec_act_windex,self._injected_exec_acts,self.executable_time_accessor)
         self._last_injected_exec_act_windex = exec_act_windices[1]
-        next_exec_acts = injected_exec_acts
+        # mark any supposed-to-be scheduled acts as cancelled, they'll be filtered below
+        for exec_act in next_exec_acts: self._cancelled_acts.add(exec_act)
+        next_exec_acts += injected_exec_acts
 
         # sanity check that state sim has advanced to next timestep (new_time_dt) already
         assert(self.state_sim._curr_time_dt == new_time_dt)

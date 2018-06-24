@@ -277,7 +277,7 @@ class SimRouteContainer:
         if self.creation_dt is None:
             self.creation_dt = update_dt
 
-    def not_updated_check(self,dmr,dmr_dv_util):
+    def updated_check(self,dmr,dmr_dv_util):
         """Returns true if self is not updated; that is, utilization for contained datamultiroute has not changed significantly"""
 
         if not type(dmr) == DataMultiRoute:
@@ -286,7 +286,7 @@ class SimRouteContainer:
         # sanity check that the same DMR is actually here
         assert(dmr.ID in self.dmrs_by_id.keys())
 
-        return (abs(self.dv_utilization_by_dmr_id[dmr.ID] - dmr_dv_util) < self.dv_utilization_epsilon)
+        return (abs(self.dv_utilization_by_dmr_id[dmr.ID] - dmr_dv_util) > self.dv_utilization_epsilon)
 
 
     #  note: should not be using this function to update route containers ( the objects should be replaced)

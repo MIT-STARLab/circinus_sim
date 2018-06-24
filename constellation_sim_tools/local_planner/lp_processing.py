@@ -73,6 +73,7 @@ class LPProcessing:
 
             has_tx_in_planning_window = len(tx_winds_in_planning_window) > 0
             #  this is the amount of outgoing data volume from this route, within the planning window
+            # note: utilization is factored in below
             tx_dv_in_planning_window = sum(rt.data_vol_for_wind(wind) for wind in tx_winds_in_planning_window)
 
 
@@ -89,6 +90,7 @@ class LPProcessing:
                 )
             ]
             has_rx_in_planning_window = len(rx_winds_in_planning_window) > 0
+            # note: utilization is factored in below
             rx_dv_in_planning_window = sum(rt.data_vol_for_wind(wind) for wind in rx_winds_in_planning_window)
 
 

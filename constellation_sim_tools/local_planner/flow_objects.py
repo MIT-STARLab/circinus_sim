@@ -1,3 +1,4 @@
+from datetime import timedelta
 from circinus_tools.scheduling.routing_objects  import RoutingObjectID
 from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute
 
@@ -21,7 +22,9 @@ class PartialFlow:
         # self._flow_type = flow_type
 
         #  stores all of those activity windows which were found to be within the planning window on the satellite of interest. so these are the activity windows which are to be used for routing data volume for this flow. note that data volume for this flow should not be calculated from _winds_in_planning_window, but rather be obtained from self.data_vol. the point of storing these windows is for us to know which windows are required to be executed for routing the flow
+        # note this may be zero if it's an inflow from a data cont
         self._winds_in_planning_window = winds_in_planning_window
+
 
         if not direction in self.valid_directions:
             raise NotImplementedError
@@ -87,7 +90,7 @@ class PartialFlow:
 
 
 
-    def flow_precedes(self,other):
+    def flow_precedes(self,other,act_timing_helper):
         """ Check if the data delivered from self (inflow) is available before the other (outflow)."""
         # Note: this avoids flow splitting, by ensuring that all of the windows in self that arrive at the satellite precede all of the windows in other that depart the satellite. if we did not ensure this, we could end up splitting two parallel flows present within a DataMultiRoute
 
@@ -105,12 +108,23 @@ class PartialFlow:
             return True
 
         # figure out the latest time that the inflow is delivering data to the satellite.
-        latest_arrival_on_sat = max(wind.end for wind in self._winds_in_planning_window)
+        # note: functions like an argmax
+        latest_arrival_on_sat_wind = max((wind for wind in self._winds_in_planning_window if wind.is_rx(self.sat_indx)),key= lambda w:w.end)
         # figure out the earliest time that the outflow is carrying data off the satellite.
-        earliest_departure_from_sat = min(wind.start for wind in other._winds_in_planning_window)
+        earliest_departure_from_sat_wind = min((wind for wind in other._winds_in_planning_window if wind.is_tx(self.sat_indx)),key= lambda w:w.start)
 
-        # todo:  handle any necessary transition time constraints here
-        return latest_arrival_on_sat <= earliest_departure_from_sat
+        if latest_arrival_on_sat_wind.center > earliest_departure_from_sat_wind.center:
+            return False
+
+        # include transition time consideration
+        preceeds = (latest_arrival_on_sat_wind.end + 
+                        timedelta(seconds = act_timing_helper.get_transition_time_req(latest_arrival_on_sat_wind,
+                                earliest_departure_from_sat_wind,self.sat_indx,self.sat_indx
+                        ))
+                        <= earliest_departure_from_sat_wind.start
+                    )
+
+        return preceeds
 
     def get_required_acts(self):
         """ get all of the activity windows that are relevant for scheduling this flow"""

@@ -103,7 +103,7 @@ class LPScheduling(AgentScheduling):
                 capacity_by_partial_flow_id[outflow.ID] = outflow.data_vol
 
                 #  if the data delivered from this inflow is available before the outflow, then they can be combined into a unified flow
-                if inflow.flow_precedes(outflow):
+                if inflow.flow_precedes(outflow,self.act_timing_helper):
                     possible_unified_flows_ids_by_inflow_id.setdefault(inflow.ID,[])
                     possible_unified_flows_ids_by_outflow_id.setdefault(outflow.ID,[])
 
@@ -170,6 +170,8 @@ class LPScheduling(AgentScheduling):
             ) =  self.get_flow_structs(inflows,outflows)
 
         self.unified_flows = unified_flows
+        self.inflows = inflows
+        self.outflows = outflows
 
         if len(unified_flows) == 0 or len(inflows) == 0 or len(outflows) == 0:
             # no flows, so there's nothing to solve! return early.
@@ -227,21 +229,21 @@ class LPScheduling(AgentScheduling):
         # self.all_acts_by_windid = all_acts_by_windid
         # self.mutable_acts_windids = mutable_acts_windids
 
-        self.existing_unified_flows = existing_unified_flows
-        self.injected_unified_flows = injected_unified_flows
-        self.inflows = inflows
-        self.outflows = outflows
-        self.injected_inflows = injected_inflows
-
         inflow_ids = [flow.ID for flow in inflows]
         outflow_ids = [flow.ID for flow in outflows]
+
+        self.existing_unified_flows = existing_unified_flows
+        self.injected_unified_flows = injected_unified_flows
+        self.injected_inflows = injected_inflows
+        self.inflow_ids = inflow_ids
+        self.outflow_ids = outflow_ids
 
 
         #  subscript for each activity a
         model.all_act_windids = pe.Set(initialize= all_acts_windids)
 
         # Make an index in the model for every inflow and outflow
-        all_partial_flow_ids = [flow.ID for flow in inflows] + [flow.ID for flow in outflows]
+        all_partial_flow_ids = inflow_ids + outflow_ids
         injected_inflow_ids = [flow.ID for flow in injected_inflows]
         model.partial_flow_ids = pe.Set(initialize= all_partial_flow_ids)
         model.inflow_ids = pe.Set(initialize= inflow_ids)
@@ -591,8 +593,11 @@ class LPScheduling(AgentScheduling):
 
         self.model_constructed = True
 
-    def extract_updated_routes( self, existing_planned_routes_by_id, utilization_by_planned_route_id, planned_rts_outflows_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
+    def extract_updated_routes( self, existing_route_data, planned_rts_outflows_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
+
+        existing_planned_routes_by_id = {rt.ID:rt for rt in existing_route_data['planned_routes']}
+        utilization_by_planned_route_id = existing_route_data['utilization_by_planned_route_id']
 
         scheduled_routes = []
         all_updated_routes = []
@@ -600,7 +605,10 @@ class LPScheduling(AgentScheduling):
         updated_utilization_by_route_id = {}
         scheduled_rt_ids = []
 
-        # TODO: also need to update utilization for routes that did not end up scheduled, and have had their util reduced - from those in utilization_by_planned_route_id...
+        # quit early if we didn't actual schedule anything
+        if not self.model_constructed:
+            return scheduled_routes, all_updated_routes, updated_utilization_by_route_id,latest_dr_uid
+
 
         for flow in self.unified_flows:
             #  if this unified flow possibility was actually chosen
@@ -645,11 +653,23 @@ class LPScheduling(AgentScheduling):
                     scheduled_rt_ids.append(rt.ID)
 
 
-        # For every route that has an outflow in the planning window but is not in the scheduled routes, mark its utilization as zero ( because a new scheduled route has taken its outflow throughput)
+        
+        outflow_id_by_planned_rt_id = {ofl.rt_ID:ofl.ID for ofl in self.outflows}
+
+        # For every planned route that has an outflow in the planning window but is not in the scheduled routes (for some reason there is no inflow for it [either a DC or inflow act in LP planning window] so it's no longer schedulable in the same form as it was before), we want to reduce its utilization by whatever throughput was taken away from its outflow. i.e. if other data (e.g. injected obs) stole the throughput from its route, need to account for that. We DON'T set its utilization to zero because we DO still want to preserve this route as a reserved slice of throughput that can be used on future LP runs.
         for rt in planned_rts_outflows_in_planning_window:
+
             if not rt.ID in scheduled_rt_ids:
+                # figure out how much dv was taken from this existing planned rt by other routes
+                ofl_id = outflow_id_by_planned_rt_id[rt.ID]
+                outflow_dv_stolen = pe.value(self.model.var_partial_flow_utilization[ofl_id]) *  self.model.par_partial_flow_capacity[ofl_id]
+
+                # do some acrobatics to get the new utilization after factoring in stolen dv
+                curr_sched_dv = rt.data_vol * utilization_by_planned_route_id[rt.ID]
+                rt.set_scheduled_dv(curr_sched_dv - outflow_dv_stolen)
+                updated_utilization_by_route_id[rt.ID] = rt.get_sched_utilization()
+
                 all_updated_routes.append(rt)
-                updated_utilization_by_route_id[rt.ID] = 0.0
 
         return scheduled_routes, all_updated_routes, updated_utilization_by_route_id,latest_dr_uid
 

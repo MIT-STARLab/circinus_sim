@@ -160,7 +160,7 @@ class GlobalPlannerWrapper:
             # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
             old_esrc = esrcs_by_id.get(dmr.ID,None)
             creation_dt = old_esrc.creation_dt if old_esrc else None
-            update_dt = old_esrc.update_dt if (old_esrc and old_esrc.not_updated_check(dmr,dmr_dv_util)) else None
+            update_dt = old_esrc.update_dt if (old_esrc and not old_esrc.updated_check(dmr,dmr_dv_util)) else None
 
             # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
             #   note only one Sim route container per DMR

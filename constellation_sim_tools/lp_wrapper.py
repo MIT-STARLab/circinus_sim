@@ -143,24 +143,28 @@ class LocalPlannerWrapper:
         updated_utilization_by_route_id = lp_output['updated_utilization_by_route_id']
         latest_lp_route_indx = lp_output['latest_dr_uid']
 
-        # scheduled_routes_set = set(scheduled_routes)
-        # existing_routes_set = set(existing_routes)
+        # sim_routes is only the updated SRCs
         sim_routes = []
         for dmr in all_updated_routes:
-            #  we only want to consider this route if it was actually scheduled (delivers real data volume) or is an existing route.  any new routes that were constructed in the global planner that don't get scheduled we can ignore ( there's no point in keeping track of them because they're useless -  and we haven't yet told any of the satellites about them so we can discard them now).  this is in contrast to existing routes which, even if they get unscheduled by the global planner, we have to keep track of because we could've already told the satellites about them after a previous global planning session ( so now we you tell them that decisions have changed)
-            # if not (dmr in scheduled_routes_set or dmr in existing_routes_set):
-            #     continue
 
             # note that LP doesn't send us any routes that it freshly created but decided not to use (unlike GP, currently)
 
+            # guard against epsilon differences allowing utilization to creep above 100%
             dmr_dv_util = min(updated_utilization_by_route_id[dmr.ID],1.0)
 
 
             # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
             # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
             old_esrc = esrcs_by_id.get(dmr.ID,None)
+            updated = True if not old_esrc else old_esrc.updated_check(dmr,dmr_dv_util)
+
+            # don't make a new SRC if we're not updating anything 
+            if not updated:
+                continue
+            
+            # store nones in here if no old SRC - the nones will get replaced by the Sat scheduler after the new SRCs are released
             creation_dt = old_esrc.creation_dt if old_esrc else None
-            update_dt = old_esrc.update_dt if (old_esrc and old_esrc.not_updated_check(dmr,dmr_dv_util)) else None
+            update_dt = old_esrc.update_dt if old_esrc else None
 
             # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
             #   note only one Sim route container per DMR
@@ -168,15 +172,21 @@ class LocalPlannerWrapper:
             new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,lp_agent_id)
             sim_routes.append(new_src)
 
-            # if sat_id == 'sat0':
-            #     if dmr_dv_util < 0.001:
-            #         debug_tools.debug_breakpt()
+            # debug_tools.debug_breakpt()
 
             # Figure out if this route container is intended to service an existing data container. if yes, then add that to the data container's plan history ( which is used elsewhere to make routing decisions for the data  container)
             matched_dcs = new_src.find_matching_data_conts(existing_data_conts,'executed')
             for dc in matched_dcs:
                 dc.add_to_plan_hist(new_src)
 
+        # if sat_id == 'sat1':
+        #     for dmr in all_updated_routes:
+        #         for wind in dmr.get_winds():
+        #             if wind.window_ID == 42:
+        #                 debug_tools.debug_breakpt()
+                        
+        # if len(sim_routes) > 0:
+        #     debug_tools.debug_breakpt()
 
 
         return sim_routes, latest_lp_route_indx

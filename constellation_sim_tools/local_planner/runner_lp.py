@@ -42,12 +42,10 @@ class LocalPlannerRunner:
 
         #   determine outflow and inflow routes
         inflows,outflows,planned_rts_outflows_in_planning_window = self.lp_proc.determine_flows(existing_route_data)
-
-        existing_planned_routes_by_id = {rt.ID:rt for rt in existing_route_data['planned_routes']}
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
-        scheduled_routes, all_updated_routes, updated_utilization_by_route_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_planned_routes_by_id,existing_route_data['utilization_by_planned_route_id'],planned_rts_outflows_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
+        scheduled_routes, all_updated_routes, updated_utilization_by_route_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_route_data,planned_rts_outflows_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
 
         return scheduled_routes,all_updated_routes,updated_utilization_by_route_id,latest_dr_uid
 
