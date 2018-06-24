@@ -195,14 +195,14 @@ class ConstellationSim:
             obs = ObsWindow(
                 windid, 
                 sat_indx= self.sat_id_order.index(sat_id),
-                target_IDs=['urgent'], 
+                target_IDs=['inject_'+str(obs_raw['indx'])], 
                 sat_target_indx=0, 
                 start= tt.iso_string_to_dt (obs_raw['start_utc']), 
                 end= tt.iso_string_to_dt (obs_raw['end_utc']), 
                 wind_obj_type='injected'
             )
 
-            obs.calc_data_vol(self.sat_params['pl_data_rate'])
+            obs.set_data_vol(self.sat_params['pl_data_rate'])
 
             inj_obs_by_sat_id.setdefault(sat_id, []).append(obs)
         
@@ -296,9 +296,16 @@ class ConstellationSim:
             #####################
             # Planning info sharing (currenly assuming update via backbone network to sats)
 
+            # whenever GP has run, share info afterwards
             # todo: seems kinda bad to cross levels of abstraction like this...
             if self.gs_network.scheduler.check_plans_updated():
                 self.gsn_exchange_planning_info_all_exec_agents()
+
+            # if a sat LP has run, send that info to gs network so it can use in planning with GP
+            for sat_id,sat in self.sats_by_id.items():
+                if sat.arbiter.check_plans_updated():
+                    sat.send_planning_info(self.gs_network,info_option='routes_only')
+                    sat.arbiter.set_plans_updated(False)
 
                 
             global_time = global_time+self.sim_tick
@@ -451,33 +458,41 @@ class ConstellationSim:
         # get all the rt containers that the gs network ever saw
         planned_routes = self.gs_network.get_all_planned_rt_conts()           
         # get the routes for all the packets at each GS at sim end
-        executed_routes = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts()]
+        executed_routes_regular = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts() if not dc.injected]
+
+        executed_routes_injected = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts() if dc.injected]
 
         # note that the below functions assume that for all rt_conts:
         # - the observation, downlink for all DMRs in the rt_cont are the same
 
-        # debug_tools.debug_breakpt()
         print('------------------------------')
 
-        dv_stats = mc.assess_dv_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        dv_stats = mc.assess_dv_by_obs(planned_routes, executed_routes_regular,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
+        print('injected dv')
+        dv_stats = mc.assess_dv_by_obs([], executed_routes_injected,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+
 
         print('------------------------------')
-        lat_stats = mc.assess_latency_by_obs(planned_routes, executed_routes,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        lat_stats = mc.assess_latency_by_obs(planned_routes, executed_routes_regular, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
+        print('injected latency')
+        lat_stats = mc.assess_latency_by_obs([], executed_routes_injected, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
+        debug_tools.debug_breakpt()
 
 
         sim_plot_params = self.params['const_sim_inst_params']['sim_plot_params']
         time_units = sim_plot_params['obs_aoi_plot']['x_axis_time_units']
         print('------------------------------')
         print('Average AoI by obs, at collection time')
-        obs_aoi_stats_at_collection = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=False,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
+        obs_aoi_stats_at_collection = mc.assess_aoi_by_obs_target(planned_routes, executed_routes_regular,include_routing=False,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
         
 
 
         print('------------------------------')
         print('Average AoI by obs, with routing')
-        obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
+        obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes_regular,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
 
 
 

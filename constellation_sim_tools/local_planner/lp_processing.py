@@ -39,7 +39,7 @@ class LPProcessing:
         outflows = []
         inflows = []
 
-        planned_rts_in_planning_window = set()
+        planned_rts_outflows_in_planning_window = set()
 
         # utilization_by_flow_id = {}
 
@@ -83,9 +83,9 @@ class LPProcessing:
                 check_temporal_overlap(
                     wind.start,
                     wind.end,
-                    self.planning_leaving_flow_start_dt,
+                    self.planning_start_dt,
                     self.planning_end_dt,
-                    filter_opt='totally_within'
+                    filter_opt='partially_within'
                 )
             ]
             has_rx_in_planning_window = len(rx_winds_in_planning_window) > 0
@@ -110,19 +110,23 @@ class LPProcessing:
                 flow_indx += 1
                 outflows.append(flobject)
 
-                planned_rts_in_planning_window.add(rt)
+                # keep track of if this route outflows within the planning wind
+                planned_rts_outflows_in_planning_window.add(rt)
                 
                 #This sanity check is to make sure that all of the windows we have found for this route constitute a single outflow direction.  it is possible that a route could pass through satellite, go to other satellites, and then circle back to the original satellite, only to pass on to additional satellites and finally a downlink. in that case it is possible that we would double count some of this dv as outflow ( note: I don't really expect to see this ever)
                 assert(tx_dv_in_planning_window == rt.data_vol)
 
 
             if has_rx_in_planning_window: 
+
+                # # if a route comes inflows during the planning window but doesn't have an outflow in the window, then we don't actually want to count it as an inflow, because all it does it provide excess data
+                # if not has_tx_in_planning_window:
+                #     pass
+                # else:
                 dv = rx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID] +self.existing_utilization_epsilon)
                 flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow')
                 flow_indx += 1
                 inflows.append(flobject)
-
-                planned_rts_in_planning_window.add(rt)
                 
                 assert(rx_dv_in_planning_window == rt.data_vol)
 
@@ -136,5 +140,5 @@ class LPProcessing:
             flow_indx += 1
             inflows.append(flobject)
                 
-        return inflows,outflows,planned_rts_in_planning_window
+        return inflows,outflows,planned_rts_outflows_in_planning_window
 

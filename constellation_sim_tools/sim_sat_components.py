@@ -239,23 +239,38 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  can be used to disable running of the LP
         self.allow_lp_execution = sat_arbiter_params['allow_lp_execution']
 
+        #  time to wait since last plans were released before rerunning planning
+        self.replan_interval_s = sat_arbiter_params['replan_interval_s']
+
+        # override the None that this was initialized to in superclass
+        self._last_replan_time_dt = sim_start_dt
+
     def _check_internal_planning_update_req(self):
 
         # todo: update this code
 
          #  only run the local planner if it's been flagged as needing to be run. reasons for this:
         # 1.  executive has executed an "injected activity" and we need to re-plan to deal with the effects of that activity (e.g. observation data was collected and there is no plan currently to get it to ground)
-        # 2.  the scheduled activities were not executed in the way expected (e.g. activity was canceled)
-        # 3.  updates have been made to the planning information database (todo:  clarify this use case)
+        # 2.  the scheduled activities were not executed in the way expected (e.g. activity was canceled) - NOT YET IMPLEMENTED
+        # 3.  sufficient time has passed since last run. (good to run ever so often because might have run before and not been able to route any injected activity data due to no outflows)
 
         # todo: do we need this check?
         # if self._planning_info_updated_external:
         #     ...
 
-        replan_required = False  # TODO REMOVE
+        replan_required = False
 
         if self.act_was_injected:
             replan_required = True
+
+        if (self._curr_time_dt - self._last_replan_time_dt).total_seconds() >= self.replan_interval_s:
+            replan_required = True
+
+        # note that the below conditions trump the other ones
+
+        #  if we already have plans waiting to be released
+        if len(self._replan_release_q) > 0:
+            replan_required = False
 
         if not self.allow_lp_execution:
             replan_required = False
@@ -349,7 +364,6 @@ class SatExecutive(Executive):
 
         if len(obs_list) > 0:
             self._last_injected_exec_act_windex = 0
-
 
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
         """ sets up context dictionary for activity execution on the satellite"""

@@ -125,6 +125,7 @@ class LocalPlannerWrapper:
         #  is this still true?
         #  Note: the GP is the only place in the whole sim, currently, where scheduled data volume attributes for data routes and windows are allowed to be updated
 
+
         print('Run LP')
         lp_params = None
         lp_pr = LPPipelineRunner()
@@ -167,9 +168,15 @@ class LocalPlannerWrapper:
             new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,lp_agent_id)
             sim_routes.append(new_src)
 
+            # if sat_id == 'sat0':
+            #     if dmr_dv_util < 0.001:
+            #         debug_tools.debug_breakpt()
+
             # Figure out if this route container is intended to service an existing data container. if yes, then add that to the data container's plan history ( which is used elsewhere to make routing decisions for the data  container)
             matched_dcs = new_src.find_matching_data_conts(existing_data_conts,'executed')
             for dc in matched_dcs:
                 dc.add_to_plan_hist(new_src)
+
+
 
         return sim_routes, latest_lp_route_indx
