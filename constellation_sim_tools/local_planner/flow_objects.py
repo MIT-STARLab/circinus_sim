@@ -136,16 +136,16 @@ class PartialFlow:
     def is_outflow(self):
         return self._direction == "outflow"
 
-    def flow_after_time(self,time_dt):
+    def flow_before_time(self,time_dt):
         if not self._direction == "outflow":
             raise NotImplementedError
 
         earliest_departure= min((wind for wind in self._winds_in_planning_window),key= lambda w:w.start)
 
         if earliest_departure.start < time_dt:
-            return False
+            return True
 
-        return True
+        return False
 
 
 class UnifiedFlow:

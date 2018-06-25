@@ -119,9 +119,9 @@ class LPScheduling(AgentScheduling):
                     if inflow.rt_ID == outflow.rt_ID: prexisting_flow = True
 
                     # check if this outflow starts after planning_leaving_flow_start_dt. If so and it's not prexisting, don't consider it
-                    if not prexisting_flow and outflow.flow_after_time(self.planning_leaving_flow_start_dt):
+                    if not prexisting_flow and outflow.flow_before_time(self.planning_leaving_flow_start_dt):
                         continue
-                        
+
                     possible_unified_flows_ids_by_inflow_id.setdefault(inflow.ID,[])
                     possible_unified_flows_ids_by_outflow_id.setdefault(outflow.ID,[])
 
