@@ -27,7 +27,9 @@ class LPProcessing:
         self.planning_end_dt  = lp_inst_planning_params['planning_end_dt']
 
         lp_general_params = lp_params['const_sim_inst_params']['lp_general_params']
+        self.dv_epsilon = lp_general_params['dv_epsilon_Mb']
         self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
+        self.inflow_dv_minimum = lp_general_params['inflow_dv_minimum_Mb']
         
 
     def determine_flows(self,existing_route_data):
@@ -110,18 +112,26 @@ class LPProcessing:
             if has_tx_in_planning_window:
                 #  add in an epsilon to the utilization number, because it may be that the utilization was precisely chosen to meet the minimum data volume requirement -  don't want to not make the minimum data volume requirement this time because of round off error
                 dv = tx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID]+self.existing_utilization_epsilon)
-                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, tx_winds_in_planning_window,direction='outflow')
-                flow_indx += 1
-                outflows.append(flobject)
 
-                # keep track of if this route outflows within the planning wind
-                planned_rts_outflows_in_planning_window.add(rt)
-                
-                #This sanity check is to make sure that all of the windows we have found for this route constitute a single outflow direction.  it is possible that a route could pass through satellite, go to other satellites, and then circle back to the original satellite, only to pass on to additional satellites and finally a downlink. in that case it is possible that we would double count some of this dv as outflow ( note: I don't really expect to see this ever)
-                assert(tx_dv_in_planning_window == rt.data_vol)
+                if dv >= self.inflow_dv_minimum:
+                    flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, tx_winds_in_planning_window,direction='outflow')
+                    flow_indx += 1
+                    outflows.append(flobject)
+
+                    # keep track of if this route outflows within the planning wind
+                    planned_rts_outflows_in_planning_window.add(rt)
+                    
+                    #This sanity check is to make sure that all of the windows we have found for this route constitute a single outflow direction.  it is possible that a route could pass through satellite, go to other satellites, and then circle back to the original satellite, only to pass on to additional satellites and finally a downlink. in that case it is possible that we would double count some of this dv as outflow ( note: I don't really expect to see this ever)
+                    assert(tx_dv_in_planning_window == rt.data_vol)
 
 
             if has_rx_in_planning_window: 
+
+                # filter out any data containers that are being transmitted RIGHT NOW. That is, their tx window for the sat begins before planning window. Note that the tx window for the sat in an exected route (from a DataContainer) should never be wholly before the start of the planning window...
+                # if len(tx_winds_sat) > 1: raise NotImplementedError
+                # for tx_wind in tx_winds_sat:
+                #     if tx_wind.start < self.planning_start_dt:
+                #         continue
 
                 # # if a route comes inflows during the planning window but doesn't have an outflow in the window, I considered not adding that as an inflow... because that's just pointlessly adding more input data volume that looks to the LP like it needs to be routed. However, we'd need to handle executed routes that don't have a tx as well (below), and I don't want to do that right now. The LP should be robust enough to ignore this case, because it has a mechanism to reward existing routes (that do have both an inflow and outflow)
                 # if not has_tx_in_planning_window:
@@ -130,18 +140,33 @@ class LPProcessing:
 
                 dv = rx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID] +self.existing_utilization_epsilon)
 
-                inflow_injected = rt.ID in existing_route_data['injected_route_ids']
-                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow',injected=inflow_injected)
-                flow_indx += 1
-                inflows.append(flobject)
-                
-                assert(rx_dv_in_planning_window == rt.data_vol)
+                if dv >= self.inflow_dv_minimum:
+                    inflow_injected = rt.ID in existing_route_data['injected_route_ids']
+                    flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow',injected=inflow_injected)
+                    flow_indx += 1
+                    inflows.append(flobject)
+                    
+                    assert(rx_dv_in_planning_window == rt.data_vol)
 
-                rt_inflows_seen.add(rt)
+                    rt_inflows_seen.add(rt)
 
 
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
         for rt in existing_route_data['executed_routes']:
+
+            tx_winds_sat = [ wind for wind in rt.get_winds() if  wind.has_sat_indx(self.sat_indx) and wind.is_tx(self.sat_indx)]
+            # if this route somehow loops through sat multiple times, then well....I haven't covered that case here. raise notimplementederror
+
+            if len(tx_winds_sat) > 1: raise NotImplementedError
+            # filter out any data containers that are being transmitted RIGHT NOW - skip them. That is, their tx window for the sat begins before planning window. Note that the tx window for the sat in an exected route (from a DataContainer) should never be wholly before the start of the planning window...
+            skip_route = False
+            for tx_wind in tx_winds_sat:
+                if tx_wind.start < self.planning_start_dt:
+                    skip_route = True
+            if skip_route:        
+                continue
+
+
             # If the route was injected (i.e. observation data was collected where it wasn't planned in advance)
             inflow_injected = rt.ID in existing_route_data['injected_route_ids']
 
@@ -149,10 +174,19 @@ class LPProcessing:
                 continue
 
             dv = rt.data_vol * existing_route_data['utilization_by_executed_route_id'][rt.ID]
-            flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, winds_in_planning_window= [],direction='inflow',injected=inflow_injected)
-            flow_indx += 1
-            inflows.append(flobject)
-            rt_inflows_seen.add(rt)
+
+            if dv >= self.inflow_dv_minimum:
+                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, winds_in_planning_window= [],direction='inflow',injected=inflow_injected)
+                flow_indx += 1
+                inflows.append(flobject)
+                rt_inflows_seen.add(rt)
+
+        #     if rt.ID.indx == 0 and self.sat_indx == 5:
+        #         debug_tools.debug_breakpt()
+
+        # if self.sat_indx == 3:
+        # if self.sat_indx == 3:
+        #     debug_tools.debug_breakpt()
                 
         return inflows,outflows,planned_rts_outflows_in_planning_window
 

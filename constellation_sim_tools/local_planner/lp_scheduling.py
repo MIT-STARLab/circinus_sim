@@ -461,14 +461,15 @@ class LPScheduling(AgentScheduling):
             return model.var_unified_flow_dv[u] >= model.par_min_obs_dv_dlnk_req*model.var_unified_flow_indic[u]
         model.c3 =pe.Constraint ( model.unified_flow_ids,  rule=c3_rule)
 
-        def c3b_rule( model,io):
-            return model.par_partial_flow_capacity[io] * model.var_partial_flow_utilization[io] >=  model.par_min_obs_dv_dlnk_req*model.var_partial_flow_indic[io]
-        model.c3b =pe.Constraint ( model.partial_flow_ids,  rule=c3b_rule)
+        # def c3b_rule( model,io):
+        #     return model.par_partial_flow_capacity[io] * model.var_partial_flow_utilization[io] >=  model.par_min_obs_dv_dlnk_req*model.var_partial_flow_indic[io]
+        # model.c3b =pe.Constraint ( model.partial_flow_ids,  rule=c3b_rule)
 
-        # for constraining obs wind indicators by their inflow
-        # def c3c_rule( model,i):
-        #     return model.var_partial_flow_indic[i] >=  model.var_obs_wind_indic[obs_wind_id_by_inflow[i]]
-        # model.c3c =pe.Constraint ( inflow_ids,  rule=c3c_rule)
+        # for constraining inflow indicators to only be high if indicator of a unified flow tied to them goes high. I.e. one of their unified flows must meet min dv req for it to count, so the inflow isn't just able to spread little bits of dv over a bunch of outflows to be counted
+        def c3c_rule( model,i):
+            return (sum(model.var_unified_flow_indic[u] for u in possible_unified_flows_ids_by_inflow_id.get(i,[]))
+                    >= model.var_partial_flow_indic[i])
+        model.c3c =pe.Constraint ( inflow_ids,  rule=c3c_rule)
 
         def c4_rule( model,a):
             return model.var_act_indic[a] >=  model.var_activity_utilization[a]
@@ -667,6 +668,11 @@ class LPScheduling(AgentScheduling):
 
         self.model_constructed = True
 
+    def display_uf_dvs(self):
+        #debug code
+        for flow in self.unified_flows:
+            print ('%s: %s'%(flow,pe.value(self.model.var_unified_flow_dv[flow.ID])))
+
     def extract_updated_routes( self, existing_route_data, planned_rts_outflows_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
 
@@ -674,15 +680,14 @@ class LPScheduling(AgentScheduling):
         utilization_by_planned_route_id = existing_route_data['utilization_by_planned_route_id']
 
         scheduled_routes = []
-        all_updated_routes = []
+        all_routes_after_update = []
         # includes utilization for both scheduled routes and existing routes that have been "un-scheduled"
         updated_utilization_by_route_id = {}
         scheduled_rt_ids = []
 
         # quit early if we didn't actual schedule anything
         if not self.model_constructed:
-            return scheduled_routes, all_updated_routes, updated_utilization_by_route_id,latest_dr_uid
-
+            return scheduled_routes, all_routes_after_update, updated_utilization_by_route_id,latest_dr_uid
 
         for flow in self.unified_flows:
             #  if this unified flow possibility was actually chosen
@@ -709,7 +714,7 @@ class LPScheduling(AgentScheduling):
                     assert(rt not in scheduled_routes)
 
                     scheduled_routes.append(rt)
-                    all_updated_routes.append(rt)
+                    all_routes_after_update.append(rt)
                     updated_utilization_by_route_id[rt_id] = new_utilization
                     scheduled_rt_ids.append(rt.ID)
 
@@ -721,12 +726,12 @@ class LPScheduling(AgentScheduling):
 
                     rt,latest_dr_uid = self.graft_routes(inflow,outflow,flow_dv,latest_dr_uid,lp_agent_ID)
                     scheduled_routes.append(rt)
-                    all_updated_routes.append(rt)
+                    all_routes_after_update.append(rt)
                     #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
 
-        # if self.sat_id == 'sat1':
+        # if self.sat_id == 'sat0':
         #     debug_tools.debug_breakpt()
         
         outflow_id_by_planned_rt_id = {ofl.rt_ID:ofl.ID for ofl in self.outflows}
@@ -741,12 +746,12 @@ class LPScheduling(AgentScheduling):
 
                 # do some acrobatics to get the new utilization after factoring in stolen dv
                 curr_sched_dv = rt.data_vol * utilization_by_planned_route_id[rt.ID]
-                rt.set_scheduled_dv(curr_sched_dv - outflow_dv_stolen)
+                rt.set_scheduled_dv(min(0,curr_sched_dv - outflow_dv_stolen))
                 updated_utilization_by_route_id[rt.ID] = rt.get_sched_utilization()
 
-                all_updated_routes.append(rt)
+                all_routes_after_update.append(rt)
 
-        return scheduled_routes, all_updated_routes, updated_utilization_by_route_id,latest_dr_uid
+        return scheduled_routes, all_routes_after_update, updated_utilization_by_route_id,latest_dr_uid
 
 
 

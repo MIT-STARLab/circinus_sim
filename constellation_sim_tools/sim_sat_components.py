@@ -301,8 +301,20 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
     def _run_planner(self,lp_wrapper,new_time_dt):
         #  see superclass for docs
 
+        # first clean out any basically empty routes - don't want to consider them in planning
+        self.state_sim.cleanup_data_conts(self.state_sim.get_curr_data_conts(),None,new_time_dt,dv_epsilon= lp_wrapper.lp_dv_epsilon)
+
         #  get current data containers for planning
         existing_data_conts = self.state_sim.get_curr_data_conts()
+
+        # update the latest planned rt conts for each dc, because the GP may have changed their utilization (or another LP or something)
+        for dc in existing_data_conts:
+            dc_rt_cont_id = dc.latest_planned_rt_cont.ID
+            rt_conts_updated = self.plan_db.get_filtered_sim_routes(specified_src_ids=[dc_rt_cont_id])
+            assert(len(rt_conts_updated) == 1)
+            dc.add_to_plan_hist(rt_conts_updated[0])
+
+
         #  get relevant sim route containers for planning
         # todo:  probably need to do a little bit more work to preprocess these route containers -  to provide updated utilization numbers.  not sure where this is best done -  maybe in the executive?
         existing_rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_id=self.sim_sat.sat_id)
@@ -315,29 +327,31 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  run the global planner
         # debug_tools.debug_breakpt()
         temp = self.latest_lp_route_indx
-        new_rt_conts, latest_lp_route_indx, lp_dv_epsilon = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
+        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
 
         #####
         # split any data containers (as required) to reflect the new routes
 
         dcs_to_cleanup = set()
         for rt_cont in new_rt_conts:
+            # note: check by ID
             if rt_cont in existing_rt_conts:
                 continue
 
 
             # Figure out if this route container is intended to service an existing data container. 
             matched_dcs = rt_cont.find_matching_data_conts(existing_data_conts,'executed')
-                # this needs fixing, right here
-            assert(len(matched_dcs) <= 1)
 
             # if this new route was not for servicing an existing data cont
             if len(matched_dcs) == 0:
                 continue
             
-            # should only be one dc matching a new rt_cont
-            matched_dc = matched_dcs[0]
-
+            # it's possible multiple dcs match the route. Grab one of them that has enough DV
+            # todo: it might be possible for this to cause problems, if say there's one big matched dc and a small one, and the big one was the one that was intended to be used by the rt_cont. Check this out more in future?
+            matched_dc = None
+            for mdc in matched_dcs:
+                if rt_cont.data_vol <= mdc.data_vol:
+                    matched_dc = mdc
 
             # fork a new data container off of the previously existing one. This is so each route can have its own slice of dv to operate on.
             dv_forked = rt_cont.data_vol
@@ -364,7 +378,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         # now need to cleanup any empty data conts (The None below is for the exec_act, which is not relevant here)
         # total_dv_to_cleanup = sum(dc.data_vol for dc in dcs_to_cleanup)
-        self.state_sim.cleanup_data_conts(dcs_to_cleanup,None,new_time_dt,dv_epsilon= lp_dv_epsilon)
+        self.state_sim.cleanup_data_conts(dcs_to_cleanup,None,new_time_dt,dv_epsilon= lp_wrapper.lp_dv_epsilon)
         # even if our delta dv should be 0, it can have finite value ~ lp epsilon. Make sure to remove that from data storage record
         # self.state_sim.update_data_storage(-1*total_dv_to_cleanup,[],new_time_dt)
 

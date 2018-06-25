@@ -105,6 +105,9 @@ class SimDataContainer:
             #  because this function might be called many times for a single transmission activity, we want to check and make sure that we haven't already added this route container at the end of the history
             if not rt_cont == self._planned_rt_hist[-1]:
                 self._planned_rt_hist.append(rt_cont)
+            else:
+                self._planned_rt_hist[-1] = rt_cont
+
         else:
             self._planned_rt_hist.append(rt_cont)
 
@@ -194,6 +197,15 @@ class SimRouteContainer:
     def data_vol(self):
         return sum(dmr.data_vol*self.dv_utilization_by_dmr_id[dmr.ID] for dmr in self.dmrs_by_id.values())
 
+    # See:
+    # https://docs.python.org/3.4/reference/datamodel.html#object.__hash__
+    # https://stackoverflow.com/questions/29435556/how-to-combine-hash-codes-in-in-python3
+    def __hash__(self):
+        return hash(self.ID)
+
+    def __eq__(self, other):
+        return hash(self) == hash(other)
+
     def __repr__(self):
         creation_dt_str = tt.date_string(self.creation_dt,self.output_date_str_format) if self.creation_dt else 'None'
         update_dt_str = tt.date_string(self.update_dt,self.output_date_str_format) if self.update_dt else 'None'
@@ -277,7 +289,7 @@ class SimRouteContainer:
         if self.creation_dt is None:
             self.creation_dt = update_dt
 
-    def updated_check(self,dmr,dmr_dv_util):
+    def updated_check(self,dmr,dmr_dv_util,dv_utilization_epsilon=None):
         """Returns true if self is not updated; that is, utilization for contained datamultiroute has not changed significantly"""
 
         if not type(dmr) == DataMultiRoute:
@@ -286,7 +298,12 @@ class SimRouteContainer:
         # sanity check that the same DMR is actually here
         assert(dmr.ID in self.dmrs_by_id.keys())
 
-        return (abs(self.dv_utilization_by_dmr_id[dmr.ID] - dmr_dv_util) > self.dv_utilization_epsilon)
+        # we can provide our own epsilon to check against
+        if dv_utilization_epsilon is not None:
+            return (abs(self.dv_utilization_by_dmr_id[dmr.ID] - dmr_dv_util) > dv_utilization_epsilon)
+        # use the in-built epsilon check
+        else:
+            return (abs(self.dv_utilization_by_dmr_id[dmr.ID] - dmr_dv_util) > self.dv_utilization_epsilon)
 
 
     #  note: should not be using this function to update route containers ( the objects should be replaced)
@@ -349,6 +366,8 @@ class SimRouteContainer:
             if wind in dmr.get_winds():
                 return True
 
+    DC_MATCH_METHODS = ['planned','executed']
+
     def find_matching_data_conts(self,data_conts,match_method='planned'):
         """ find those data containers that match this same route container
 
@@ -367,6 +386,9 @@ class SimRouteContainer:
 
         # note that the success of this matching process depends on having up-to-date plans ( route containers) and marking those updates for each data container. If plans have not been updated, then you might end up in a situation where there is a route container that expresses routing plans, but no data container can be found to service those plans
 
+        if not match_method in self.DC_MATCH_METHODS:
+            raise NotImplementedError
+
         matches = []
 
         for dc in data_conts:
@@ -376,8 +398,6 @@ class SimRouteContainer:
             elif match_method == 'executed':
                 dc_route = dc.executed_data_route
                 if not dc_route: raise RuntimeWarning('Could not find an executed route for data container %s'%(dc))
-            else:
-                raise NotImplementedError
 
             #  if we can't find a route, then it's not possible to match to this data container
             if not dc_route:

@@ -903,7 +903,7 @@ class PlanningInfoDB:
             # note: assume we start sim off with zero age for our ttc info for every other agent
             self.ttc_update_hist_by_agent_id[other_agent_id] = UpdateHistory(t=[self.sim_start_dt],last_update_time=[self.sim_start_dt])
 
-    def get_filtered_sim_routes(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None):
+    def get_filtered_sim_routes(self,filter_start_dt=None,filter_end_dt=None,filter_opt='partially_within',sat_id=None,gs_id = None,specified_src_ids = None):
 
         if not filter_opt in self.filter_opts:
             raise NotImplementedError
@@ -920,6 +920,10 @@ class PlanningInfoDB:
             if gs_id is not None:
                 #  check if the route container includes the ground station ID
                 if not rt_cont.has_gs_indx(self.gs_id_order.index(gs_id)): 
+                    return False
+
+            if specified_src_ids is not None:
+                if not rt_cont.ID in specified_src_ids:
                     return False
 
             if not check_temporal_overlap(rt_cont.get_start(),rt_cont.get_end(),filter_start_dt,filter_end_dt,filter_opt):

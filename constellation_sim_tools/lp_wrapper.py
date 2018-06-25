@@ -42,7 +42,12 @@ class LocalPlannerWrapper:
 
         lp_general_params = sim_params['const_sim_inst_params']['lp_general_params']
 
-        self.lp_dv_epsilon = lp_general_params['dv_epsilon_Mb']
+        self._lp_dv_epsilon = lp_general_params['dv_epsilon_Mb']
+        self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
+
+    @property
+    def lp_dv_epsilon(self):
+        return self._lp_dv_epsilon
 
     def run_lp(self,curr_time_dt,sat_indx,sat_id,lp_agent_id,existing_rt_conts,existing_data_conts,latest_lp_route_indx,sat_state):
 
@@ -150,13 +155,14 @@ class LocalPlannerWrapper:
 
 
         scheduled_routes = lp_output['scheduled_routes']
-        all_updated_routes = lp_output['all_updated_routes']
+        all_routes_after_update = lp_output['all_routes_after_update']
         updated_utilization_by_route_id = lp_output['updated_utilization_by_route_id']
         latest_lp_route_indx = lp_output['latest_dr_uid']
 
         # sim_routes is only the updated SRCs
         sim_routes = []
-        for dmr in all_updated_routes:
+        # note that these routes don't necessarily have to have anything changed
+        for dmr in all_routes_after_update:
 
             # note that LP doesn't send us any routes that it freshly created but decided not to use (unlike GP, currently)
 
@@ -167,7 +173,8 @@ class LocalPlannerWrapper:
             # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
             # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
             old_esrc = esrcs_by_id.get(dmr.ID,None)
-            updated = True if not old_esrc else old_esrc.updated_check(dmr,dmr_dv_util)
+            # the *2 factor in the below is because the LP allows up to (but really a tiny bit more than) self.existing_utilization_epsilon variation greater than existing utilization. So should check for a change bigger than that. 2 times thi small number should be safe
+            updated = True if not old_esrc else old_esrc.updated_check(dmr,dmr_dv_util,2*self.existing_utilization_epsilon)
 
             # don't make a new SRC if we're not updating anything 
             if not updated:
@@ -186,13 +193,17 @@ class LocalPlannerWrapper:
             # debug_tools.debug_breakpt()
 
         # if sat_id == 'sat1':
-        #     for dmr in all_updated_routes:
+        #     for dmr in all_routes_after_update:
         #         for wind in dmr.get_winds():
         #             if wind.window_ID == 42:
         #                 debug_tools.debug_breakpt()
                         
-        if len(sim_routes) > 0:
-            debug_tools.debug_breakpt()
+        # if len(sim_routes) > 0:
+        #     print(sat_id)
+        #     print(curr_time_dt)
+        #     print("sim_routes")
+        #     print(sim_routes)
+        #     debug_tools.debug_breakpt()
 
 
-        return sim_routes, latest_lp_route_indx, self.lp_dv_epsilon
+        return sim_routes, latest_lp_route_indx

@@ -45,9 +45,9 @@ class LocalPlannerRunner:
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
-        scheduled_routes, all_updated_routes, updated_utilization_by_route_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_route_data,planned_rts_outflows_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
+        scheduled_routes, all_routes_after_update, updated_utilization_by_route_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_route_data,planned_rts_outflows_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
 
-        return scheduled_routes,all_updated_routes,updated_utilization_by_route_id,latest_dr_uid
+        return scheduled_routes,all_routes_after_update,updated_utilization_by_route_id,latest_dr_uid
 
 class PipelineRunner:
 
@@ -67,12 +67,12 @@ class PipelineRunner:
         lp_runner = LocalPlannerRunner (lp_params)
 
         existing_route_data = data['existing_route_data']
-        scheduled_routes,all_updated_routes,updated_utilization_by_route_id,latest_dr_uid = lp_runner.run (existing_route_data,verbose)
+        scheduled_routes,all_routes_after_update,updated_utilization_by_route_id,latest_dr_uid = lp_runner.run (existing_route_data,verbose)
 
         output = {}
         output['version'] = OUTPUT_JSON_VER
         output['scheduled_routes'] = scheduled_routes
-        output['all_updated_routes'] = all_updated_routes
+        output['all_routes_after_update'] = all_routes_after_update
         output['updated_utilization_by_route_id'] = updated_utilization_by_route_id
         output['latest_dr_uid'] = latest_dr_uid
         output['update_wall_clock_utc'] = datetime.utcnow().isoformat()
