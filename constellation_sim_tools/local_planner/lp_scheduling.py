@@ -62,6 +62,13 @@ class LPScheduling(AgentScheduling):
 
         self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],lp_params['orbit_prop_params']['version'])
 
+        self.sat_id = lp_params['lp_instance_params']['sat_id']
+
+
+        lp_inst_planning_params = lp_params['lp_instance_params']['planning_params']
+        self.planning_leaving_flow_start_dt  = lp_inst_planning_params['planning_leaving_flow_start_dt']
+
+
     @staticmethod
     def get_act_model_objs(act,model):
         """ get the pyomo model objects used for modeling activity utilization."""
@@ -92,6 +99,9 @@ class LPScheduling(AgentScheduling):
         possible_unified_flows_ids_by_outflow_id = {}
 
 
+        possible_unified_flow_capacity = 0
+        capacity_avail_by_partial_flow = {}
+
         for inflow in inflows:
             capacity_by_partial_flow_id[inflow.ID] = inflow.data_vol
 
@@ -103,14 +113,22 @@ class LPScheduling(AgentScheduling):
                 capacity_by_partial_flow_id[outflow.ID] = outflow.data_vol
 
                 #  if the data delivered from this inflow is available before the outflow, then they can be combined into a unified flow
-                if inflow.flow_precedes(outflow,self.act_timing_helper):
+                if inflow.flow_precedes(outflow,self.act_timing_helper):                    
+
+                    prexisting_flow = False
+                    if inflow.rt_ID == outflow.rt_ID: prexisting_flow = True
+
+                    # check if this outflow starts after planning_leaving_flow_start_dt. If so and it's not prexisting, don't consider it
+                    if not prexisting_flow and outflow.flow_after_time(self.planning_leaving_flow_start_dt):
+                        continue
+                        
                     possible_unified_flows_ids_by_inflow_id.setdefault(inflow.ID,[])
                     possible_unified_flows_ids_by_outflow_id.setdefault(outflow.ID,[])
 
                     uf = UnifiedFlow(ID=unified_flow_indx,inflow=inflow, outflow=outflow)
                     unified_flows.append(uf)
                     #  if the inflow and the outflow have the same route ID, then this is the existing mapping of inflow to outflow
-                    if inflow.rt_ID == outflow.rt_ID:
+                    if prexisting_flow:
                         existing_unified_flows.append(uf)
                     if inflow.injected:
                         injected_unified_flows.append(uf)
@@ -118,6 +136,18 @@ class LPScheduling(AgentScheduling):
                     possible_unified_flows_ids_by_inflow_id[inflow.ID].append(unified_flow_indx)
                     possible_unified_flows_ids_by_outflow_id[outflow.ID].append(unified_flow_indx)
                     unified_flow_indx += 1
+
+                    # figure out how much more capacity total this unified flow adds
+                    capacity_avail_by_partial_flow.setdefault(inflow, inflow.dv)
+                    capacity_avail_by_partial_flow.setdefault(outflow, outflow.dv)
+
+                    possible_unified_flow_capacity_delta = min(capacity_avail_by_partial_flow[inflow],capacity_avail_by_partial_flow[outflow])
+                    possible_unified_flow_capacity += possible_unified_flow_capacity_delta
+                    capacity_avail_by_partial_flow[inflow] -= possible_unified_flow_capacity_delta
+                    capacity_avail_by_partial_flow[outflow] -= possible_unified_flow_capacity_delta
+
+
+
 
         all_acts_windids = set()
         all_acts = []
@@ -141,7 +171,7 @@ class LPScheduling(AgentScheduling):
                     outflows_ids_by_act_windid[act_windid].append(flow.ID)
 
 
-        return unified_flows,existing_unified_flows,injected_unified_flows,injected_inflows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid
+        return unified_flows,existing_unified_flows,injected_unified_flows,injected_inflows,capacity_by_partial_flow_id,possible_unified_flows_ids_by_inflow_id,possible_unified_flows_ids_by_outflow_id,all_acts,all_acts_windids,capacity_by_act_windid,inflows_ids_by_act_windid,outflows_ids_by_act_windid,possible_unified_flow_capacity
 
 
 
@@ -167,6 +197,7 @@ class LPScheduling(AgentScheduling):
             capacity_by_act_windid,
             inflows_ids_by_act_windid,
             outflows_ids_by_act_windid,
+            possible_unified_flow_capacity,
             ) =  self.get_flow_structs(inflows,outflows)
 
         self.unified_flows = unified_flows
@@ -253,6 +284,8 @@ class LPScheduling(AgentScheduling):
         injected_unified_flow_ids = [flow.ID for flow in injected_unified_flows]
         model.unified_flow_ids = pe.Set(initialize= [flow.ID for flow in unified_flows])
 
+        self.existing_unified_flow_ids = existing_unified_flow_ids
+
         # # timepoints is the indices, which starts at 0
         # #  NOTE: we assume the same time system for every satellite
         # self.es_time_getter_dc = es_act_dancecards[0]
@@ -299,10 +332,20 @@ class LPScheduling(AgentScheduling):
         model.par_partial_flow_capacity = pe.Param(model.partial_flow_ids,initialize =capacity_by_partial_flow_id)
 
         #  the maximum unified flow capacity cannot exceed the amount of data volume delivered by inflows or the amount of data volume carried out by outflows
-        model.par_possible_unified_flow_capacity = min(
-            sum(capacity_by_partial_flow_id[i] for i in inflow_ids),
-            sum(capacity_by_partial_flow_id[o] for o in outflow_ids)
+        # model.par_possible_unified_flow_capacity = min(
+        #     sum(capacity_by_partial_flow_id[i] for i in inflow_ids),
+        #     sum(capacity_by_partial_flow_id[o] for o in outflow_ids)
+        # )
+
+        model.par_possible_existing_unified_flow_capacity = sum(
+            min(capacity_by_partial_flow_id[u.inflow.ID],capacity_by_partial_flow_id[u.outflow.ID]) 
+                for u in existing_unified_flows
         )
+
+        model.par_possible_unified_flow_capacity = possible_unified_flow_capacity
+
+
+
 
         model.par_possible_injected_inflow_capacity = sum(capacity_by_partial_flow_id[i] for i in injected_inflow_ids)
 
@@ -563,7 +606,7 @@ class LPScheduling(AgentScheduling):
             
             # obj [2]
             #  for total existing data volume, we only reward those unified flows that map and existing inflow to an existing outflow that it was already mapped to.  we do not reward unified flows that map in existing inflow to an existing outflow that it was NOT already mapped to. i.e., we don't just reward existing inflows and outflows; we reward the existing mapping from inflows to outflows
-            total_existing_dv_term = self.obj_weights['existing_flow_dv'] * 1/model.par_possible_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in existing_unified_flow_ids)                
+            total_existing_dv_term = self.obj_weights['existing_flow_dv'] * 1/model.par_possible_existing_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in existing_unified_flow_ids)                
 
             # obj [3]
             #  we also want to reward existing routes for performing the minimum data volume requirement ( so that injected data volume doesn't totally replace existing volume)
@@ -652,7 +695,8 @@ class LPScheduling(AgentScheduling):
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
 
-
+        # if self.sat_id == 'sat1':
+        #     debug_tools.debug_breakpt()
         
         outflow_id_by_planned_rt_id = {ofl.rt_ID:ofl.ID for ofl in self.outflows}
 

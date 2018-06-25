@@ -60,12 +60,13 @@ class LPProcessing:
             # - we are filtering for activity windows that are totally within the planning window, meaning there start and end times are both within the window. this is important for the start of the window, self.planning_leaving_flow_start_dt,  because we don't want to allow the case where a time-bound-overlapping activity is long enough such that it stretches before that start time and maybe even up to the current time on the satellite that is calling the local planner. that would be problematic, because we would be making planning decisions about an activity that is already being executed. so we want to be sure that all activity windows are fully confined to the planning window
 
             #  determine if any of the activity windows within this route are within the planning window, and this satellite is transmitting data during the window. if yes, it means that this route can carry data volume away from the satellite
+            # note: don't use self.planning_leaving_flow_start_dt here - we'll check for that elsewhere
             tx_winds_sat = [ wind for wind in rt.get_winds() if  wind.has_sat_indx(self.sat_indx) and wind.is_tx(self.sat_indx)]
             tx_winds_in_planning_window = [ wind for wind in tx_winds_sat if  
                 check_temporal_overlap(
                     wind.start,
                     wind.end,
-                    self.planning_leaving_flow_start_dt,
+                    self.planning_start_dt,
                     self.planning_end_dt,
                     filter_opt='totally_within'
                 )
@@ -121,12 +122,15 @@ class LPProcessing:
 
             if has_rx_in_planning_window: 
 
-                # # if a route comes inflows during the planning window but doesn't have an outflow in the window, then we don't actually want to count it as an inflow, because all it does it provide excess data
+                # # if a route comes inflows during the planning window but doesn't have an outflow in the window, I considered not adding that as an inflow... because that's just pointlessly adding more input data volume that looks to the LP like it needs to be routed. However, we'd need to handle executed routes that don't have a tx as well (below), and I don't want to do that right now. The LP should be robust enough to ignore this case, because it has a mechanism to reward existing routes (that do have both an inflow and outflow)
                 # if not has_tx_in_planning_window:
                 #     pass
                 # else:
+
                 dv = rx_dv_in_planning_window * (existing_route_data['utilization_by_planned_route_id'][rt.ID] +self.existing_utilization_epsilon)
-                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow')
+
+                inflow_injected = rt.ID in existing_route_data['injected_route_ids']
+                flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, rx_winds_in_planning_window,direction='inflow',injected=inflow_injected)
                 flow_indx += 1
                 inflows.append(flobject)
                 
@@ -135,7 +139,7 @@ class LPProcessing:
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
         for rt in existing_route_data['executed_routes']:
             # If the route was injected (i.e. observation data was collected where it wasn't planned in advance)
-            inflow_injected = rt.ID in existing_route_data['injected_executed_route_ids']
+            inflow_injected = rt.ID in existing_route_data['injected_route_ids']
 
             dv = rt.data_vol * existing_route_data['utilization_by_executed_route_id'][rt.ID]
             flobject = PartialFlow(flow_indx, self.sat_indx, rt, dv, winds_in_planning_window= [],direction='inflow',injected=inflow_injected)

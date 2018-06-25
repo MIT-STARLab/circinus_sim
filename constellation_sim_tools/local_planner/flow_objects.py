@@ -109,9 +109,9 @@ class PartialFlow:
 
         # figure out the latest time that the inflow is delivering data to the satellite.
         # note: functions like an argmax
-        latest_arrival_on_sat_wind = max((wind for wind in self._winds_in_planning_window if wind.is_rx(self.sat_indx)),key= lambda w:w.end)
+        latest_arrival_on_sat_wind = max((wind for wind in self._winds_in_planning_window),key= lambda w:w.end)
         # figure out the earliest time that the outflow is carrying data off the satellite.
-        earliest_departure_from_sat_wind = min((wind for wind in other._winds_in_planning_window if wind.is_tx(self.sat_indx)),key= lambda w:w.start)
+        earliest_departure_from_sat_wind = min((wind for wind in other._winds_in_planning_window),key= lambda w:w.start)
 
         if latest_arrival_on_sat_wind.center > earliest_departure_from_sat_wind.center:
             return False
@@ -136,6 +136,17 @@ class PartialFlow:
     def is_outflow(self):
         return self._direction == "outflow"
 
+    def flow_after_time(self,time_dt):
+        if not self._direction == "outflow":
+            raise NotImplementedError
+
+        earliest_departure= min((wind for wind in self._winds_in_planning_window),key= lambda w:w.start)
+
+        if earliest_departure.start < time_dt:
+            return False
+
+        return True
+
 
 class UnifiedFlow:
     """holds a pairing of an inflow to an outflow"""
@@ -143,6 +154,9 @@ class UnifiedFlow:
         self.ID = ID
         self.inflow = inflow
         self.outflow = outflow
+
+    def __repr__(self):
+        return "(UnifiedFlow %s, inflow: %s %s, outflow: %s %s)"%(self.ID,self.inflow.ID,self.inflow.rt_ID,self.outflow.ID,self.outflow.rt_ID)
 
     def get_latency( self,units='minutes',obs_option = 'center', dlnk_option = 'center'):
 

@@ -75,9 +75,15 @@ class LocalPlannerWrapper:
         esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_rt_conts}
         existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
 
+        existing_route_data['injected_route_ids'] = []
+
         # a note on copying below: we need to copy all of the existing routes here, because we update the schedule data volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the data route objects that satellites have in their Sim route containers ( and effectively propagating information instantaneously to the satellites - double plus ungood!). We don't deepcopy because we DO want to retain the same window objects contained within the routes.  todo:  note that this passing around of the original window objects is not necessarily the best idea. We do it for now because it saves memory. note that this should not interfere with checking equality/comparing of data routes and windows later, because all of that is done using the ID for the routes and windows ( which is the same when copied)
         # planned routes are the currently planned routes -  anything that has an activity window occurring after curr_time_dt
         existing_route_data['planned_routes'] = [copy(existing_route) for existing_route in existing_routes]
+
+        for rt in existing_route_data['planned_routes']:
+            if rt.get_obs().injected:
+                existing_route_data['injected_route_ids'].append(rt.ID)
 
 
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
@@ -85,7 +91,6 @@ class LocalPlannerWrapper:
 
         # deal with data containers (packets) on sat
         existing_route_data['utilization_by_executed_route_id'] = {}
-        existing_route_data['injected_executed_route_ids'] = []
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
         executed_routes = []
         for dc in existing_data_conts:
@@ -103,7 +108,7 @@ class LocalPlannerWrapper:
                 existing_route_data['utilization_by_executed_route_id'][edr.ID] = 1.0
 
                 if dc.injected:
-                    existing_route_data['injected_executed_route_ids'].append(edr.ID)
+                    existing_route_data['injected_route_ids'].append(edr.ID)
 
 
         existing_route_data['executed_routes'] = executed_routes
@@ -185,8 +190,8 @@ class LocalPlannerWrapper:
         #             if wind.window_ID == 42:
         #                 debug_tools.debug_breakpt()
                         
-        # if len(sim_routes) > 0:
-        #     debug_tools.debug_breakpt()
+        if len(sim_routes) > 0:
+            debug_tools.debug_breakpt()
 
 
         return sim_routes, latest_lp_route_indx
