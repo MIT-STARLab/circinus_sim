@@ -179,7 +179,7 @@ class SatStateSimulator(StateSimulator):
 
         return self.DS_max - self.DS_state
 
-    def add_to_data_storage(self,delta_dv,data_conts,time_dt):
+    def update_data_storage(self,delta_dv,data_conts,time_dt):
         """ add an amount of data volume to data storage state"""
 
         if not time_dt == self._curr_time_dt:
@@ -200,11 +200,12 @@ class SatStateSimulator(StateSimulator):
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
 
-    def cleanup_data_conts(self,data_conts,exec_act,time_dt):
+    def cleanup_data_conts(self,data_conts,exec_act,time_dt,dv_epsilon=0.001):
         if not time_dt == self._curr_time_dt:
             raise RuntimeWarning('Attempting to cleanup data conts in state sim off-timestep')
 
-        self.data_store.remove_empty_dcs(data_conts)
+        dv_dropped = self.data_store.remove_empty_dcs(data_conts,dv_epsilon)
+        self.DS_state -= dv_dropped
 
         for dc in self.data_store.get_curr_data_conts():
             if dc.is_stale(time_dt):
@@ -297,7 +298,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         return executable_acts
         
-    def _run_planner(self,lp_wrapper):
+    def _run_planner(self,lp_wrapper,new_time_dt):
         #  see superclass for docs
 
         #  get current data containers for planning
@@ -314,7 +315,59 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  run the global planner
         # debug_tools.debug_breakpt()
         temp = self.latest_lp_route_indx
-        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
+        new_rt_conts, latest_lp_route_indx, lp_dv_epsilon = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
+
+        #####
+        # split any data containers (as required) to reflect the new routes
+
+        dcs_to_cleanup = set()
+        for rt_cont in new_rt_conts:
+            if rt_cont in existing_rt_conts:
+                continue
+
+            # Figure out if this route container is intended to service an existing data container. 
+            matched_dcs = rt_cont.find_matching_data_conts(existing_data_conts,'executed')
+            assert(len(matched_dcs) <= 1)
+
+            # if this new route was not for servicing an existing data cont
+            if len(matched_dcs) == 0:
+                continue
+            
+            # should only be one dc matching a new rt_cont
+            matched_dc = matched_dcs[0]
+
+
+            # fork a new data container off of the previously existing one. This is so each route can have its own slice of dv to operate on.
+            dv_forked = rt_cont.data_vol
+            assert(dv_forked <= matched_dc.data_vol)
+            new_dc = matched_dc.fork(
+                self.sim_executive_agent.dc_agent_id,
+                # note: bad form here on the abstraction crossing...
+                new_dc_indx=self.sim_executive_agent.exec._curr_dc_indx,
+                dv= dv_forked
+            )
+            self.sim_executive_agent.exec._curr_dc_indx += 1
+            # new_rx_dc.add_to_route(act,tx_sat_indx)
+
+            matched_dc.remove_dv(dv_forked)
+
+            # add to the data container's plan history ( which is used elsewhere to make routing decisions for the data  container)
+            new_dc.add_to_plan_hist(rt_cont)
+
+            # update data storage with new data cont. Note that our delta dv here is 0 because we didn't create any new dv.
+            self.state_sim.update_data_storage(0,[new_dc],new_time_dt)
+
+            dcs_to_cleanup.add(matched_dc)
+
+
+        # now need to cleanup any empty data conts (The None below is for the exec_act, which is not relevant here)
+        # total_dv_to_cleanup = sum(dc.data_vol for dc in dcs_to_cleanup)
+        self.state_sim.cleanup_data_conts(dcs_to_cleanup,None,new_time_dt,dv_epsilon= lp_dv_epsilon)
+        # even if our delta dv should be 0, it can have finite value ~ lp epsilon. Make sure to remove that from data storage record
+        # self.state_sim.update_data_storage(-1*total_dv_to_cleanup,[],new_time_dt)
+
+        # if self.sim_executive_agent.sat_id == 'sat1':
+        #     debug_tools.debug_breakpt()
 
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
         self.latest_lp_route_indx = latest_lp_route_indx
@@ -323,15 +376,18 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         return new_rt_conts
 
-    def _process_updated_routes(self,rt_conts,curr_time_dt):
+    def _process_updated_routes(self,rt_conts,update_time_dt):
         #  see superclass for docs
 
         #  mark all of the route containers with their release time
         for rt_cont in rt_conts:
-            rt_cont.set_times_safe(self._curr_time_dt)
+            rt_cont.set_times_safe(update_time_dt)
+
+            if rt_cont.ID.indx == 4677:
+                debug_tools.debug_breakpt()
 
         # update plan database
-        self.plan_db.update_routes(rt_conts,curr_time_dt)
+        self.plan_db.update_routes(rt_conts,update_time_dt)
 
     def flag_act_injected(self): 
         self.act_was_injected = True
@@ -467,8 +523,11 @@ class SatExecutive(Executive):
                 dc.add_to_plan_hist(None)
                 remaining_obs_dv_collected -= remaining_obs_dv_collected
 
+            # if self.sim_executive_agent.ID == 'sat1':
+            #     debug_tools.debug_breakpt()
+
             #  need to use the new time here because the state sim has already advanced in timestep ( shouldn't be a problem)
-            self.state_sim.add_to_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
+            self.state_sim.update_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
 
         #  need to call this last because it has final takedown responsibilities
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
@@ -548,6 +607,7 @@ class SatExecutive(Executive):
 
         # if it's an observation window, we are just receiving data
         if type(curr_act_wind) == ObsWindow:
+
             #  for now we just mark off that we collected observation data, and will deal with creating data containers for the observation data in the cleanup phase, in _cleanup_act_execution_context() above. this means that the observation data is not released until after the activity has finished. this is okay for the current code version because no activities should depend upon the execution of another activity halfway in progress.
             #  note that it would be possible to create data containers right here, and iterate through the route containers as those data containers are created. however, when I started incrementing the logic for this it got very hairy very quickly
             # todo: this is kinda a hacky way of doing this, needs cleanup
@@ -623,6 +683,7 @@ class SatExecutive(Executive):
         # transmitting over dlnks
         elif type(curr_act_wind) == DlnkWindow:
 
+
             gs_indx = curr_act_wind.gs_indx
             gs = self.sim_sat.get_gs_from_indx(gs_indx)
             gs_exec = gs.get_exec()
@@ -678,7 +739,7 @@ class SatExecutive(Executive):
             raise NotImplementedError
 
         all_data_conts = curr_exec_context['tx_data_conts'] + curr_exec_context['rx_data_conts']
-        self.state_sim.add_to_data_storage(executed_delta_dv,all_data_conts,self._curr_time_dt)
+        self.state_sim.update_data_storage(executed_delta_dv,all_data_conts,self._curr_time_dt)
 
 
     @staticmethod

@@ -185,7 +185,6 @@ class ConstellationSim:
         if not self.sim_run_perturbations['do_inject_obs']:
             return
 
-        windid = 0
         inj_obs_by_sat_id = {}
         for obs_raw in inj_obs_raw:
             if not obs_raw['type'] == 'hardcoded':
@@ -193,7 +192,7 @@ class ConstellationSim:
 
             sat_id = obs_raw['sat_id']
             obs = ObsWindow(
-                windid, 
+                obs_raw['indx'], 
                 sat_indx= self.sat_id_order.index(sat_id),
                 target_IDs=['inject_'+str(obs_raw['indx'])], 
                 sat_target_indx=0, 

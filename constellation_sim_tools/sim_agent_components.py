@@ -91,7 +91,7 @@ class PlannerScheduler:
 
         replan_required = self._check_internal_planning_update_req()
 
-        self._internal_planning_update(replan_required,planner_wrapper)
+        self._internal_planning_update(replan_required,planner_wrapper,new_time_dt)
 
         self._schedule_cache_update()
 
@@ -115,7 +115,7 @@ class PlannerScheduler:
         #  intended to be implemented in the subclass
         raise NotImplementedError
 
-    def _internal_planning_update(self,replan_required,planner_wrapper):
+    def _internal_planning_update(self,replan_required,planner_wrapper,new_time_dt):
         """ check and release any plans from the re-plan queue, and run planner to update plans if necessary"""
 
         # note:  this function can be overloaded in a subclass, if no planning actually needs take place (e.g.  ground station)
@@ -130,7 +130,7 @@ class PlannerScheduler:
                 # note:  may need to add some better handling here... maybe sometimes we want to replan, but we should wait to we get the newest plans first?  why do we have a q if we can't put Multiple items on it?
                 raise RuntimeWarning('Trying to rerun planner while there are already plan results waiting for release.')
 
-            new_rt_conts = self._run_planner(planner_wrapper)
+            new_rt_conts = self._run_planner(planner_wrapper,new_time_dt)
 
             #  if we don't have to wait to release new plans
             if self.replan_release_wait_time_s == 0:
@@ -156,18 +156,19 @@ class PlannerScheduler:
         #  release any ripe plans from the queue
         while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
             q_entry = self._replan_release_q.pop(0) # this pop prevents while loop from executing forever
-            self._process_updated_routes(q_entry.rt_conts,self._curr_time_dt)
+            # note: make the update time on the routes be the time at the beginning of planning, because that's the state we had when making these plans
+            self._process_updated_routes(q_entry.rt_conts,q_entry.time_dt)
             self._last_replan_time_dt = self._curr_time_dt
             self._planning_info_updated = True
             self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
-    def _run_planner(self,planner_wrapper):
+    def _run_planner(self,planner_wrapper,new_time_dt):
         """Run the planner contained within planner_wrapper"""
 
         #  intended to be implemented in the subclass
         raise NotImplementedError
 
-    def _process_updated_routes(self,rt_conts):
+    def _process_updated_routes(self,rt_conts,update_time):
         """ after receiving new route containers from a planner run, update them with any required information"""
 
         #  intended to be implemented in the subclass
@@ -409,8 +410,9 @@ class Executive:
         #  also consider injected activities ("spontaneous", unplanned activities)
         injected_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_injected_exec_act_windex,self._injected_exec_acts,self.executable_time_accessor)
         self._last_injected_exec_act_windex = exec_act_windices[1]
-        # mark any supposed-to-be scheduled acts as cancelled, they'll be filtered below
-        for exec_act in next_exec_acts: self._cancelled_acts.add(exec_act)
+        if len(injected_exec_acts) > 0:
+            # mark any supposed-to-be scheduled acts as cancelled, they'll be filtered below
+            for exec_act in next_exec_acts: self._cancelled_acts.add(exec_act)
         next_exec_acts += injected_exec_acts
 
         # sanity check that state sim has advanced to next timestep (new_time_dt) already
@@ -544,6 +546,11 @@ class Executive:
         #  advance the activity execution time high-water mark
         self._last_act_execution_time_dt = new_time_dt
 
+                
+        # if self.sim_executive_agent.ID == 'sat1':
+        #     print(self._curr_exec_acts)
+        #     debug_tools.debug_breakpt()
+
         # if it's not the first step, then we can execute current activities
         if not self._first_step:
             for exec_act in self._curr_exec_acts:
@@ -650,7 +657,7 @@ class Executive:
         curr_exec_context['rx_success'] = True
 
         #  factor this executed Delta into the total data volume Delta for this time step
-        self.state_sim.add_to_data_storage(received_dv,curr_exec_context['rx_data_conts'],self._curr_time_dt)
+        self.state_sim.update_data_storage(received_dv,curr_exec_context['rx_data_conts'],self._curr_time_dt)
 
         return received_dv,True
 
@@ -775,13 +782,17 @@ class DataStore:
 
         # dv_epsilon  assumed to be in Mb
 
+        dv_dropped = 0
+
         for dc in data_conts:
             if not dc.ID in self.data_conts_by_id.keys():
                 continue
 
             if dc.data_vol < dv_epsilon:
                 del self.data_conts_by_id[dc.ID]
+                dv_dropped += dc.data_vol
 
+        return dv_dropped
 
     def get_curr_data_conts(self):
         """ get the data containers currently in the database"""
@@ -931,15 +942,15 @@ class PlanningInfoDB:
 
         return uhs
 
-    def update_routes(self,rt_conts,curr_time_dt):
+    def update_routes(self,rt_conts,update_time_dt):
         # todo: technically, this should update latest planned routes in existing data containers too.
-
+        # todo: may at some point want to add a check if a route should not be updated because LP has made recent changes/decisions...
 
         for rt_cont in rt_conts:
             # only account for a single dmr being present in rt_cont for now
             rt_cont_utilization = rt_cont.get_first_dmr_utilization()
 
-            update_entry = SRCUpdateHistEntry(curr_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
+            update_entry = SRCUpdateHistEntry(update_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
 
             if rt_cont.ID in self.sim_rt_conts_by_id.keys():
                 if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:

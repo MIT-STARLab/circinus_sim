@@ -556,7 +556,9 @@ class LPScheduling(AgentScheduling):
         #                 model.c7.add( model.var_sats_dstore[sat_indx,tp_indx] == 0)
 
 
-
+        if self.sat_id == 'sat1':
+            debug_tools.debug_breakpt()
+        
         #  inflow latency score factor constraints [10]
         model.c10  = pe.ConstraintList()
         #  make this over all inflow IDs, as opposed to all unified flow IDs,  because we don't want to reward performing as many unified flows as possible
@@ -695,8 +697,8 @@ class LPScheduling(AgentScheduling):
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
 
-        # if self.sat_id == 'sat1':
-        #     debug_tools.debug_breakpt()
+        if self.sat_id == 'sat1':
+            debug_tools.debug_breakpt()
         
         outflow_id_by_planned_rt_id = {ofl.rt_ID:ofl.ID for ofl in self.outflows}
 

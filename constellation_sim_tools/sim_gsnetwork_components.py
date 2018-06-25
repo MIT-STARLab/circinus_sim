@@ -54,7 +54,7 @@ class GroundNetworkPS(PlannerScheduler):
         #  don't need to do anything with generating a schedule cache because the ground station network is not an executive planner ( it doesn't execute activities)
         pass
 
-    def _run_planner(self,gp_wrapper):
+    def _run_planner(self,gp_wrapper,new_time_dt):
         #  see superclass for docs
 
         #  get already existing sim route containers that need to be fed to the global planner
@@ -72,15 +72,15 @@ class GroundNetworkPS(PlannerScheduler):
 
         return new_rt_conts
 
-    def _process_updated_routes(self,rt_conts,curr_time_dt):
+    def _process_updated_routes(self,rt_conts,update_time_dt):
         #  see superclass for docs
 
         #  mark all of the route containers with their release time
         for rt_cont in rt_conts:
-            rt_cont.set_times_safe(self._curr_time_dt)
+            rt_cont.set_times_safe(update_time_dt)
 
         # update plan database
-        self.plan_db.update_routes(rt_conts,curr_time_dt)
+        self.plan_db.update_routes(rt_conts,update_time_dt)
 
         #  save off the executable activities seen by the global planner so they can be looked at at the end of the sim
         #  filter rationale: want any route containers that have at least one window overlapping past start time

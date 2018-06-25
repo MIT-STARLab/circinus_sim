@@ -40,6 +40,10 @@ class LocalPlannerWrapper:
 
         self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
 
+        lp_general_params = sim_params['const_sim_inst_params']['lp_general_params']
+
+        self.lp_dv_epsilon = lp_general_params['dv_epsilon_Mb']
+
     def run_lp(self,curr_time_dt,sat_indx,sat_id,lp_agent_id,existing_rt_conts,existing_data_conts,latest_lp_route_indx,sat_state):
 
         def get_inp_time(time_dt,param_mins):
@@ -93,6 +97,8 @@ class LocalPlannerWrapper:
         existing_route_data['utilization_by_executed_route_id'] = {}
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
         executed_routes = []
+
+        # BIG FAT NOTE: technically, this is mildly broken due to DC forking. Even if two DCs actually orginated from the same obs, they will be accounted for as two different executed routes here. The negative effect of this should be small in practice.
         for dc in existing_data_conts:
             # if there is currently a planned route for this data container, grab that ( note that the planned route should contain the executed route for the data container. we want to grab the planned route because it has the correct routing object ID)
             if dc.latest_planned_rt_cont:
@@ -167,9 +173,9 @@ class LocalPlannerWrapper:
             if not updated:
                 continue
             
-            # store nones in here if no old SRC - the nones will get replaced by the Sat scheduler after the new SRCs are released
+            # store nones in here if need be - the nones will get replaced by the Sat scheduler after the new SRCs are released
             creation_dt = old_esrc.creation_dt if old_esrc else None
-            update_dt = old_esrc.update_dt if old_esrc else None
+            update_dt = None
 
             # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
             #   note only one Sim route container per DMR
@@ -178,11 +184,6 @@ class LocalPlannerWrapper:
             sim_routes.append(new_src)
 
             # debug_tools.debug_breakpt()
-
-            # Figure out if this route container is intended to service an existing data container. if yes, then add that to the data container's plan history ( which is used elsewhere to make routing decisions for the data  container)
-            matched_dcs = new_src.find_matching_data_conts(existing_data_conts,'executed')
-            for dc in matched_dcs:
-                dc.add_to_plan_hist(new_src)
 
         # if sat_id == 'sat1':
         #     for dmr in all_updated_routes:
@@ -194,4 +195,4 @@ class LocalPlannerWrapper:
             debug_tools.debug_breakpt()
 
 
-        return sim_routes, latest_lp_route_indx
+        return sim_routes, latest_lp_route_indx, self.lp_dv_epsilon

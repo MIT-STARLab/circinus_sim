@@ -75,7 +75,7 @@ class GSStateSimulator(StateSimulator):
         return dv_desired + self.dv_epsilon
 
 
-    def add_to_data_storage(self,delta_dv,data_conts,time_dt):
+    def update_data_storage(self,delta_dv,data_conts,time_dt):
         """ add an amount of data volume to data storage state"""
 
         if not time_dt == self._curr_time_dt:
@@ -108,7 +108,7 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         #  don't need to do an internal planning update, because currently ground stations do not do any of their own planning ( they get all of their plans from the ground station network)
         return False
 
-    def _internal_planning_update(self,replan_required,planner_wrapper):
+    def _internal_planning_update(self,replan_required,planner_wrapper,new_time_dt):
         #  we don't do any internal planning updates for the ground station planner. ( including this for clarity of intent, not because things wouldn't run if it weren't present)
 
         #  explicitly raise an error if a planner wrapper was provided ( none should exist for the ground stations)
