@@ -432,7 +432,7 @@ class SatExecutive(Executive):
 
             #  add an executable activity with no route containers. there are no route containers because the addition of this observation is serendipitous/unplanned/opportunistic... so there is no plan currently what to do with the window ( that's the LP's job)
             # Mark the activity as injected, so that the executive can handle it appropriately
-            self._injected_exec_acts.append(ExecutableActivity(obs,rt_conts=[],dv_used=obs.data_vol,injected=True))
+            self._injected_exec_acts.append(ExecutableActivity(obs,rt_conts=[],dv_used=obs.data_vol))
 
         if len(obs_list) > 0:
             self._last_injected_exec_act_windex = 0
@@ -532,7 +532,7 @@ class SatExecutive(Executive):
 
             #  if we still have data volume remaining, then go ahead and create a new data container
             if remaining_obs_dv_collected > self.dv_epsilon: 
-                dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=remaining_obs_dv_collected,injected=exec_act.injected)
+                dc = SimDataContainer(self.sim_sat.dc_agent_id,self.sim_sat.sat_indx,self._curr_dc_indx,route=curr_act_wind,dv=remaining_obs_dv_collected)
                 self._curr_dc_indx += 1
                 collected_dcs.append(dc)
                 # Add a null route container to the data container's history -  signifying that there was no route planned for this collected observation data.  this can happen, for example, in the case where this is an injected observation

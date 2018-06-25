@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+from circinus_tools.scheduling.custom_window import ObsWindow
+
 from circinus_tools import debug_tools
 
 class ExecutableActivity:
@@ -12,8 +14,9 @@ class ExecutableActivity:
         self.rt_conts =  rt_conts
         # dv_used is the amount of data volume used for this window within the route in which the wind was found
         self.dv_used =  dv_used
+
         # Used to indicate if the activity is "injected" or not. "injected" means that it's a spontaneous/unplanned-for activity
-        self.injected = injected
+        self.injected = wind.injected
 
     def __hash__(self):
         # xor the components together
