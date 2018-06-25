@@ -204,15 +204,38 @@ class LPScheduling(AgentScheduling):
         self.inflows = inflows
         self.outflows = outflows
 
+
         if len(unified_flows) == 0 or len(inflows) == 0 or len(outflows) == 0:
             # no flows, so there's nothing to solve! return early.
             self.model_constructed = False
             return
 
+        # todo: this code really should be moved to the function above
+        # get the set of all obs wind ids
+        injected_obs_wind_ids = set()
+        possible_unified_flows_ids_by_inj_obs_wind_id = {}
+        for inflow in inflows:
+            obs = inflow.route.get_obs()
+
+            # only care about injected obs
+            if not obs.injected:
+                continue
+
+            obs_wind_id = obs.window_ID
+
+            injected_obs_wind_ids.add(obs_wind_id)
+            possible_unified_flows_ids_by_inj_obs_wind_id.setdefault(obs_wind_id,[])
+            # note that for each inflow, unified flows are unique
+            possible_unified_flows_ids_by_inj_obs_wind_id[obs_wind_id] += possible_unified_flows_ids_by_inflow_id[inflow.ID]
+
+
+        # if self.sat_id == 'sat1':
+        #     debug_tools.debug_breakpt()
+
         unified_flow_by_id = {uf.ID:uf for uf in unified_flows}
         latency_sf_by_uf_id =  self.get_route_latency_score_factors(
             unified_flow_by_id,
-            possible_unified_flows_ids_by_inflow_id
+            possible_unified_flows_ids_by_inj_obs_wind_id
         )
 
         #     # verify that all acts found are within the planning window, otherwise we may end up with strange results
@@ -268,6 +291,7 @@ class LPScheduling(AgentScheduling):
         self.injected_inflows = injected_inflows
         self.inflow_ids = inflow_ids
         self.outflow_ids = outflow_ids
+        self.injected_obs_wind_ids = injected_obs_wind_ids
 
 
         #  subscript for each activity a
@@ -283,6 +307,7 @@ class LPScheduling(AgentScheduling):
         existing_unified_flow_ids = [flow.ID for flow in existing_unified_flows]
         injected_unified_flow_ids = [flow.ID for flow in injected_unified_flows]
         model.unified_flow_ids = pe.Set(initialize= [flow.ID for flow in unified_flows])
+        model.injected_obs_wind_ids = pe.Set(initialize= injected_obs_wind_ids)
 
         self.existing_unified_flow_ids = existing_unified_flow_ids
 
@@ -412,7 +437,7 @@ class LPScheduling(AgentScheduling):
         # model.var_sats_dstore  = pe.Var (model.sat_indcs,  model.ds_timepoint_indcs,  within = pe.NonNegativeReals)
 
         # vars [7]
-        model.var_latency_sf_inflow = pe.Var (model.inflow_ids,  bounds = (0,1.0))
+        model.var_latency_sf_inj_obs_wind = pe.Var (model.injected_obs_wind_ids,  bounds = (0,1.0))
 
         ##############################
         #  Make constraints
@@ -439,6 +464,11 @@ class LPScheduling(AgentScheduling):
         def c3b_rule( model,io):
             return model.par_partial_flow_capacity[io] * model.var_partial_flow_utilization[io] >=  model.par_min_obs_dv_dlnk_req*model.var_partial_flow_indic[io]
         model.c3b =pe.Constraint ( model.partial_flow_ids,  rule=c3b_rule)
+
+        # for constraining obs wind indicators by their inflow
+        # def c3c_rule( model,i):
+        #     return model.var_partial_flow_indic[i] >=  model.var_obs_wind_indic[obs_wind_id_by_inflow[i]]
+        # model.c3c =pe.Constraint ( inflow_ids,  rule=c3c_rule)
 
         def c4_rule( model,a):
             return model.var_act_indic[a] >=  model.var_activity_utilization[a]
@@ -556,28 +586,27 @@ class LPScheduling(AgentScheduling):
         #                 model.c7.add( model.var_sats_dstore[sat_indx,tp_indx] == 0)
 
 
-        if self.sat_id == 'sat1':
-            debug_tools.debug_breakpt()
-        
+       
+
         #  inflow latency score factor constraints [10]
         model.c10  = pe.ConstraintList()
         #  make this over all inflow IDs, as opposed to all unified flow IDs,  because we don't want to reward performing as many unified flows as possible
-        for i in model.inflow_ids:
-            inflow_uf_ids = possible_unified_flows_ids_by_inflow_id.get(i,[])
+        for i in model.injected_obs_wind_ids:
+            obs_wind_uf_ids = possible_unified_flows_ids_by_inj_obs_wind_id.get(i,[])
 
             #  sort the latency score factors for all the ufs for this inflow in increasing order -  important for constraint construction
-            inflow_uf_ids.sort(key= lambda u: latency_sf_by_uf_id[u])
+            obs_wind_uf_ids.sort(key= lambda u: latency_sf_by_uf_id[u])
 
-            num_uf_inflow = len(inflow_uf_ids)
+            num_uf_inflow = len(obs_wind_uf_ids)
             #  initial constraint -  score factor for this observation will be equal to zero if no ufs for this inflow were chosen
-            model.c10.add( model.var_latency_sf_inflow[i] <= 0 + self.big_M_lat * sum(model.var_unified_flow_indic[u] for u in inflow_uf_ids) )
+            model.c10.add( model.var_latency_sf_inj_obs_wind[i] <= 0 + self.big_M_lat * sum(model.var_unified_flow_indic[u] for u in obs_wind_uf_ids) )
 
-            for inflow_uf_indx in range(num_uf_inflow):
-                #  add constraint that score factor for observation is less than or equal to the score factor for this inflow_uf_indx, plus any big M terms for any unified flows with larger score factors.
-                #  what this does is effectively disable the constraint for the score factor for this inflow_uf_indx if any higher score factor ufs were chosen
-                model.c10.add( model.var_latency_sf_inflow[i] <=
-                    latency_sf_by_uf_id[inflow_uf_ids[inflow_uf_indx]] +
-                    self.big_M_lat * sum(model.var_unified_flow_indic[u] for u in inflow_uf_ids[inflow_uf_indx+1:num_uf_inflow]) )
+            for obs_wind_uf_indx in range(num_uf_inflow):
+                #  add constraint that score factor for observation is less than or equal to the score factor for this obs_wind_uf_indx, plus any big M terms for any unified flows with larger score factors.
+                #  what this does is effectively disable the constraint for the score factor for this obs_wind_uf_indx if any higher score factor ufs were chosen
+                model.c10.add( model.var_latency_sf_inj_obs_wind[i] <=
+                    latency_sf_by_uf_id[obs_wind_uf_ids[obs_wind_uf_indx]] +
+                    self.big_M_lat * sum(model.var_unified_flow_indic[u] for u in obs_wind_uf_ids[obs_wind_uf_indx+1:num_uf_inflow]) )
 
                 #  note: use model.c8[indx].expr.to_string()  to print out the constraint in a human readable form
                 #                ^ USES BASE 1 INDEXING!!! WTF??
@@ -623,7 +652,7 @@ class LPScheduling(AgentScheduling):
             injected_inflow_indicators_term = self.obj_weights['injected_inflow_indicators'] * 1/len(injected_inflow_ids) * sum(model.var_partial_flow_indic[i] for i in model.injected_inflow_ids) if len(model.injected_inflow_ids) > 0 else 0
 
             # obj [6]
-            latency_term = self.obj_weights['injected_inflow_latency'] * 1/len(model.injected_inflow_ids) * sum(model.var_latency_sf_inflow[i] for i in model.injected_inflow_ids) if len(model.injected_inflow_ids) > 0 else 0
+            latency_term = self.obj_weights['injected_obs_latency'] * 1/len(model.injected_obs_wind_ids) * sum(model.var_latency_sf_inj_obs_wind[i] for i in model.injected_obs_wind_ids) if len(model.injected_obs_wind_ids) > 0 else 0
 
             if self.obj_weights['energy_storage'] > 0:
                 raise NotImplementedError("haven't gotten to energy storage yet...")
@@ -697,8 +726,8 @@ class LPScheduling(AgentScheduling):
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
 
-        if self.sat_id == 'sat1':
-            debug_tools.debug_breakpt()
+        # if self.sat_id == 'sat1':
+        #     debug_tools.debug_breakpt()
         
         outflow_id_by_planned_rt_id = {ofl.rt_ID:ofl.ID for ofl in self.outflows}
 

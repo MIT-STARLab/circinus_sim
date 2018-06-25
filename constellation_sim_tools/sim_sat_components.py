@@ -325,8 +325,10 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
             if rt_cont in existing_rt_conts:
                 continue
 
+
             # Figure out if this route container is intended to service an existing data container. 
             matched_dcs = rt_cont.find_matching_data_conts(existing_data_conts,'executed')
+                # this needs fixing, right here
             assert(len(matched_dcs) <= 1)
 
             # if this new route was not for servicing an existing data cont
