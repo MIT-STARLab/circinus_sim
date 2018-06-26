@@ -728,7 +728,13 @@ class LPScheduling(AgentScheduling):
                     inflow = flow.inflow
                     outflow = flow.outflow
 
-                    rt,latest_dr_uid = self.graft_routes(inflow,outflow,flow_dv,latest_dr_uid,lp_agent_ID)
+                    try:
+                        rt,latest_dr_uid = self.graft_routes(inflow,outflow,flow_dv,latest_dr_uid,lp_agent_ID)
+                    except RouteActOverlapError:
+                        # For some reason I've seen routes produced (only saw once!) by the GP that had activity temporal overlap...not great. Don't include this route if that's the case.
+                        # todo: more debug is needed here!
+                        print('skipping bad unified flow')
+                    
                     scheduled_routes.append(rt)
                     all_routes_after_update.append(rt)
                     #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%

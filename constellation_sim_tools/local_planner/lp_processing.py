@@ -1,5 +1,7 @@
 from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute,RoutingObjectID,RouteActOverlapError
 from constellation_sim_tools.schedule_tools  import check_temporal_overlap
+from circinus_tools.activity_bespoke_handling import ActivityTimingHelper
+
 from .flow_objects import PartialFlow
 
 from circinus_tools import debug_tools
@@ -61,13 +63,17 @@ class LPProcessing:
             # just a sanity check that we're working with a DMR
             assert(type(rt) == DataMultiRoute)
 
+            skip_iter = False 
             try:
                 rt.validate(self.act_timing_helper)
             except RouteActOverlapError:
                 # For some reason I've seen routes produced (only saw once!) by the GP that had activity temporal overlap...not great. Don't include this route if that's the case.
                 # todo: more debug is needed here!
+                skip_iter = True
+                print('skipping bad route')
+            if skip_iter:
                 continue
-                # print('')
+
 
             # Notes about filtering below: 
             # - we are using the regular start and end for the windows below, not the original start and end. this is fine for now because the local planner cannot extend the schedule time for window past the already-scheduled-by-the-global planner start/end times, so we don't need to consider the orginal_start/end times.
@@ -171,6 +177,17 @@ class LPProcessing:
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
         dc_id_by_inflow_id = {}
         for dc_id, rt in existing_route_data['executed_routes']:
+
+            skip_iter = False
+            try:
+                rt.validate(self.act_timing_helper)
+            except RouteActOverlapError:
+                # For some reason I've seen routes produced (only saw once!) by the GP that had activity temporal overlap...not great. Don't include this route if that's the case.
+                # todo: more debug is needed here!
+                skip_iter = True
+                print('skipping bad route')
+            if skip_iter:
+                continue
 
             tx_winds_sat = [ wind for wind in rt.get_winds() if  wind.has_sat_indx(self.sat_indx) and wind.is_tx(self.sat_indx)]
             # if this route somehow loops through sat multiple times, then well....I haven't covered that case here. raise notimplementederror
