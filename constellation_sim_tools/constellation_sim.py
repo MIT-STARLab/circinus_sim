@@ -523,12 +523,14 @@ class ConstellationSim:
         # metrics plots
 
         self.sim_plotter.plot_obs_aoi_at_colllection(
-            self.obs_target_id_order,
+            # self.obs_target_id_order,
+            obs_aoi_stats_at_collection['exec_targIDs_found'] ,
             obs_aoi_stats_at_collection['aoi_curves_by_targID_exec']
         )
 
         self.sim_plotter.plot_obs_aoi_w_routing(
-            self.obs_target_id_order,
+            # self.obs_target_id_order,
+            obs_aoi_stats_w_routing['exec_targIDs_found'] ,
             obs_aoi_stats_w_routing['aoi_curves_by_targID_exec']
         )
 

@@ -158,7 +158,8 @@ class LPProcessing:
 
 
         #  every one of the executed routes ( from the data containers in the simulation) is considered an inflow, because it's data that is currently on the satellite
-        for rt in existing_route_data['executed_routes']:
+        dc_id_by_inflow_id = {}
+        for dc_id, rt in existing_route_data['executed_routes']:
 
             tx_winds_sat = [ wind for wind in rt.get_winds() if  wind.has_sat_indx(self.sat_indx) and wind.is_tx(self.sat_indx)]
             # if this route somehow loops through sat multiple times, then well....I haven't covered that case here. raise notimplementederror
@@ -186,6 +187,7 @@ class LPProcessing:
                 flow_indx += 1
                 inflows.append(flobject)
                 rt_inflows_seen.add(rt)
+                dc_id_by_inflow_id[flobject.ID] = dc_id
 
         #     if rt.ID.indx == 0 and self.sat_indx == 5:
         #         debug_tools.debug_breakpt()
@@ -194,5 +196,5 @@ class LPProcessing:
         # if self.sat_indx == 3:
         #     debug_tools.debug_breakpt()
                 
-        return inflows,outflows,planned_rts_outflows_in_planning_window
+        return inflows,outflows,planned_rts_outflows_in_planning_window,dc_id_by_inflow_id
 

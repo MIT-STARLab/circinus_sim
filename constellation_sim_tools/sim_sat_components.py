@@ -311,6 +311,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         #  get current data containers for planning
         existing_data_conts = self.state_sim.get_curr_data_conts()
+        existing_data_conts_by_id = {dc.ID:dc for dc in existing_data_conts}
 
         # update the latest planned rt conts for each dc, because the GP may have changed their utilization (or another LP or something)
         for dc in existing_data_conts:
@@ -335,7 +336,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  run the global planner
         # debug_tools.debug_breakpt()
         temp = self.latest_lp_route_indx
-        new_rt_conts, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
+        new_rt_conts, dc_id_by_new_src_id, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
 
         #####
         # split any data containers (as required) to reflect the new routes
@@ -347,20 +348,27 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
                 continue
 
 
+            dc_id = dc_id_by_new_src_id.get(rt_cont.ID,None)        
+
             # todo: umm this is probably not the right way to go about matching. Should return a dict from the LP saying which DCs were matching. This is too ambiguous here. Also, why am I trying to match every rt_cont?
             # Figure out if this route container is intended to service an existing data container. 
-            matched_dcs = rt_cont.find_matching_data_conts(existing_data_conts,'executed')
+            # matched_dcs = rt_cont.find_matching_data_conts(existing_data_conts,'executed')
 
-            # if this new route was not for servicing an existing data cont
-            if len(matched_dcs) == 0:
-                continue
+            # # if this new route was not for servicing an existing data cont
+            # if len(matched_dcs) == 0:
+            #     continue
             
-            # it's possible multiple dcs match the route. Grab one of them that has enough DV
-            # todo: it might be possible for this to cause problems, if say there's one big matched dc and a small one, and the big one was the one that was intended to be used by the rt_cont. Check this out more in future?
-            matched_dc = None
-            for mdc in matched_dcs:
-                if rt_cont.data_vol - lp_wrapper.lp_dv_epsilon <= mdc.data_vol:
-                    matched_dc = mdc
+            # # it's possible multiple dcs match the route. Grab one of them that has enough DV
+            # # todo: it might be possible for this to cause problems, if say there's one big matched dc and a small one, and the big one was the one that was intended to be used by the rt_cont. Check this out more in future?
+            # matched_dc = None
+            # for mdc in matched_dcs:
+            #     if rt_cont.data_vol - lp_wrapper.lp_dv_epsilon <= mdc.data_vol:
+            #         matched_dc = mdc
+
+            if dc_id is None:
+                continue
+            else:
+                matched_dc = existing_data_conts_by_id[dc_id]
 
             # fork a new data container off of the previously existing one. This is so each route can have its own slice of dv to operate on. Take min to get rid of epsilon errors
             dv_forked = min(rt_cont.data_vol,matched_dc.data_vol)

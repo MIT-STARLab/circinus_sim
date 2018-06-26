@@ -101,6 +101,7 @@ class LocalPlannerWrapper:
         # deal with data containers (packets) on sat
         existing_route_data['utilization_by_executed_route_id'] = {}
         #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
+        # NOTE! these are tuples
         executed_routes = []
 
         # BIG FAT NOTE: technically, this is mildly broken due to DC forking. Even if two DCs actually orginated from the same obs, they will be accounted for as two different executed routes here. The negative effect of this should be small in practice.
@@ -109,12 +110,12 @@ class LocalPlannerWrapper:
             if dc.latest_planned_rt_cont:
                 esrc = dc.latest_planned_rt_cont
                 for dmr in esrc.get_routes():
-                    executed_routes.append(copy(dmr))
+                    executed_routes.append((dc.ID,copy(dmr)))
                     existing_route_data['utilization_by_executed_route_id'][dmr.ID] = esrc.get_dmr_utilization(dmr)
             #  if there is no planned route for this data container (e.g. an injected observation), just go ahead and grab its executed route
             else:
                 edr = dc.executed_data_route
-                executed_routes.append(copy(edr))
+                executed_routes.append((dc.ID,copy(edr)))
                 #  utilization for executed route is by definition 100%
                 existing_route_data['utilization_by_executed_route_id'][edr.ID] = 1.0
 
@@ -158,9 +159,11 @@ class LocalPlannerWrapper:
         all_routes_after_update = lp_output['all_routes_after_update']
         updated_utilization_by_route_id = lp_output['updated_utilization_by_route_id']
         latest_lp_route_indx = lp_output['latest_dr_uid']
+        dc_id_by_scheduled_rt_id = lp_output['dc_id_by_scheduled_rt_id']
 
         # sim_routes is only the updated SRCs
         sim_routes = []
+        dc_id_by_new_src_id = {}
         # note that these routes don't necessarily have to have anything changed
         for dmr in all_routes_after_update:
 
@@ -190,6 +193,9 @@ class LocalPlannerWrapper:
             new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,lp_agent_id)
             sim_routes.append(new_src)
 
+            if dmr.ID in dc_id_by_scheduled_rt_id.keys():
+                dc_id_by_new_src_id[new_src.ID] = dc_id_by_scheduled_rt_id[dmr.ID] 
+
             # debug_tools.debug_breakpt()
 
         # if sat_id == 'sat1':
@@ -206,4 +212,4 @@ class LocalPlannerWrapper:
         #     debug_tools.debug_breakpt()
 
 
-        return sim_routes, latest_lp_route_indx
+        return sim_routes, dc_id_by_new_src_id, latest_lp_route_indx

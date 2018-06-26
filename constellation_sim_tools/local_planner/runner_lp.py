@@ -41,13 +41,13 @@ class LocalPlannerRunner:
     def run(self,existing_route_data,verbose=False):
 
         #   determine outflow and inflow routes
-        inflows,outflows,planned_rts_outflows_in_planning_window = self.lp_proc.determine_flows(existing_route_data)
+        inflows,outflows,planned_rts_outflows_in_planning_window,dc_id_by_inflow_id = self.lp_proc.determine_flows(existing_route_data)
         
         self.lp_sched.make_model(inflows,outflows,verbose)
         self.lp_sched.solve()
-        scheduled_routes, all_routes_after_update, updated_utilization_by_route_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_route_data,planned_rts_outflows_in_planning_window,self.latest_dr_uid,self.lp_agent_ID,verbose)
+        scheduled_routes, all_routes_after_update, updated_utilization_by_route_id, dc_id_by_scheduled_rt_id, latest_dr_uid = self.lp_sched.extract_updated_routes(existing_route_data,planned_rts_outflows_in_planning_window,dc_id_by_inflow_id,self.latest_dr_uid,self.lp_agent_ID,verbose)
 
-        return scheduled_routes,all_routes_after_update,updated_utilization_by_route_id,latest_dr_uid
+        return scheduled_routes,all_routes_after_update,updated_utilization_by_route_id,dc_id_by_scheduled_rt_id,latest_dr_uid
 
 class PipelineRunner:
 
@@ -67,7 +67,7 @@ class PipelineRunner:
         lp_runner = LocalPlannerRunner (lp_params)
 
         existing_route_data = data['existing_route_data']
-        scheduled_routes,all_routes_after_update,updated_utilization_by_route_id,latest_dr_uid = lp_runner.run (existing_route_data,verbose)
+        scheduled_routes,all_routes_after_update,updated_utilization_by_route_id,dc_id_by_scheduled_rt_id,latest_dr_uid = lp_runner.run (existing_route_data,verbose)
 
         output = {}
         output['version'] = OUTPUT_JSON_VER
@@ -75,6 +75,7 @@ class PipelineRunner:
         output['all_routes_after_update'] = all_routes_after_update
         output['updated_utilization_by_route_id'] = updated_utilization_by_route_id
         output['latest_dr_uid'] = latest_dr_uid
+        output['dc_id_by_scheduled_rt_id'] = dc_id_by_scheduled_rt_id
         output['update_wall_clock_utc'] = datetime.utcnow().isoformat()
 
         return output

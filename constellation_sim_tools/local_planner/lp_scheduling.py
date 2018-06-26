@@ -676,7 +676,7 @@ class LPScheduling(AgentScheduling):
         for flow in self.unified_flows:
             print ('%s: %s'%(flow,pe.value(self.model.var_unified_flow_dv[flow.ID])))
 
-    def extract_updated_routes( self, existing_route_data, planned_rts_outflows_in_planning_window, latest_dr_uid,lp_agent_ID,verbose = False):
+    def extract_updated_routes( self, existing_route_data, planned_rts_outflows_in_planning_window, dc_id_by_inflow_id, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route
 
         existing_planned_routes_by_id = {rt.ID:rt for rt in existing_route_data['planned_routes']}
@@ -687,10 +687,11 @@ class LPScheduling(AgentScheduling):
         # includes utilization for both scheduled routes and existing routes that have been "un-scheduled"
         updated_utilization_by_route_id = {}
         scheduled_rt_ids = []
+        dc_id_by_scheduled_rt_id = {}
 
         # quit early if we didn't actual schedule anything
         if not self.model_constructed:
-            return scheduled_routes, all_routes_after_update, updated_utilization_by_route_id,latest_dr_uid
+            return scheduled_routes, all_routes_after_update, updated_utilization_by_route_id,dc_id_by_scheduled_rt_id,latest_dr_uid
 
         for flow in self.unified_flows:
             #  if this unified flow possibility was actually chosen
@@ -733,6 +734,11 @@ class LPScheduling(AgentScheduling):
                     #  we have created a new data route for this slice of data volume, so by definition the utilization is 100%
                     updated_utilization_by_route_id[rt.ID] = 1.0
                     scheduled_rt_ids.append(rt.ID)
+                    rt_id = rt.ID
+
+                # do bookeeping on data container used by this new route, if relevant
+                if flow.inflow.ID in dc_id_by_inflow_id.keys():
+                    dc_id_by_scheduled_rt_id[rt_id] = dc_id_by_inflow_id[flow.inflow.ID]
 
         # if self.sat_id == 'sat0':
         #     debug_tools.debug_breakpt()
@@ -754,7 +760,7 @@ class LPScheduling(AgentScheduling):
 
                 all_routes_after_update.append(rt)
 
-        return scheduled_routes, all_routes_after_update, updated_utilization_by_route_id,latest_dr_uid
+        return scheduled_routes, all_routes_after_update, updated_utilization_by_route_id,dc_id_by_scheduled_rt_id,latest_dr_uid
 
 
 
