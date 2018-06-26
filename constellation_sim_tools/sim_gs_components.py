@@ -139,9 +139,11 @@ class GSExecutive(Executive):
 
         curr_exec_context = super()._initialize_act_execution_context(exec_act,new_time_dt)
 
-        #  for receiving, we should keep track of which data container the transmitting satellite last sent
-        #  note: ground stations are currently assumed to be receivers only
-        curr_exec_context['curr_txsat_data_cont'] = None
+
+        if curr_exec_context:
+            #  for receiving, we should keep track of which data container the transmitting satellite last sent
+            #  note: ground stations are currently assumed to be receivers only
+            curr_exec_context['curr_txsat_data_cont'] = None
 
         #  returning this not because it's expected to be used, but to be consistent with superclass
         return curr_exec_context
