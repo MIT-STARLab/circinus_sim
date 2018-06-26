@@ -164,7 +164,11 @@ class LPProcessing:
             tx_winds_sat = [ wind for wind in rt.get_winds() if  wind.has_sat_indx(self.sat_indx) and wind.is_tx(self.sat_indx)]
             # if this route somehow loops through sat multiple times, then well....I haven't covered that case here. raise notimplementederror
 
-            if len(tx_winds_sat) > 1: raise NotImplementedError
+            # todo: can't deal with DMRs for now - update this at some point
+            if len(tx_winds_sat) > 1: 
+                # raise NotImplementedError
+                continue
+
             # filter out any data containers that are being transmitted RIGHT NOW - skip them. That is, their tx window for the sat begins before planning window. Note that the tx window for the sat in an exected route (from a DataContainer) should never be wholly before the start of the planning window...
             skip_route = False
             for tx_wind in tx_winds_sat:
