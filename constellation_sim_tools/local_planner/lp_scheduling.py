@@ -5,6 +5,7 @@ from pyomo import environ  as pe
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow,  EclipseWindow
 from circinus_tools.scheduling.formulation.agent_scheduler import AgentScheduling
 from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute,RoutingObjectID
+from circinus_tools.scheduling.routing_objects import RouteActOverlapError
 from circinus_tools.activity_bespoke_handling import ActivityTimingHelper
 
 from .flow_objects import UnifiedFlow
