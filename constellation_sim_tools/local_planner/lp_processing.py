@@ -1,4 +1,4 @@
-from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute,RoutingObjectID
+from circinus_tools.scheduling.routing_objects import DataRoute,DataMultiRoute,RoutingObjectID,RouteActOverlapError
 from constellation_sim_tools.schedule_tools  import check_temporal_overlap
 from .flow_objects import PartialFlow
 
@@ -14,6 +14,7 @@ class LPProcessing:
         """
 
         sat_params = lp_params['orbit_prop_params']['sat_params']
+        orbit_params = lp_params['orbit_prop_params']['orbit_params']
 
         lp_inst_planning_params = lp_params['lp_instance_params']['planning_params']
 
@@ -30,7 +31,9 @@ class LPProcessing:
         self.dv_epsilon = lp_general_params['dv_epsilon_Mb']
         self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
         self.inflow_dv_minimum = lp_general_params['inflow_dv_minimum_Mb']
-        
+
+        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],lp_params['orbit_prop_params']['version'])
+
 
     def determine_flows(self,existing_route_data):
         """ figure out which routes and data containers deliver/carry data volume to/from the satellite"""
@@ -57,6 +60,14 @@ class LPProcessing:
 
             # just a sanity check that we're working with a DMR
             assert(type(rt) == DataMultiRoute)
+
+            try:
+                rt.validate(self.act_timing_helper)
+            except RouteActOverlapError:
+                # For some reason I've seen routes produced (only saw once!) by the GP that had activity temporal overlap...not great. Don't include this route if that's the case.
+                # todo: more debug is needed here!
+                continue
+                # print('')
 
             # Notes about filtering below: 
             # - we are using the regular start and end for the windows below, not the original start and end. this is fine for now because the local planner cannot extend the schedule time for window past the already-scheduled-by-the-global planner start/end times, so we don't need to consider the orginal_start/end times.
