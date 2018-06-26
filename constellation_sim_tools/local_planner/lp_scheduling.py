@@ -212,7 +212,6 @@ class LPScheduling(AgentScheduling):
 
         # todo: this code really should be moved to the function above
         # get the set of all obs wind ids
-        injected_obs_wind_ids = set()
         possible_unified_flows_ids_by_inj_obs_wind_id = {}
         for inflow in inflows:
             obs = inflow.route.get_obs()
@@ -223,10 +222,14 @@ class LPScheduling(AgentScheduling):
 
             obs_wind_id = obs.window_ID
 
-            injected_obs_wind_ids.add(obs_wind_id)
-            possible_unified_flows_ids_by_inj_obs_wind_id.setdefault(obs_wind_id,[])
-            # note that for each inflow, unified flows are unique
-            possible_unified_flows_ids_by_inj_obs_wind_id[obs_wind_id] += possible_unified_flows_ids_by_inflow_id[inflow.ID]
+            possible_uf_ids = possible_unified_flows_ids_by_inflow_id.get(inflow.ID,[])
+
+            if len(possible_uf_ids) > 0:
+                possible_unified_flows_ids_by_inj_obs_wind_id.setdefault(obs_wind_id,[])
+                # note that for each inflow, unified flows are unique
+                possible_unified_flows_ids_by_inj_obs_wind_id[obs_wind_id] += possible_uf_ids
+
+        injected_obs_wind_ids = possible_unified_flows_ids_by_inj_obs_wind_id.keys()
 
 
         # if self.sat_id == 'sat1':

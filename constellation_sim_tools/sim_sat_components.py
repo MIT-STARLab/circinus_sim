@@ -268,8 +268,9 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         if self.act_was_injected:
             replan_required = True
 
-        if (self._curr_time_dt - self._last_replan_time_dt).total_seconds() >= self.replan_interval_s:
-            replan_required = True
+        # todo: removed for now. should add back in sometime
+        # if (self._curr_time_dt - self._last_replan_time_dt).total_seconds() >= self.replan_interval_s:
+        #     replan_required = True
 
         # note that the below conditions trump the other ones
 
@@ -346,6 +347,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
                 continue
 
 
+            # todo: umm this is probably not the right way to go about matching. Should return a dict from the LP saying which DCs were matching. This is too ambiguous here. Also, why am I trying to match every rt_cont?
             # Figure out if this route container is intended to service an existing data container. 
             matched_dcs = rt_cont.find_matching_data_conts(existing_data_conts,'executed')
 
@@ -357,11 +359,11 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
             # todo: it might be possible for this to cause problems, if say there's one big matched dc and a small one, and the big one was the one that was intended to be used by the rt_cont. Check this out more in future?
             matched_dc = None
             for mdc in matched_dcs:
-                if rt_cont.data_vol <= mdc.data_vol:
+                if rt_cont.data_vol - lp_wrapper.lp_dv_epsilon <= mdc.data_vol:
                     matched_dc = mdc
 
-            # fork a new data container off of the previously existing one. This is so each route can have its own slice of dv to operate on.
-            dv_forked = rt_cont.data_vol
+            # fork a new data container off of the previously existing one. This is so each route can have its own slice of dv to operate on. Take min to get rid of epsilon errors
+            dv_forked = min(rt_cont.data_vol,matched_dc.data_vol)
             assert(dv_forked <= matched_dc.data_vol)
             new_dc = matched_dc.fork(
                 self.sim_executive_agent.dc_agent_id,
