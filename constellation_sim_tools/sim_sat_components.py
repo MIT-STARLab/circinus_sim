@@ -200,12 +200,16 @@ class SatStateSimulator(StateSimulator):
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
         assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
 
-    def cleanup_data_conts(self,data_conts,exec_act,time_dt,dv_epsilon=0.001):
+    def cleanup_empty_data_conts(self,data_conts,time_dt,dv_epsilon=0.001):
         if not time_dt == self._curr_time_dt:
             raise RuntimeWarning('Attempting to cleanup data conts in state sim off-timestep')
 
         dv_dropped = self.data_store.remove_empty_dcs(data_conts,dv_epsilon)
         self.DS_state -= dv_dropped
+
+    def remove_stale_data_conts(self,exec_act,time_dt,dv_epsilon=0.001):
+        if not time_dt == self._curr_time_dt:
+            raise RuntimeWarning('Attempting to cleanup data conts in state sim off-timestep')
 
         for dc in self.data_store.get_curr_data_conts():
             if dc.is_stale(time_dt):
@@ -302,13 +306,16 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  see superclass for docs
 
         # first clean out any basically empty routes - don't want to consider them in planning
-        self.state_sim.cleanup_data_conts(self.state_sim.get_curr_data_conts(),None,new_time_dt,dv_epsilon= lp_wrapper.lp_dv_epsilon)
+        self.state_sim.cleanup_empty_data_conts(self.state_sim.get_curr_data_conts(),new_time_dt,dv_epsilon= lp_wrapper.lp_dv_epsilon)
 
         #  get current data containers for planning
         existing_data_conts = self.state_sim.get_curr_data_conts()
 
         # update the latest planned rt conts for each dc, because the GP may have changed their utilization (or another LP or something)
         for dc in existing_data_conts:
+            if dc.latest_planned_rt_cont is None:
+                continue
+
             dc_rt_cont_id = dc.latest_planned_rt_cont.ID
             rt_conts_updated = self.plan_db.get_filtered_sim_routes(specified_src_ids=[dc_rt_cont_id])
             assert(len(rt_conts_updated) == 1)
@@ -378,7 +385,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
         # now need to cleanup any empty data conts (The None below is for the exec_act, which is not relevant here)
         # total_dv_to_cleanup = sum(dc.data_vol for dc in dcs_to_cleanup)
-        self.state_sim.cleanup_data_conts(dcs_to_cleanup,None,new_time_dt,dv_epsilon= lp_wrapper.lp_dv_epsilon)
+        self.state_sim.cleanup_empty_data_conts(dcs_to_cleanup,new_time_dt,dv_epsilon= lp_wrapper.lp_dv_epsilon)
         # even if our delta dv should be 0, it can have finite value ~ lp epsilon. Make sure to remove that from data storage record
         # self.state_sim.update_data_storage(-1*total_dv_to_cleanup,[],new_time_dt)
 
@@ -493,7 +500,9 @@ class SatExecutive(Executive):
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
 
         # flag any empty data conts that we transmitted for removal, and drop any ones that didn't get transmitted, but were supposed to.
-        self.state_sim.cleanup_data_conts(curr_exec_context['tx_data_conts'],exec_act,new_time_dt)
+        self.state_sim.cleanup_empty_data_conts(curr_exec_context['tx_data_conts'],new_time_dt)
+        # todo: discluded the dropping of stale data conts for now until LP is more trustworthy
+        # self.state_sim.remove_stale_data_conts(self,exec_act,time_dt)
 
         #  if the activity was injected, then we need to run the local planner afterwards to deal with the unplanned effects of the activity
         if exec_act.injected:

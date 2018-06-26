@@ -101,10 +101,16 @@ class LPProcessing:
             #  check that, if the route has multiple tx or rx windows relevant for this satellite, and at least one of them falls within the planning window, then ALL of them are within the planning window (this is, again, to deal with DataMultiRoute objects)
             # in layman's terms: we don't want to allow a DataMultiRoute to be used as an in/outflow in the case where it gets split, because then we wouldn't be actually spreading scheduled DV evenly within the DMR (split: it has multiple DataRoute objects relevant for this sat, but not all of DataRoutes pass through the planning window)
             if has_tx_in_planning_window and not len(tx_winds_in_planning_window) == len(tx_winds_sat):
-                raise NotImplementedError(" have not implemented code to deal with the case where a DataMultiRoute has activities for sat_indx both in and out of the LP planning window (sat: %d, rt: %s, winds: %s, planning window: %s)"%(self.sat_indx,rt,tx_winds_sat,[self.planning_leaving_flow_start_dt,self.planning_end_dt]))
+                continue
+                # todo: this case should be dealt with in a better way. Here's an example route that would need to be addressed (technically not the case I mentioned above, I know...):
+                # (DataMultiRoute ro_ID('satsat4',2): sched/poss_dv_by_dr: {'DR - o inj 28 s1 dv 3000 04:30:51,04:31:51 -> x 2478 s1,xs5 dv 1990 07:14:24,07:15:34 -> x 4209 s5,xs4 dv 2000 07:17:43,07:18:54 -> x 4248 s4,xs5 dv 2000 08:24:29,08:25:29 -> d 165 s5 dv 9020 08:28:24,08:29:24': '402/402'})
+
+                # raise NotImplementedError(" have not implemented code to deal with the case where a DataMultiRoute has activities for sat_indx both in and out of the LP planning window (sat: %d, rt: %s, winds: %s, planning window: %s)"%(self.sat_indx,rt,tx_winds_sat,[self.planning_leaving_flow_start_dt,self.planning_end_dt]))
             
             if has_rx_in_planning_window and not len(rx_winds_in_planning_window) == len(rx_winds_sat):
-                raise NotImplementedError(" have not implemented code to deal with the case where a DataMultiRoute has activities for sat_indx both in and out of the LP planning window (sat: %d, rt: %s, winds: %s, planning window: %s)"%(self.sat_indx,rt,rx_winds_sat,[self.planning_leaving_flow_start_dt,self.planning_end_dt]))
+                continue
+                # todo: see note above for the tx case
+                # raise NotImplementedError(" have not implemented code to deal with the case where a DataMultiRoute has activities for sat_indx both in and out of the LP planning window (sat: %d, rt: %s, winds: %s, planning window: %s)"%(self.sat_indx,rt,rx_winds_sat,[self.planning_leaving_flow_start_dt,self.planning_end_dt]))
 
 
             #  if the route is an outflow, create a partial flow object to encapsulate it and mark the amount of data volume that can flow out

@@ -117,7 +117,7 @@ class SimDataContainer:
         """ check if there is still a valid plan for routing data container"""
         rc = self.latest_planned_rt_cont
 
-        # If there is no planned route for this data container, then it is definitely still
+        # If there is no planned route for this data container, then it is definitely stale
         if rc is None:
             return True
 
