@@ -455,7 +455,9 @@ class ConstellationSim:
 
 
         # get all the rt containers that the gs network ever saw
-        planned_routes = self.gs_network.get_all_planned_rt_conts()           
+        planned_routes = self.gs_network.get_all_planned_rt_conts()
+        planned_routes_regular = [rt for rt in planned_routes if not rt.get_obs().injected] 
+        planned_routes_injected = [rt for rt in planned_routes if rt.get_obs().injected] 
         # get the routes for all the packets at each GS at sim end
         executed_routes_regular = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts() if not dc.injected]
 
@@ -466,19 +468,19 @@ class ConstellationSim:
 
         print('------------------------------')
 
-        dv_stats = mc.assess_dv_by_obs(planned_routes, executed_routes_regular,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        dv_stats = mc.assess_dv_by_obs(planned_routes_regular, executed_routes_regular,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
         print('injected dv')
-        inj_dv_stats = mc.assess_dv_by_obs([], executed_routes_injected,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        inj_dv_stats = mc.assess_dv_by_obs(planned_routes_injected, executed_routes_injected,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
 
         print('------------------------------')
-        lat_stats = mc.assess_latency_by_obs(planned_routes, executed_routes_regular, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        lat_stats = mc.assess_latency_by_obs(planned_routes_regular, executed_routes_regular, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
         print('injected latency')
-        inj_lat_stats = mc.assess_latency_by_obs([], executed_routes_injected, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        inj_lat_stats = mc.assess_latency_by_obs(planned_routes_injected, executed_routes_injected, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
-        # debug_tools.debug_breakpt()
+        debug_tools.debug_breakpt()
 
 
         sim_plot_params = self.params['const_sim_inst_params']['sim_plot_params']

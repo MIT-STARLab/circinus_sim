@@ -641,7 +641,7 @@ class LPScheduling(AgentScheduling):
             
             # obj [2]
             #  for total existing data volume, we only reward those unified flows that map and existing inflow to an existing outflow that it was already mapped to.  we do not reward unified flows that map in existing inflow to an existing outflow that it was NOT already mapped to. i.e., we don't just reward existing inflows and outflows; we reward the existing mapping from inflows to outflows
-            total_existing_dv_term = self.obj_weights['existing_flow_dv'] * 1/model.par_possible_existing_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in existing_unified_flow_ids)                
+            total_existing_dv_term = self.obj_weights['existing_flow_dv'] * 1/model.par_possible_existing_unified_flow_capacity * sum(model.var_unified_flow_dv[u] for u in existing_unified_flow_ids) if len(existing_unified_flow_ids) > 0 else 0
 
             # obj [3]
             #  we also want to reward existing routes for performing the minimum data volume requirement ( so that injected data volume doesn't totally replace existing volume)

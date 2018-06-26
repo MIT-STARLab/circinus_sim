@@ -339,7 +339,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         new_rt_conts, dc_id_by_new_src_id, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
 
         #####
-        # split any data containers (as required) to reflect the new routes
+        # do any required cleanup
 
         dcs_to_cleanup = set()
         for rt_cont in new_rt_conts:
@@ -347,6 +347,8 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
             if rt_cont in existing_rt_conts:
                 continue
 
+            #####
+            # split any data containers (as required) to reflect the new routes
 
             dc_id = dc_id_by_new_src_id.get(rt_cont.ID,None)        
 
@@ -367,6 +369,7 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
 
             if dc_id is None:
                 continue
+            # only deal with dc if route was created to handle a dc
             else:
                 matched_dc = existing_data_conts_by_id[dc_id]
 
