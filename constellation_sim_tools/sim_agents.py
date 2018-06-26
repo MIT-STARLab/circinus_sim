@@ -106,7 +106,7 @@ class SimSatellite(SimExecutiveAgent):
             sat_scenario_params['initial_state'],
         )
         self.arbiter = SatScheduleArbiter(self,sim_start_dt,sim_end_dt,sim_satellite_params['sat_schedule_arbiter_params'],act_timing_helper)
-        self.exec = SatExecutive(self,sim_start_dt)
+        self.exec = SatExecutive(self,sim_start_dt,dv_epsilon=sim_satellite_params['dv_epsilon_Mb'])
         self.state_recorder = SatStateRecorder(sim_start_dt)
 
         # adds references between sat sim objects
