@@ -444,6 +444,25 @@ class ConstellationSim:
         # metrics calculation
         mc = MetricsCalcs(self.get_metrics_params())
 
+        calc_act_windows = True
+        if calc_act_windows:
+            print('------------------------------')    
+            print('Potential DVs')    
+            print('Load obs')
+            window_uid = 0  # note this window ID will not match the one for executed windows in the sim! These are dummy windows!
+            obs_winds, window_uid =self.io_proc.import_obs_winds(window_uid)
+            print('Load dlnks')
+            dlnk_winds, dlnk_winds_flat, window_uid =self.io_proc.import_dlnk_winds(window_uid)
+
+            total_num_collectible_obs_winds = sum(len(o_list) for o_list in obs_winds)
+            total_collectible_obs_dv = sum(obs.original_data_vol for o_list in obs_winds for obs in o_list)
+            total_dlnkable_dv = sum(dlnk.original_data_vol for d_list in dlnk_winds_flat for dlnk in d_list)
+
+            print('total_num_collectible_obs_winds: %s'%total_num_collectible_obs_winds)
+            print('total_collectible_obs_dv: %s'%total_collectible_obs_dv)
+            print('total_dlnkable_dv: %s'%total_dlnkable_dv)
+
+
         # data containers mark their data vol in their data routes with the "data_vol" attribute, not "scheduled_dv"
         def dc_dr_dv_getter(dr):
             return dr.data_vol
@@ -479,8 +498,6 @@ class ConstellationSim:
 
         print('injected latency')
         inj_lat_stats = mc.assess_latency_by_obs(planned_routes_injected, executed_routes_injected, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
-
-        debug_tools.debug_breakpt()
 
 
         sim_plot_params = self.params['const_sim_inst_params']['sim_plot_params']
