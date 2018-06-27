@@ -201,7 +201,10 @@ class ConstellationSim:
                 wind_obj_type='injected'
             )
 
-            obs.set_data_vol(self.sat_params['pl_data_rate'])
+            # obs.set_data_vol(self.sat_params['pl_data_rate'])
+            # pretty hardcore hacky here, but things seem to do badly when injected obs have huge dv. Try it this way
+            obs.data_vol = 300
+            obs.original_data_vol = 300
 
             inj_obs_by_sat_id.setdefault(sat_id, []).append(obs)
         
@@ -397,7 +400,7 @@ class ConstellationSim:
         # Plot stuff
 
         sats_to_plot = self.sat_id_order
-        # sats_to_plot = ['sat3','sat4','sat5']
+        # sats_to_plot = ['sat0','sat1','sat2','sat3','sat4']
 
         #  plot scheduled and executed activities for satellites
         self.sim_plotter.sim_plot_all_sats_acts(
@@ -444,7 +447,7 @@ class ConstellationSim:
         # metrics calculation
         mc = MetricsCalcs(self.get_metrics_params())
 
-        calc_act_windows = True
+        calc_act_windows = False
         if calc_act_windows:
             print('------------------------------')    
             print('Potential DVs')    
@@ -613,7 +616,7 @@ class ConstellationSim:
             y_title='Number of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, planned (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
             plot_title = 'CIRCINUS Sim: Initial Latency Histogram, planned',
-            plot_size_inches = (12,5.5),
+            plot_size_inches = (12,3),
             show=False,
             fig_name='plots/csim_obs_lat_planned_hist.pdf'
         )
@@ -628,7 +631,7 @@ class ConstellationSim:
             y_title='Number of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
             plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed',
-            plot_size_inches = (12,5.5),
+            plot_size_inches = (12,3),
             show=False,
             fig_name='plots/csim_obs_lat_executed_hist.pdf'
         )
@@ -643,9 +646,43 @@ class ConstellationSim:
             y_title='Number of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
             plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed',
-            plot_size_inches = (12,5.5),
+            plot_size_inches = (12,3),
             show=False,
             fig_name='plots/csim_obs_lat_executed_cdf.pdf'
+        )
+
+
+        ############ 
+        # injected routes latency plots
+
+        # plot obs latency histogram, executed routes
+        pltl.plot_histogram(
+            data=inj_lat_stats['executed_initial_lat_by_obs_exec'].values(),
+            num_bins = lat_hist_num_bins,
+            plot_type = 'histogram',
+            x_range = lat_hist_x_range,
+            x_title='Latency (mins)',
+            y_title='Number of Obs Windows',
+            # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, injected obs',
+            plot_size_inches = (12,3),
+            show=False,
+            fig_name='plots/csim_obs_lat_injected_hist.pdf'
+        )
+
+        # plot obs latency histogram, executed routes
+        pltl.plot_histogram(
+            data=inj_lat_stats['executed_initial_lat_by_obs_exec'].values(),
+            num_bins = lat_hist_num_bins,
+            plot_type = 'cdf',
+            x_range = lat_hist_x_range,
+            x_title='Latency (mins)',
+            y_title='Number of Obs Windows',
+            # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, injected obs',
+            plot_size_inches = (12,3),
+            show=False,
+            fig_name='plots/csim_obs_lat_injected_cdf.pdf'
         )
 
     def get_metrics_params(self):
