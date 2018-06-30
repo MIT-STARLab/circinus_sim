@@ -485,6 +485,8 @@ class ConstellationSim:
 
         executed_routes_injected = [dc.executed_data_route for gs in self.gs_by_id.values() for dc in gs.get_curr_data_conts() if dc.injected]
 
+        # debug_tools.debug_breakpt()
+
         # note that the below functions assume that for all rt_conts:
         # - the observation, downlink for all DMRs in the rt_cont are the same
 
@@ -684,6 +686,21 @@ class ConstellationSim:
             show=False,
             fig_name='plots/csim_obs_lat_injected_cdf.pdf'
         )
+
+        # # plot obs aoi histogram, with routing
+        # pltl.plot_histogram(
+        #     data=obs_aoi_stats_w_routing['av_aoi_by_targID_exec'].values(),
+        #     num_bins = 50,
+        #     plot_type = 'histogram',
+        #     x_range = None,
+        #     x_title='Average AoI (hours)',
+        #     y_title='Number of Obs Targets',
+        #     # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
+        #     plot_title = 'CIRCINUS Sim: Obs AoI Histogram, with routing, executed',
+        #     plot_size_inches = (12,3),
+        #     show=False,
+        #     fig_name='plots/csim_obs_aoi_wrouting_hist.pdf'
+        # )
 
     def get_metrics_params(self):
         metrics_params = {}
