@@ -638,6 +638,9 @@ class ConstellationSim:
             fig_name='plots/csim_obs_lat_executed_hist.pdf'
         )
 
+        with open('plots/exec_obs_lat_cdf_data.json','w') as f:
+            json.dump(list(lat_stats['executed_initial_lat_by_obs_exec'].values()),f)
+
         # plot obs latency histogram, executed routes
         pltl.plot_histogram(
             data=lat_stats['executed_initial_lat_by_obs_exec'].values(),
@@ -645,9 +648,9 @@ class ConstellationSim:
             plot_type = 'cdf',
             x_range = lat_hist_x_range,
             x_title='Latency (mins)',
-            y_title='Number of Obs Windows',
+            y_title='Fraction of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed',
+            plot_title = 'CIRCINUS Sim: Initial Latency CDF, executed',
             plot_size_inches = (12,3),
             show=False,
             fig_name='plots/csim_obs_lat_executed_cdf.pdf'
@@ -679,9 +682,9 @@ class ConstellationSim:
             plot_type = 'cdf',
             x_range = lat_hist_x_range,
             x_title='Latency (mins)',
-            y_title='Number of Obs Windows',
+            y_title='Fraction of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, injected obs',
+            plot_title = 'CIRCINUS Sim: Initial Latency CDF, injected obs',
             plot_size_inches = (12,3),
             show=False,
             fig_name='plots/csim_obs_lat_injected_cdf.pdf'
