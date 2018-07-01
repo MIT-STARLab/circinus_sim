@@ -6,12 +6,21 @@ from circinus_tools.plotting import plot_tools as pltl
 
 
 data = []
-with open('inp/exec_obs_lat_cdf_data_walker_dlnk_xlnk_constr.json','r') as f:
+# with open('inp/exec_obs_lat_cdf_data_walker_dlnk.json','r') as f:
+#     data.append(json.load(f))
+# with open('inp/exec_obs_lat_cdf_data_walker_dlnk_xlnk.json','r') as f:
+#     data.append(json.load(f))
+# with open('inp/exec_obs_lat_cdf_data_walker_dlnk_xlnk_constr.json','r') as f:
+    # data.append(json.load(f))
+
+with open('inp/exec_obs_lat_cdf_data_sso_dlnk.json','r') as f:
     data.append(json.load(f))
-with open('inp/exec_obs_lat_cdf_data_walker_dlnk_xlnk.json','r') as f:
+with open('inp/exec_obs_lat_cdf_data_sso_dlnk_xlnk.json','r') as f:
     data.append(json.load(f))
-with open('inp/exec_obs_lat_cdf_data_walker_dlnk.json','r') as f:
+with open('inp/exec_obs_lat_cdf_data_sso_dlnk_xlnk_constr.json','r') as f:
     data.append(json.load(f))
+
+
 legend_labels = ['Dlnk Only','Dlnk + Xlnk','Dlnk + Xlnk, constrained']
 
 lat_hist_x_range = (0,150) # minutes

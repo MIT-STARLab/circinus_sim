@@ -419,9 +419,6 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         for rt_cont in rt_conts:
             rt_cont.set_times_safe(update_time_dt)
 
-            if rt_cont.ID.indx == 4677:
-                debug_tools.debug_breakpt()
-
         # update plan database
         self.plan_db.update_routes(rt_conts,update_time_dt)
 

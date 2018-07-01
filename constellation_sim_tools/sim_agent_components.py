@@ -62,6 +62,8 @@ class PlannerScheduler:
         #  todo: not sure if this is too hacky of a way to do this, reassess once incorporated code for planning info sharing over links.
         # todo: this has indeed become mildy hacky, because the planning info db has been overloaded with storing tt&c update info as well. So now this _planning_info_updated actually means that DATA ROUTES in the planning info db have been updated, not just anything in it.
         self._planning_info_updated = False
+        # this keeps track of whether or not we have new rt conts to share with other agents
+        self._planning_info_updated_for_external_share = False
         self._planning_info_updated_internal_hist = []
 
         #  this keeps track of whether or not plans have been updated by taking in planning info from an external source, e.g. the ground network or other satellites
@@ -76,11 +78,11 @@ class PlannerScheduler:
         #  whether or not we're on the first step of the simulation
         self._first_step = True 
         
-    def check_plans_updated(self):
-        return self._planning_info_updated
+    def check_external_share_plans_updated(self):
+        return self._planning_info_updated_for_external_share
 
-    def set_plans_updated(self,val):
-        self._planning_info_updated = val
+    def set_external_share_plans_updated(self,val):
+        self._planning_info_updated_for_external_share = val
 
     def update(self,new_time_dt,planner_wrapper):
         """ update state for planner/scheduler"""
@@ -138,6 +140,7 @@ class PlannerScheduler:
                 #  update replan time
                 self._last_replan_time_dt = self._curr_time_dt
                 self._planning_info_updated = True
+                self._planning_info_updated_for_external_share = True
                 self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
             #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
@@ -146,6 +149,7 @@ class PlannerScheduler:
                 self._process_updated_routes(new_rt_conts,self._curr_time_dt)
                 self._last_replan_time_dt = self._curr_time_dt
                 self._planning_info_updated = True
+                self._planning_info_updated_for_external_share = True
                 self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
             #  if it's not the first time and there is a wait required
@@ -160,6 +164,7 @@ class PlannerScheduler:
             self._process_updated_routes(q_entry.rt_conts,q_entry.time_dt)
             self._last_replan_time_dt = self._curr_time_dt
             self._planning_info_updated = True
+            self._planning_info_updated_for_external_share = True
             self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
     def _run_planner(self,planner_wrapper,new_time_dt):

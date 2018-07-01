@@ -300,14 +300,14 @@ class ConstellationSim:
 
             # whenever GP has run, share info afterwards
             # todo: seems kinda bad to cross levels of abstraction like this...
-            if self.gs_network.scheduler.check_plans_updated():
+            if self.gs_network.scheduler.check_external_share_plans_updated():
                 self.gsn_exchange_planning_info_all_exec_agents()
 
             # if a sat LP has run, send that info to gs network so it can use in planning with GP
             for sat_id,sat in self.sats_by_id.items():
-                if sat.arbiter.check_plans_updated():
+                if sat.arbiter.check_external_share_plans_updated():
                     sat.send_planning_info(self.gs_network,info_option='routes_only')
-                    sat.arbiter.set_plans_updated(False)
+                    sat.arbiter.set_external_share_plans_updated(False)
 
                 
             global_time = global_time+self.sim_tick
@@ -334,7 +334,7 @@ class ConstellationSim:
             self.gs_network.send_planning_info(gs,info_option='routes_only')
             gs.send_planning_info(self.gs_network,info_option='routes_only')
 
-        self.gs_network.scheduler.set_plans_updated(False)
+        self.gs_network.scheduler.set_external_share_plans_updated(False)
 
     def post_run(self):
 
