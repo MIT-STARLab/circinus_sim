@@ -66,7 +66,13 @@ class GlobalPlannerWrapper:
             print('changing xlnk horizon from %f to %f minutes'%(self.gp_params['planning_horizon_xlnk_mins'],360))
             self.gp_params['planning_horizon_obs_mins'] = 360
             self.gp_params['planning_horizon_xlnk_mins'] = 360
+            self.gp_general_params['activity_scheduling_params']['obj_weights']['obs_dv'] = self.obs_dv_w_cache
+            self.gp_general_params['activity_scheduling_params']['obj_weights']['route_latency'] = self.route_latency_w_cache
+            self.gp_general_params['activity_scheduling_params']['obj_weights']['energy_storage'] = self.energy_storage_w_cache
         if PLAN_WIND_HACK and self.first_iter:
+            self.obs_dv_w_cache = self.gp_general_params['activity_scheduling_params']['obj_weights']['obs_dv']
+            self.route_latency_w_cache = self.gp_general_params['activity_scheduling_params']['obj_weights']['route_latency']
+            self.energy_storage_w_cache = self.gp_general_params['activity_scheduling_params']['obj_weights']['energy_storage']
             self.gp_general_params['activity_scheduling_params']['obj_weights']['obs_dv'] = 1
             self.gp_general_params['activity_scheduling_params']['obj_weights']['route_latency'] = 1
             self.gp_general_params['activity_scheduling_params']['obj_weights']['energy_storage'] = 1
