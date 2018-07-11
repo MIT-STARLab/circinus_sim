@@ -66,6 +66,10 @@ class GlobalPlannerWrapper:
             print('changing xlnk horizon from %f to %f minutes'%(self.gp_params['planning_horizon_xlnk_mins'],360))
             self.gp_params['planning_horizon_obs_mins'] = 360
             self.gp_params['planning_horizon_xlnk_mins'] = 360
+        if PLAN_WIND_HACK and self.first_iter:
+            self.gp_general_params['activity_scheduling_params']['obj_weights']['obs_dv'] = 1
+            self.gp_general_params['activity_scheduling_params']['obj_weights']['route_latency'] = 1
+            self.gp_general_params['activity_scheduling_params']['obj_weights']['energy_storage'] = 1
 
 
         gp_instance_params = {
@@ -185,6 +189,10 @@ class GlobalPlannerWrapper:
 
         print('fraction of existing routes kept in schedule: %d / %d '%(num_existing_routes_scheduled,len(existing_routes)))
         print('fraction of existing utilization kept in schedule: %f / %f '%(existing_routes_scheduled_utilization,existing_routes_utilization))
+        print('to ease those copypasta blues:')
+        print('%d %d '%(len(existing_routes),num_existing_routes_scheduled))
+        print('%f %f '%(existing_routes_utilization,existing_routes_scheduled_utilization))
+
 
         debug_tools.debug_breakpt()
 
