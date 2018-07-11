@@ -169,6 +169,15 @@ class GlobalPlannerWrapper:
                 SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,gp_agent_ID)
             )
 
+        num_existing_routes_scheduled = len([dmr for dmr in scheduled_routes if dmr in existing_routes])
+        existing_routes_scheduled_utilization = sum([dmr.get_sched_utilization() for dmr in scheduled_routes if dmr in existing_routes])
+        existing_routes_utilization = sum(util for util in existing_route_data['utilization_by_existing_route_id'].values())
+
+        print('fraction of existing routes kept in schedule: %d / %d '%(num_existing_routes_scheduled,len(existing_routes)))
+        print('fraction of existing utilization kept in schedule: %f / %f '%(existing_routes_scheduled_utilization,existing_routes_utilization))
+
+        debug_tools.debug_breakpt()
+
         return sim_routes, latest_gp_route_indx
 
         # if I want to make calling the GP a separate process at some point...
