@@ -42,6 +42,8 @@ class GlobalPlannerWrapper:
 
         self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
 
+        self.first_iter = True
+
     def run_gp(self,curr_time_dt,existing_rt_conts,gp_agent_ID,latest_gp_route_indx,sat_state_by_id):
 
         def get_inp_time(time_dt,param_mins):
@@ -57,6 +59,14 @@ class GlobalPlannerWrapper:
 
         if curr_time_dt >= self.sim_end_utc_dt:
             raise RuntimeWarning('should not be running GP after end of sim')
+
+        PLAN_WIND_HACK = True
+        if PLAN_WIND_HACK and not self.first_iter:
+            print('changing obs horizon from %f to %f minutes'%(self.gp_params['planning_horizon_obs_mins'],360))
+            print('changing xlnk horizon from %f to %f minutes'%(self.gp_params['planning_horizon_xlnk_mins'],360))
+            self.gp_params['planning_horizon_obs_mins'] = 360
+            self.gp_params['planning_horizon_xlnk_mins'] = 360
+
 
         gp_instance_params = {
             "version": "0.7",
@@ -177,6 +187,8 @@ class GlobalPlannerWrapper:
         print('fraction of existing utilization kept in schedule: %f / %f '%(existing_routes_scheduled_utilization,existing_routes_utilization))
 
         debug_tools.debug_breakpt()
+
+        self.first_iter = False
 
         return sim_routes, latest_gp_route_indx
 
