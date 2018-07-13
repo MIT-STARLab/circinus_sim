@@ -199,9 +199,6 @@ class GlobalPlannerWrapper:
         print('%d %d '%(len(existing_routes),num_existing_routes_scheduled))
         print('%f %f '%(existing_routes_utilization,existing_routes_scheduled_utilization))
 
-
-        debug_tools.debug_breakpt()
-
         self.first_iter = False
 
         return sim_routes, latest_gp_route_indx
