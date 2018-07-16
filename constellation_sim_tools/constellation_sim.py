@@ -66,12 +66,16 @@ class ConstellationSim:
         # 2. we want to store it in the constellation sim context, as opposed to within the gs network. It stores a lot of input data (e.g. accesses, data rates inputs...) and we don't want to be pickling/unpickling all that stuff every time we make a checkpoint in the sim. Note that the gp_wrapper does not internally track any constellation state, on purpose
         self.gp_wrapper = GlobalPlannerWrapper(self.params)
 
+        # metrics calculation
+        self.mc = MetricsCalcs(self.get_metrics_params())
+
         # Also create local planner wrapper. it will store inputs that are common across all satellites. the instance parameters passed to it should be satellite-specific
-        self.lp_wrapper = LocalPlannerWrapper(self.params)
+        self.lp_wrapper = LocalPlannerWrapper(self.params,self.mc)
 
         self.act_timing_helper = ActivityTimingHelper(self.sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],self.sat_params['sat_id_order'],self.params['orbit_prop_params']['version'])
 
         self.init_data_structs()
+
 
 
     def init_data_structs(self):
@@ -444,9 +448,6 @@ class ConstellationSim:
 
     def run_and_plot_metrics(self,energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order):
 
-        # metrics calculation
-        mc = MetricsCalcs(self.get_metrics_params())
-
         calc_act_windows = False
         if calc_act_windows:
             print('------------------------------')    
@@ -492,30 +493,30 @@ class ConstellationSim:
 
         print('------------------------------')
 
-        dv_stats = mc.assess_dv_by_obs(planned_routes_regular, executed_routes_regular,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        dv_stats = self.mc.assess_dv_by_obs(planned_routes_regular, executed_routes_regular,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
         print('injected dv')
-        inj_dv_stats = mc.assess_dv_by_obs(planned_routes_injected, executed_routes_injected,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        inj_dv_stats = self.mc.assess_dv_by_obs(planned_routes_injected, executed_routes_injected,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
 
         print('------------------------------')
-        lat_stats = mc.assess_latency_by_obs(planned_routes_regular, executed_routes_regular, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        lat_stats = self.mc.assess_latency_by_obs(planned_routes_regular, executed_routes_regular, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
         print('injected latency')
-        inj_lat_stats = mc.assess_latency_by_obs(planned_routes_injected, executed_routes_injected, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
+        inj_lat_stats = self.mc.assess_latency_by_obs(planned_routes_injected, executed_routes_injected, rt_exec_dv_getter=dc_dr_dv_getter ,verbose = True)
 
 
         sim_plot_params = self.params['const_sim_inst_params']['sim_plot_params']
         time_units = sim_plot_params['obs_aoi_plot']['x_axis_time_units']
         print('------------------------------')
         print('Average AoI by obs, at collection time')
-        obs_aoi_stats_at_collection = mc.assess_aoi_by_obs_target(planned_routes, executed_routes_regular,include_routing=False,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
+        obs_aoi_stats_at_collection = self.mc.assess_aoi_by_obs_target(planned_routes, executed_routes_regular,include_routing=False,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
         
 
 
         print('------------------------------')
         print('Average AoI by obs, with routing')
-        obs_aoi_stats_w_routing = mc.assess_aoi_by_obs_target(planned_routes, executed_routes_regular,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
+        obs_aoi_stats_w_routing = self.mc.assess_aoi_by_obs_target(planned_routes, executed_routes_regular,include_routing=True,rt_poss_dv_getter=rt_cont_plan_dv_getter, rt_exec_dv_getter=dc_dr_dv_getter ,aoi_x_axis_units=time_units,verbose = True)
 
 
 
@@ -523,7 +524,7 @@ class ConstellationSim:
         print('------------------------------')
         #  this is indexed by sat index
         sats_cmd_update_hist = met_util.get_all_sats_cmd_update_hist(sats_in_indx_order,gs_in_indx_order,self.gs_id_ignore_list)
-        aoi_sat_cmd_stats = mc.assess_aoi_sat_ttc_option(sats_cmd_update_hist,ttc_option='cmd',input_time_type='datetime',aoi_x_axis_units=time_units,verbose = True)
+        aoi_sat_cmd_stats = self.mc.assess_aoi_sat_ttc_option(sats_cmd_update_hist,ttc_option='cmd',input_time_type='datetime',aoi_x_axis_units=time_units,verbose = True)
 
 
 
@@ -534,12 +535,12 @@ class ConstellationSim:
 
         print('------------------------------')
         sats_tlm_update_hist = met_util.get_all_sats_tlm_update_hist(sats_in_indx_order,gs_in_indx_order,self.gs_id_ignore_list,end_time_getter)
-        aoi_sat_tlm_stats = mc.assess_aoi_sat_ttc_option(sats_tlm_update_hist,ttc_option='tlm',input_time_type='datetime',aoi_x_axis_units=time_units,verbose = True)
+        aoi_sat_tlm_stats = self.mc.assess_aoi_sat_ttc_option(sats_tlm_update_hist,ttc_option='tlm',input_time_type='datetime',aoi_x_axis_units=time_units,verbose = True)
 
 
         print('------------------------------')
-        e_rsrc_stats = mc.assess_energy_resource_margin(energy_usage,verbose = True)
-        d_rsrc_stats = mc.assess_data_resource_margin(data_usage,verbose = True)
+        e_rsrc_stats = self.mc.assess_energy_resource_margin(energy_usage,verbose = True)
+        d_rsrc_stats = self.mc.assess_data_resource_margin(data_usage,verbose = True)
 
 
 
