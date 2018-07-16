@@ -236,21 +236,6 @@ class LocalPlannerWrapper:
         return sim_routes, dc_id_by_new_src_id, latest_lp_route_indx
 
     def do_post_metrics(self,curr_time_dt,pre_planned_routes,post_planned_routes,pre_utilization_by_route_id,post_utilization_by_route_id,data_container_rts):
-        pre_routes_regular = [rt for rt in pre_planned_routes if not rt.get_obs().injected]
-        pre_routes_injected = [rt for rt in pre_planned_routes if rt.get_obs().injected]
-
-        post_routes_regular = [rt for rt in post_planned_routes if not rt.get_obs().injected]
-        post_routes_injected = [rt for rt in post_planned_routes if rt.get_obs().injected]
-
-        print('##############################')
-        print('LP Metrics')
-        print('num pre regular routes: %d'%len(pre_routes_regular))
-        print('num pre injected routes: %d'%len(pre_routes_injected))
-        print('num post regular routes: %d'%len(post_routes_regular))
-        print('num post injected routes: %d'%len(post_routes_injected))
-        print('------------------------------')
-        print('Pre')
-        
 
         def pre_rt_dv_getter(rt):
             return rt.data_vol * pre_utilization_by_route_id[rt.ID]
@@ -262,6 +247,24 @@ class LocalPlannerWrapper:
                 pre_util = pre_utilization_by_route_id[rt.ID]
 
             return rt.data_vol * min(pre_util,post_utilization_by_route_id[rt.ID])
+
+
+        pre_routes_regular = [rt for rt in pre_planned_routes if not rt.get_obs().injected and pre_rt_dv_getter(rt) > 50 ]
+        pre_routes_injected = [rt for rt in pre_planned_routes if rt.get_obs().injected and pre_rt_dv_getter(rt) > 50 ]
+
+        post_routes_regular = [rt for rt in post_planned_routes if not rt.get_obs().injected and post_rt_dv_getter(rt) > 50 ]
+        post_routes_injected = [rt for rt in post_planned_routes if rt.get_obs().injected and post_rt_dv_getter(rt) > 50 ]
+
+        print('##############################')
+        print('LP Metrics')
+        print('num pre regular routes: %d'%len(pre_routes_regular))
+        print('num pre injected routes: %d'%len(pre_routes_injected))
+        print('num post regular routes: %d'%len(post_routes_regular))
+        print('num post injected routes: %d'%len(post_routes_injected))
+        print('------------------------------')
+        print('Pre')
+        
+
         
 
         print('regular dv')
