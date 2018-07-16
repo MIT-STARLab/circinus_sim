@@ -61,6 +61,9 @@ class LPScheduling(AgentScheduling):
         #  note: the size of this value is checked in make_model() below
         self.big_M_lat = 1e6
 
+        # todo: should add checking for this being an okay value
+        self.big_M_dv = 30000
+
         self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],lp_params['orbit_prop_params']['version'])
 
         self.sat_id = lp_params['lp_instance_params']['sat_id']
@@ -428,6 +431,8 @@ class LPScheduling(AgentScheduling):
 
         # data volume used for a given incoming/outgoing flow pair combination (v_(i,o)) [4]
         model.var_unified_flow_dv  = pe.Var (model.unified_flow_ids, within = pe.PositiveReals)
+        # the actual rewardable amount of that flow
+        model.var_unified_flow_dv_rewardable  = pe.Var (model.unified_flow_ids, within = pe.PositiveReals)
         #  indicates if a given incoming/outgoing flow pair combination is chosen (I_(i,o)) [5]
         model.var_unified_flow_indic  = pe.Var (model.unified_flow_ids, within = pe.Binary)
 
@@ -479,6 +484,15 @@ class LPScheduling(AgentScheduling):
             return model.var_act_indic[a] >=  model.var_activity_utilization[a]
         model.c4 =pe.Constraint ( model.all_act_windids,  rule=c4_rule)
 
+
+        def c11_rule( model,u):
+            return model.var_unified_flow_dv_rewardable[u] <= model.var_unified_flow_dv[u]
+        model.c11 =pe.Constraint ( model.unified_flow_ids,  rule=c11_rule)
+
+        def c12_rule( model,u):
+            return model.var_unified_flow_dv_rewardable[u] <= self.big_M_dv * model.var_unified_flow_indic[u]
+        model.c12 =pe.Constraint ( model.unified_flow_ids,  rule=c12_rule)
+        
 
         def c5a_rule( model,a):
             return model.par_act_capacity[a] * model.var_activity_utilization[a] - sum(model.par_partial_flow_capacity[i] * model.var_partial_flow_utilization[i] for i in inflows_ids_by_act_windid[a]) >= 0
@@ -618,6 +632,8 @@ class LPScheduling(AgentScheduling):
 
 
 
+
+
         # # from circinus_tools import debug_tools
         # # debug_tools.debug_breakpt()
 
@@ -650,7 +666,7 @@ class LPScheduling(AgentScheduling):
 
             # obj [4]
             #  follow the same pattern for injected flows
-            total_injected_inflow_dv_term = self.obj_weights['injected_inflow_dv'] * 1/model.par_possible_injected_inflow_capacity * sum(model.var_unified_flow_dv[u] for u in injected_unified_flow_ids) if len(model.injected_inflow_ids) > 0 else 0
+            total_injected_inflow_dv_term = self.obj_weights['injected_inflow_dv'] * 1/model.par_possible_injected_inflow_capacity * sum(model.var_unified_flow_dv_rewardable[u] for u in injected_unified_flow_ids) if len(model.injected_inflow_ids) > 0 else 0
 
             # obj [5]
             #  for the indicators term though, we want to look at the indicators for the injected inflows as opposed to unified flows - because we want to reward meeting minimum data volume for each injected inflow, not for maximizing the number of unified flows the inflows spread themselves out over
@@ -748,7 +764,7 @@ class LPScheduling(AgentScheduling):
                     dc_id_by_scheduled_rt_id[rt_id] = dc_id_by_inflow_id[flow.inflow.ID]
 
         # if self.sat_id == 'sat0':
-        #     debug_tools.debug_breakpt()
+            # debug_tools.debug_breakpt()
         
         outflow_id_by_planned_rt_id = {ofl.rt_ID:ofl.ID for ofl in self.outflows}
 

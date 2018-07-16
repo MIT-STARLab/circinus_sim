@@ -212,7 +212,9 @@ class LocalPlannerWrapper:
                     all_post_routes.append(rt)
                     post_utilization_by_route_id[rt.ID] = pre_utilization_by_route_id[rt.ID]
 
-            self.do_post_metrics(curr_time_dt,existing_route_data['planned_routes'], all_post_routes, pre_utilization_by_route_id,post_utilization_by_route_id)
+            data_container_rts = [dc.executed_data_route for dc in  existing_data_conts]
+
+            self.do_post_metrics(curr_time_dt,existing_route_data['planned_routes'], all_post_routes, pre_utilization_by_route_id,post_utilization_by_route_id,data_container_rts)
 
 
         
@@ -233,7 +235,7 @@ class LocalPlannerWrapper:
 
         return sim_routes, dc_id_by_new_src_id, latest_lp_route_indx
 
-    def do_post_metrics(self,curr_time_dt,pre_planned_routes,post_planned_routes,pre_utilization_by_route_id,post_utilization_by_route_id):
+    def do_post_metrics(self,curr_time_dt,pre_planned_routes,post_planned_routes,pre_utilization_by_route_id,post_utilization_by_route_id,data_container_rts):
         pre_routes_regular = [rt for rt in pre_planned_routes if not rt.get_obs().injected]
         pre_routes_injected = [rt for rt in pre_planned_routes if rt.get_obs().injected]
 
@@ -304,8 +306,14 @@ class LocalPlannerWrapper:
         print('injected rts dlnk latency from curr time')
         self.mc.assess_latency_from_timepoint(post_routes_injected, curr_time_dt,verbose = True)
 
-        print('injected obs:')
-        for rt in post_routes_injected:
-            print(rt.get_obs())
+        # print('injected obs:')
+        # data_container_rts
+        # for rt in post_routes_injected:
+        #     print(rt.get_obs())
+
+        print('injected dv available:')
+        for rt in data_container_rts:
+            if rt.get_obs().injected:
+                print('%s: %f'%(rt.get_obs(),rt.data_vol))
 
         debug_tools.debug_breakpt()
