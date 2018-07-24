@@ -60,18 +60,6 @@ class GlobalPlannerWrapper:
         if curr_time_dt >= self.sim_end_utc_dt:
             raise RuntimeWarning('should not be running GP after end of sim')
 
-        # PLAN_WIND_HACK = True
-        # if PLAN_WIND_HACK:
-
-
-        #     print('changing obs horizon from %f to %f minutes'%(self.gp_params['planning_horizon_obs_mins'],360))
-        #     print('changing xlnk horizon from %f to %f minutes'%(self.gp_params['planning_horizon_xlnk_mins'],360))
-        #     self.gp_params['planning_horizon_obs_mins'] = 360
-        #     self.gp_params['planning_horizon_xlnk_mins'] = 360
-
-        #     # need to set this if we're hijacking the first GP iter
-        #     latest_gp_route_indx = 10000
-
         gp_instance_params = {
             "version": "0.7",
             "planning_params": {
@@ -104,13 +92,6 @@ class GlobalPlannerWrapper:
 
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
         existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
-
-        # if PLAN_WIND_HACK:
-        #     with open('pickles/existing_routes_first_gp_iter.pkl','rb') as f:
-        #         existing_route_data = pickle.load(f)
-        #     existing_routes = existing_route_data['existing_routes']
-
-                
         
         gp_inputs = {
             "orbit_prop_inputs": self.orbit_prop_params,
