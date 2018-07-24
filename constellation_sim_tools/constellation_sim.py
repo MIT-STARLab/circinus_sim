@@ -607,7 +607,9 @@ class ConstellationSim:
         # lat_hist_num_bins = 50
         # for walker
         lat_hist_x_range = (0,150) # minutes
-        lat_hist_num_bins = 60
+        lat_hist_y_range = (0,200) # minutes
+        # lat_hist_num_bins = 270
+        lat_hist_num_bins = 500
 
         # plot obs latency histogram, planned routes
         pltl.plot_histogram(
@@ -615,6 +617,7 @@ class ConstellationSim:
             num_bins = lat_hist_num_bins,
             plot_type = 'histogram',
             plot_x_range = lat_hist_x_range,
+            plot_y_range = lat_hist_y_range,
             x_title='Latency (mins)',
             y_title='Number of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, planned (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
@@ -630,10 +633,11 @@ class ConstellationSim:
             num_bins = lat_hist_num_bins,
             plot_type = 'histogram',
             plot_x_range = lat_hist_x_range,
+            plot_y_range = lat_hist_y_range,
             x_title='Latency (mins)',
             y_title='Number of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
-            plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed regular',
+            plot_title = '',
             plot_size_inches = (12,3.5),
             show=False,
             fig_name='plots/csim_obs_lat_executed_hist.pdf'
@@ -648,6 +652,7 @@ class ConstellationSim:
             num_bins = lat_hist_num_bins,
             plot_type = 'cdf',
             plot_x_range = lat_hist_x_range,
+            plot_y_range = lat_hist_y_range,
             x_title='Latency (mins)',
             y_title='Fraction of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
@@ -667,6 +672,7 @@ class ConstellationSim:
             num_bins = lat_hist_num_bins,
             plot_type = 'histogram',
             plot_x_range = lat_hist_x_range,
+            plot_y_range = lat_hist_y_range,
             x_title='Latency (mins)',
             y_title='Number of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
@@ -685,6 +691,7 @@ class ConstellationSim:
             num_bins = lat_hist_num_bins,
             plot_type = 'cdf',
             plot_x_range = lat_hist_x_range,
+            plot_y_range = lat_hist_y_range,
             x_title='Latency (mins)',
             y_title='Fraction of Obs Windows',
             # plot_title = 'CIRCINUS Sim: Initial Latency Histogram, executed (dv req %.1f Mb)'%(mc.min_obs_dv_dlnk_req),
