@@ -319,4 +319,4 @@ class LocalPlannerWrapper:
             if rt.get_obs().injected:
                 print('%s: %f'%(rt.get_obs(),rt.data_vol))
 
-        debug_tools.debug_breakpt()
+        # debug_tools.debug_breakpt()
