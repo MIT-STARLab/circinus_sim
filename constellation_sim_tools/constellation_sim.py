@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from collections import OrderedDict
 import pickle
 import json
+from copy import copy
 
 from circinus_tools.scheduling.io_processing import SchedIOProcessor
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
@@ -398,7 +399,7 @@ class ConstellationSim:
         ##########
         # Run Metrics
 
-        self.run_and_plot_metrics(energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order)
+        self.run_and_plot_metrics(energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order,dlnks_exe,xlnks_exe)
 
         ##########
         # Plot stuff
@@ -446,9 +447,9 @@ class ConstellationSim:
 
         return None
 
-    def run_and_plot_metrics(self,energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order):
+    def run_and_plot_metrics(self,energy_usage,data_usage,sats_in_indx_order,gs_in_indx_order,dlnks_exe,xlnks_exe):
 
-        calc_act_windows = False
+        calc_act_windows = True
         if calc_act_windows:
             print('------------------------------')    
             print('Potential DVs')    
@@ -457,6 +458,8 @@ class ConstellationSim:
             obs_winds, window_uid =self.io_proc.import_obs_winds(window_uid)
             print('Load dlnks')
             dlnk_winds, dlnk_winds_flat, window_uid =self.io_proc.import_dlnk_winds(window_uid)
+            print('Load xlnks')
+            xlnk_winds, xlnk_winds_flat, window_uid =self.io_proc.import_xlnk_winds(window_uid)
 
             total_num_collectible_obs_winds = sum(len(o_list) for o_list in obs_winds)
             total_collectible_obs_dv = sum(obs.original_data_vol for o_list in obs_winds for obs in o_list)
@@ -541,6 +544,22 @@ class ConstellationSim:
         print('------------------------------')
         e_rsrc_stats = self.mc.assess_energy_resource_margin(energy_usage,verbose = True)
         d_rsrc_stats = self.mc.assess_data_resource_margin(data_usage,verbose = True)
+
+
+        calc_window_utilization = True
+        if calc_window_utilization:
+            all_link_acts = [dlnk for dlnks in dlnk_winds_flat for dlnk in dlnks]
+            all_link_acts += [xlnk for xlnks in xlnk_winds_flat for xlnk in xlnks]
+
+            executed_acts = copy([dlnk for dlnks in dlnks_exe for dlnk in dlnks])
+            executed_acts += copy([xlnk for xlnks in xlnks_exe for xlnk in xlnks])
+
+            def all_acts_dv_getter(act):
+                return act.original_data_vol
+            def exec_acts_dv_getter(act):
+                return act.executed_data_vol
+
+            self.mc.assess_link_utilization(all_link_acts, executed_acts, all_acts_dv_getter,exec_acts_dv_getter,verbose=True) 
 
 
 
