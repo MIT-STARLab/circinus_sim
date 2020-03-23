@@ -17,8 +17,19 @@ from copy import deepcopy
 
 #  local repo includes. todo:  make this less hackey
 sys.path.append ('..')
-from circinus_tools  import time_tools as tt
-from circinus_tools  import io_tools
+
+try: # First try will work if subrepo circinus_tools is populated, or if prior module imported from elsewhere (so this covers all the rest of the imports in this module as well)
+    from circinus_tools  import time_tools as tt
+    from circinus_tools  import io_tools
+except ImportError:
+    print("Importing circinus_tools from parent repo...")
+    try:
+        sys.path.insert(0, "../../")
+        from circinus_tools  import time_tools as tt
+        from circinus_tools  import io_tools
+    except ImportError:
+        print("Neither local nor parent-level circinus_tools found.")
+
 from constellation_sim_tools import constellation_sim as const_sim
 
 from circinus_tools import debug_tools
