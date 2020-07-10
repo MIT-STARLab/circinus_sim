@@ -6,6 +6,7 @@ from circinus_tools import debug_tools
 class SimPlotting():
     def __init__(self,sim_params):
 
+        self.output_path = sim_params['output_path']
         plot_params = sim_params['const_sim_inst_params']['sim_plot_params']
         sat_params = sim_params['orbit_prop_params']['sat_params']
         gs_params = sim_params['orbit_prop_params']['gs_params']
@@ -36,11 +37,10 @@ class SimPlotting():
             self.parsed_data_params_by_sat_id[sat_id] = {}
 
             sat_data_storage_params = sat_params['data_storage_params_by_sat_id'][sat_id]
-            storage_opt = sat_data_storage_params['storage_option']
 
             self.parsed_data_params_by_sat_id[sat_id] = {
-                "d_min": sat_data_storage_params['data_storage_Gbit']['d_min'][storage_opt],
-                "d_max": sat_data_storage_params['data_storage_Gbit']['d_max'][storage_opt],
+                "d_min": sat_data_storage_params['d_min'],
+                "d_max": sat_data_storage_params['d_max']
             }
 
 
@@ -141,7 +141,10 @@ class SimPlotting():
             sats_dlnk_winds_choices,
             sats_dlnk_winds, 
             sats_xlnk_winds_choices,
-            sats_xlnk_winds):
+            sats_xlnk_winds,
+            sats_obs_winds_failed = [],
+            sats_dlnk_winds_failed = [],
+            sats_xlnk_winds_failed = []):
 
         plot_params = {}
         plot_params['route_ids_by_wind'] = None
@@ -155,7 +158,7 @@ class SimPlotting():
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_sats_acts.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_sats_acts.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['sat_acts_plot']['time_units']
@@ -167,6 +170,9 @@ class SimPlotting():
         plot_params['plot_xlnks'] = True
         plot_params['plot_dlnks'] = True
         plot_params['plot_obs'] = True
+        plot_params['plot_xlnks_failed'] =  bool(sats_xlnk_winds_failed)
+        plot_params['plot_obs_failed'] = bool(sats_obs_winds_failed)
+        plot_params['plot_dlnks_failed'] = bool(sats_dlnk_winds_failed)
         plot_params['plot_include_obs_labels'] = self.input_plot_params['sat_acts_plot']['include_obs_labels']
         plot_params['plot_include_xlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_xlnk_labels']
         plot_params['plot_include_dlnk_labels'] = self.input_plot_params['sat_acts_plot']['include_dlnk_labels']
@@ -202,6 +208,11 @@ class SimPlotting():
         plot_params['start_getter_choices'] = start_getter_choices
         plot_params['end_getter_choices'] = end_getter_choices
 
+        plot_params['failed_acts'] =  {
+            "dlnks": sats_dlnk_winds_failed,
+            "xlnks": sats_xlnk_winds_failed,
+            "obs": sats_obs_winds_failed
+        }
 
 
         pltl.plot_all_agents_acts(
@@ -218,7 +229,8 @@ class SimPlotting():
     def sim_plot_all_gs_acts(self,
             gs_ids_list,
             gs_dlnk_winds_choices,
-            gs_dlnk_winds):
+            gs_dlnk_winds,
+            gs_dlnk_winds_failed=[]):
 
         plot_params = {}
         plot_params['route_ids_by_wind'] = None
@@ -226,25 +238,39 @@ class SimPlotting():
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'Executed and Planned GS Downlinks'
+        plot_params['plot_title'] = 'Executed, Planned, and Failed GS Downlinks' if gs_dlnk_winds_failed else 'Executed and Planned GS Downlinks'
         plot_params['y_label'] = 'Ground Station Index'
         plot_params['plot_size_inches'] = (18,9)
         plot_params['plot_include_labels'] = self.input_plot_params['gs_acts_plot']['include_labels']
         plot_params['plot_original_times_choices'] = True
         plot_params['plot_executed_times_regular'] = True
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_gs_dlnks.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_gs_dlnks.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['gs_acts_plot']['time_units']
         plot_params['agent_id_order'] = self.gs_id_order
-
-        plot_params['plot_xlnks_choices'] = False
+        plot_params['plot_include_dlnk_labels'] = True
+        
+        # "Planned"
         plot_params['plot_dlnks_choices'] = True
-        plot_params['plot_obs_choices'] = False
-        plot_params['plot_xlnks'] = False
+
+
+        # "Executed"
         plot_params['plot_dlnks'] = True
-        plot_params['plot_obs'] = False
+
+        # "Failed"
+        plot_params['plot_dlnks_failed'] = bool(gs_dlnk_winds_failed)
+        plot_params['failed_acts'] =  {
+            "dlnks": gs_dlnk_winds_failed
+        }
+        # set other acts to False (gs doesn't have xlnks or obs)
+        non_relevant_act_strs = ['xlnks','obs']
+        for act in non_relevant_act_strs:
+            plot_params['plot_%s_choices' % act] = False
+            plot_params['plot_%s' % act] = False
+            plot_params['plot_%s_failed' % act] = False
+
 
         plot_params['xlnk_route_index_to_use'] = 0
         plot_params['xlnk_color_rollover'] = 5
@@ -287,7 +313,7 @@ class SimPlotting():
         plot_params['plot_title'] = 'CIRCINUS Sim: Executed Energy Storage Utilization'
         plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_sats_energy.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_sats_energy.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['energy_usage_plot']['time_units']
@@ -319,7 +345,7 @@ class SimPlotting():
         plot_params['plot_title'] = 'CIRCINUS Sim: Executed Data Storage Utilization'
         plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_sats_data.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_sats_data.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['time_units'] = self.input_plot_params['data_usage_plot']['time_units']
@@ -337,7 +363,38 @@ class SimPlotting():
             plot_params)
 
 
-    def plot_obs_aoi_at_colllection(self,
+    def sim_plot_all_sats_failures_on_data_usage(self,
+            sats_ids_list,
+            exec_failures_dicts_list,
+            data_usage):
+
+        plot_params = {}
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
+
+        plot_params['plot_title'] = 'CIRCINUS Sim: Activity Failures vs. Data Storage'
+        plot_params['plot_size_inches'] = (18,9)
+        plot_params['show'] = False
+        plot_params['fig_name'] = self.output_path+'plots/csim_sats_exec_failures.pdf'
+        plot_params['plot_fig_extension'] = 'pdf'
+
+        plot_params['time_units'] = self.input_plot_params['failures_on_data_usage_plot']['time_units']
+        plot_params['sat_id_order'] = self.sat_id_order
+
+        plot_params['sats_dmin_Gb'] = [self.parsed_data_params_by_sat_id[sat_id]['d_min'] for sat_id in self.sat_id_order]
+        plot_params['sats_dmax_Gb'] = [self.parsed_data_params_by_sat_id[sat_id]['d_max'] for sat_id in self.sat_id_order]
+
+        plot_params['failures_on_data_usage_plot_params'] = self.input_plot_params['failures_on_data_usage_plot']
+
+        pltl.plot_failures_on_data_usage(
+            sats_ids_list,
+            data_usage,
+            exec_failures_dicts_list,
+            plot_params)
+
+
+    def plot_obs_aoi_at_collection(self,
             targ_ids_list,
             aoi_curves_by_targ_id):
 
@@ -349,7 +406,7 @@ class SimPlotting():
         plot_params['plot_title'] = 'CIRCINUS Sim: Executed Observation Target AoI, at collection'
         plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_obs_aoi_collection.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_obs_aoi_collection.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['ylabel'] = 'Target Index,\nAoI (hours)\n'
@@ -379,7 +436,7 @@ class SimPlotting():
         plot_params['plot_title'] = 'CIRCINUS Sim: Executed Observation Target AoI, with routing'
         plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_obs_aoi_routing.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_obs_aoi_routing.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['ylabel'] = 'Target Index,\nAoI (hours)\n'
@@ -398,32 +455,72 @@ class SimPlotting():
 
     def plot_sat_cmd_aoi(self,
             sat_ids_list,
-            aoi_curves_by_sat_id):
+            aoi_curves_by_sat_id,
+            all_downlink_winds = [],
+            gp_replan_freq = None):
 
         plot_params = {}
         plot_params['plot_start_dt'] = self.plots_start_dt
         plot_params['plot_end_dt'] = self.plots_end_dt
         plot_params['base_time_dt'] = self.plots_base_dt
 
-        plot_params['plot_title'] = 'CIRCINUS Sim: Satellite CMD Uplink AoI'
+        
         plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_sat_cmd_aoi.pdf'
+        plot_params['plot_title'] = 'CIRCINUS Sim: Satellite CMD Uplink AoI'
+        plot_params['fig_name'] = self.output_path+'plots/csim_sat_cmd_aoi.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['ylabel'] = 'Satellite Index,\nAoI (hours)\n'
         plot_params['time_units'] = self.input_plot_params['sat_cmd_aoi_plot']['x_axis_time_units']
 
-        plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['sat_cmd_aoi_plot']['plot_bound_min_aoi_hours']
-        plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['sat_cmd_aoi_plot']['plot_bound_max_aoi_hours']
+        """ plot_params['plot_bound_min_aoi_hours'] = self.input_plot_params['sat_cmd_aoi_plot']['plot_bound_min_aoi_hours']
+        plot_params['plot_bound_max_aoi_hours'] = self.input_plot_params['sat_cmd_aoi_plot']['plot_bound_max_aoi_hours'] """
+
+        plot_params['plot_bound_min_aoi_hours'] = 0
+        plot_params['plot_bound_max_aoi_hours'] = max([max(x['y']) for x in aoi_curves_by_sat_id.values()])
 
         plot_params['include_legend'] = False
 
         pltl.plot_aoi_by_item(
             sat_ids_list,
             aoi_curves_by_sat_id,
-            plot_params
+            plot_params,
+            all_downlink_winds,
+            gp_replan_freq
         )
+
+    def sim_plot_all_sats_failures_on_cmd_aoi(self,
+            sats_ids_list,
+            non_exec_failures_dicts_list,
+            cmd_aoi_curves_by_sat_id):
+        # TODO: implement similar to failures on data_usage
+        plot_params = {}
+        plot_params['plot_start_dt'] = self.plots_start_dt
+        plot_params['plot_end_dt'] = self.plots_end_dt
+        plot_params['base_time_dt'] = self.plots_base_dt
+
+        plot_params['plot_title'] = 'CIRCINUS Sim: Non-Exec Failures againt Satellite CMD Uplink AoI'
+        plot_params['plot_size_inches'] = (18,9)
+        plot_params['show'] = False
+        plot_params['fig_name'] = self.output_path+'plots/csim_non-exec_failures_on_sat_cmd_aoi.pdf'
+        plot_params['plot_fig_extension'] = 'pdf'
+
+        plot_params['ylabel'] = 'Satellite Index,\nAoI (hours)\n'
+        plot_params['time_units'] = self.input_plot_params['sat_cmd_aoi_plot']['x_axis_time_units']
+
+        # TODO: do this dynamically based on max time in cmd_aoi_curves_by_sat_id
+        plot_params['plot_bound_min_aoi_hours'] = 0
+        plot_params['plot_bound_max_aoi_hours'] = max([max(x['y']) for x in cmd_aoi_curves_by_sat_id.values()])
+
+        plot_params['include_legend'] = False
+
+        pltl.plot_failures_on_aoi(
+            sats_ids_list,
+            non_exec_failures_dicts_list,
+            cmd_aoi_curves_by_sat_id,
+            plot_params
+        ) 
 
     def plot_sat_tlm_aoi(self,
             sat_ids_list,
@@ -437,7 +534,7 @@ class SimPlotting():
         plot_params['plot_title'] = 'CIRCINUS Sim: Satellite TLM Downlink AoI'
         plot_params['plot_size_inches'] = (18,9)
         plot_params['show'] = False
-        plot_params['fig_name'] = 'plots/csim_sat_tlm_aoi.pdf'
+        plot_params['fig_name'] = self.output_path+'plots/csim_sat_tlm_aoi.pdf'
         plot_params['plot_fig_extension'] = 'pdf'
 
         plot_params['ylabel'] = 'Satellite Index,\nAoI (hours)\n'

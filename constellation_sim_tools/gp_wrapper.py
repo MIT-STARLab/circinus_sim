@@ -17,6 +17,7 @@ from datetime import datetime,timedelta
 from .sim_routing_objects import SimRouteContainer
 
 from circinus_tools import debug_tools
+from circinus_tools  import time_tools as tt
 
 EXPECTED_GP_OUTPUT_VER = '0.2'
 
@@ -32,19 +33,27 @@ class GlobalPlannerWrapper:
     def __init__(self, sim_params):
 
         # these are inputs required for the GP
-        self.orbit_prop_params = sim_params['orbit_prop_params']
-        self.orbit_link_params = sim_params['orbit_link_params']
+        self.output_path       = sim_params['output_path']       if 'output_path'       in sim_params.keys() else None
+        self.orbit_prop_params = sim_params['orbit_prop_params'] if 'orbit_prop_params' in sim_params.keys() else None                       # None if not sim
+        self.orbit_link_params = sim_params['orbit_link_params'] if 'orbit_link_params' in sim_params.keys() else None                       # None if not sim
         self.gp_general_params = sim_params['gp_general_params']
-        self.data_rates_params = sim_params['data_rates_params']
-        self.const_sim_inst_params = sim_params['const_sim_inst_params']
-        self.gp_wrapper_params = self.const_sim_inst_params['gp_wrapper_params']
-        self.gp_params = self.gp_wrapper_params['gp_params']
-
-        self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
+        self.data_rates_params = sim_params['data_rates_params'] if 'data_rates_params' in sim_params.keys() else None                       # None if not sim
+        self.const_sim_inst_params  = sim_params['const_sim_inst_params']
+        self.gp_wrapper_params      = self.const_sim_inst_params['gp_wrapper_params']
+        self.verbose_gp             = self.gp_wrapper_params["verbose_gp"]
+        self.gp_params              = self.gp_wrapper_params['gp_params']
+        if 'sim_run_params' in self.const_sim_inst_params.keys():                       # not included if not sim
+            self.sim_end_utc_dt = self.const_sim_inst_params['sim_run_params']['end_utc_dt']
 
         self.first_iter = True
 
-    def run_gp(self,curr_time_dt,existing_rt_conts,gp_agent_ID,latest_gp_route_indx,sat_state_by_id):
+    def run_gp(self,curr_time_dt,existing_rt_conts,gp_agent_ID,latest_gp_route_indx,sat_state_by_id, all_windows_dict, update_on_run=None):
+        if update_on_run is not None: # is none in default sim, where it is set up fully in the constructor
+            self.orbit_prop_params      = update_on_run['orbit_prop_params']
+            self.orbit_link_params      = update_on_run['orbit_link_params']
+            self.data_rates_params      = update_on_run['data_rates_params']
+            self.sim_end_utc_dt = update_on_run['sim_run_params']['end_utc_dt']
+
 
         def get_inp_time(time_dt,param_mins):
             new_time = curr_time_dt + timedelta(minutes=param_mins)
@@ -93,6 +102,10 @@ class GlobalPlannerWrapper:
         #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
         existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
         
+        # get relevant activity windows based on all_windows_dict (from gsn) and time horizons (calculated above)
+
+        relevant_activity_windows = get_relevant_activity_windows(all_windows_dict,gp_instance_params['planning_params'])
+
         gp_inputs = {
             "orbit_prop_inputs": self.orbit_prop_params,
             "orbit_link_inputs": self.orbit_link_params,
@@ -100,19 +113,21 @@ class GlobalPlannerWrapper:
             "gp_instance_params_inputs": gp_instance_params,
             "data_rates_inputs": self.data_rates_params,
             "existing_route_data": existing_route_data,
+            "relevant_activity_windows": relevant_activity_windows,
             "rs_s1_pickle": None,
             "rs_s2_pickle": None,
             "as_pickle": None,
             "file_params":  {'new_pickle_file_name_pre': "const_sim_test_pickle"}
         }
 
-        # save off a json with these gp params so we can run this instance again (for debug)
-        with open('pickles/most_recent_gp_instance_params.json','w') as f:
-            json.dump(  gp_instance_params,f)
+        if self.output_path is not None:
+            # save off a json with these gp params so we can run this instance again (for debug)
+            with open(self.output_path+'pickles/most_recent_gp_instance_params.json','w') as f:
+                json.dump(gp_instance_params, f, indent=4, separators=(',', ': '))
 
-        # save off a pickle with these gp params so we can run this instance again (for debug)
-        with open('pickles/most_recent_gp_existing_routes_input.pkl','wb') as f:
-            pickle.dump(  existing_route_data,f)
+            # save off a pickle with these gp params so we can run this instance again (for debug)
+            with open(self.output_path+'pickles/most_recent_gp_existing_routes_input.pkl','wb') as f:
+                pickle.dump(  existing_route_data,f)
 
         ##############################
         #  run the GP
@@ -131,10 +146,17 @@ class GlobalPlannerWrapper:
         sys.path.append (self.gp_wrapper_params['gp_path'])
         from runner_gp import PipelineRunner as GPPipelineRunner
 
-        print('Run GP')
+        print('==Run GP==')
         print('note: running with local circinus_tools, not circinus_tools within GP repo')
+        # NOTE: moved this from within GP pipeline runner, so we can still see this, but rest is suppressed if verbose_milp = false
+        print('planning_start_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_start'])))
+        print('planning_end_obs_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_end_obs'])))
+        print('planning_end_xlnk_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_end_xlnk'])))
+        print('planning_end_dlnk_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_end_dlnk'])))
+
         gp_pr = GPPipelineRunner()
-        gp_output = gp_pr.run(gp_inputs,verbose=True)
+        gp_output = gp_pr.run(gp_inputs,verbose=self.verbose_gp)
+        print('==GP DONE==')
 
         ##############################
         # handle output
@@ -195,4 +217,58 @@ class GlobalPlannerWrapper:
         # p.start()
         # gp_output = queue.get()
         # p.join()
+
+
+def get_relevant_activity_windows(all_windows_dict,planning_params):
+    ''' function to return only the activity windows within the GP planning time horizons'''
+
+    # convert back to datetime (Same time format as the activity windows)
+    planning_start_dt = datetime.strptime(planning_params["planning_start"],'%Y-%m-%dT%H:%M:%S.%fZ')
+    planning_end_obs_dt = datetime.strptime(planning_params["planning_end_obs"],'%Y-%m-%dT%H:%M:%S.%fZ')
+    planning_end_xlnk_dt = datetime.strptime(planning_params["planning_end_xlnk"],'%Y-%m-%dT%H:%M:%S.%fZ')
+    planning_end_dlnk_dt = datetime.strptime(planning_params["planning_end_dlnk"],'%Y-%m-%dT%H:%M:%S.%fZ')
+
+    relevant_activity_windows = {}
+    # My assumption is that for each window:
+    # "original_start" is ALWAYS less than or equal to (earlier) "start"
+    # "original_end" is ALWAYS greater than or equal to (later) "end"
+    # so then we can just use the original_X instead of the currently planned start/end
+    for key in all_windows_dict.keys():
+        if key != "next_window_uid":
+            relevant_activity_windows[key] = []
+            all_sat_winds = all_windows_dict[key]
+            for sat_idx,sat_winds in enumerate(all_sat_winds):
+                # append one list for each satellite
+                if 'obs' in key:
+                    # Use obs end time
+                    relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_obs_dt])
+                elif 'dlnk' in key:
+                    # Use dlnk end time
+                    if 'flat' in key:
+                        relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_dlnk_dt])
+                    else:
+                        relevant_activity_windows[key].append([])
+                        for gs_winds in sat_winds:
+                            # need to filter by ground station as well
+                            relevant_activity_windows[key][sat_idx].append([x for x in gs_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_dlnk_dt])
+                elif 'xlnk' in key:
+                    # Use xlnk end time
+                    if 'flat' in key:
+                        relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_xlnk_dt])
+                    else:
+                        relevant_activity_windows[key].append([])
+                        for xsat_winds in sat_winds:
+                            # need to filter by next sat as well
+                            relevant_activity_windows[key][sat_idx].append([x for x in xsat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_xlnk_dt])
+                elif 'ecl' in key:
+                    # Include all with an ending time greater than start time
+                    relevant_activity_windows[key].append([x for x in sat_winds if x.end >= planning_start_dt])
+                else:
+                    # Shouldn't get here
+                    raise NotImplementedError
+    
+    relevant_activity_windows['next_window_uid'] = all_windows_dict['next_window_uid']
+    return relevant_activity_windows
+    
+
 

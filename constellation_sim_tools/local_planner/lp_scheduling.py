@@ -64,7 +64,7 @@ class LPScheduling(AgentScheduling):
         # todo: should add checking for this being an okay value
         self.big_M_dv = 30000
 
-        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],lp_params['orbit_prop_params']['version'])
+        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],None) #lp_params['orbit_prop_params']['version']) # TODO - drop the version stuff
 
         self.sat_id = lp_params['lp_instance_params']['sat_id']
 
@@ -691,7 +691,7 @@ class LPScheduling(AgentScheduling):
     def display_uf_dvs(self):
         #debug code
         for flow in self.unified_flows:
-            print ('%s: %s'%(flow,pe.value(self.model.var_unified_flow_dv[flow.ID])))
+            print('%s: %s'%(flow,pe.value(self.model.var_unified_flow_dv[flow.ID])))
 
     def extract_updated_routes( self, existing_route_data, planned_rts_outflows_in_planning_window, dc_id_by_inflow_id, latest_dr_uid,lp_agent_ID,verbose = False):
         #  note that we don't update any scheduled data volumes for routes or Windows, or any of the window timing here. the current local planner does not do this, it can only update the utilization fraction for an existing route

@@ -11,10 +11,16 @@ from .schedule_tools  import synthesize_executable_acts
 
 from circinus_tools import debug_tools
 
+import pickle as pkl
+from datetime import datetime
+import time
+
+from central_global_planner.IP_Client import IP_Client
+
 class GroundNetworkPS(PlannerScheduler):
     """Handles calling of the GP, and ingestion of plan and state updates from satellites"""
 
-    def __init__(self,sim_gsn,sim_start_dt,sim_end_dt,gsn_ps_params,act_timing_helper):
+    def __init__(self,sim_gsn,sim_start_dt,sim_end_dt,gsn_ps_params,act_timing_helper,simulation):
         #  initialize from superclass first
         super().__init__(sim_start_dt,sim_end_dt,sim_gsn,act_timing_helper)
 
@@ -35,6 +41,71 @@ class GroundNetworkPS(PlannerScheduler):
         self.replan_release_wait_time_s = gsn_ps_params['replan_release_wait_time_s']
         self.release_first_plans_immediately = gsn_ps_params['release_first_plans_immediately']
 
+        # Set on first iteration (not upon initilization)
+        self.all_windows_dict = {} # holds all activity windows over the sim duration
+
+        self.outsource = simulation.params['sim_gen_config']['use_standalone_gp']  # False
+        if self.outsource:
+            self.gp_client = IP_Client({"cgp":"localhost"},54202,".")  # Perhaps if connection fails, attempt to spin one up here.
+
+            scenario_params = {
+                'sim_case_config'   : { 
+                    'scenario_params' : simulation.params['sim_case_config'],
+                    'sim_gsn_ID' : self.sim_gsn.ID
+                },
+                'orbit_prop_params' : simulation.params['orbit_prop_params'],
+                'orbit_link_params' : simulation.params['orbit_link_params'],
+                'data_rates_params' : simulation.params['data_rates_params'],
+                'sim_run_params'    : {
+                    "start_utc_dt" : simulation.params['start_utc_dt'],
+                    "end_utc_dt"   : simulation.params['end_utc_dt'] 
+                },
+                'sat_config'        : simulation.params['sat_config'],
+                'sim_gen_config'    : simulation.params['sim_gen_config'],
+                'gp_general_params' : simulation.params['gp_general_params']
+            }
+            scenario_params['orbit_prop_params']['gs_params']['elevation_cutoff_deg'] = simulation.const_sim_inst_params["sim_gs_params"]["elevation_cutoff_deg"]
+
+            msg = {
+                "req_type" : 'updateParams',
+                "payload"  : {
+                    'scenario_params' : scenario_params             # To start based on what is loaded here
+                    # 'scenario_params' : {
+                    #     # 'LOCAL_LOAD_PATH' : 'orig_circinus_zhou'    # To start based on a particular case
+                    #     # 'LOCAL_LOAD_PATH' : None                    # To start live, based on config files in ONLINE_OPS case
+                    # }
+                }
+            }
+
+            self.gp_client.transmit( "cgp", pkl.dumps(msg) )  # TODO - get ack, else error?
+
+            # Same pattern as requesting plan, but just the propagation & windows in this case.
+            rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
+                {
+                    "req_type" : 'updateWindows',
+                    "payload" : None
+                }
+            ) )
+            dta = pkl.loads(rec_str)
+            while ( dta['payload'] is None): # 5 seconds to kick off a plan gen  -- maybe add a max as well--60s?
+                time.sleep(1)
+                print('.',end='',flush=True)
+                rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
+                    {
+                        "req_type" : 'updateWindows',
+                        "payload" : None
+                    }
+                ) )
+
+                dta = pkl.loads(rec_str)
+
+            self.all_windows_dict = dta['payload'] # ['all_windows_dict']
+
+    @property
+    def last_replan_time_dt(self):
+        return self._last_replan_time_dt
+    
+
     def _check_internal_planning_update_req(self):
 
          #  see if we need to replan at this time step
@@ -48,11 +119,37 @@ class GroundNetworkPS(PlannerScheduler):
         if len(self._replan_release_q) > 0:
             replan_required = False
 
-        return replan_required
+        return (replan_required, 'nominal')
 
     def _schedule_cache_update(self):
         #  don't need to do anything with generating a schedule cache because the ground station network is not an executive planner ( it doesn't execute activities)
         pass
+
+    def retrieve_updated_all_windows_dict(self):  # TODO, add second param to allow for LP feedback to windows
+        if self.outsource:
+            rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
+                {
+                    "req_type" : 'updateWindows',
+                    "payload" : None
+                }
+            ) )
+
+            dta = pkl.loads(rec_str)
+
+            while ( dta['payload']['pending'] or dta['payload']['all_windows_dict'] is None): # 5 seconds to kick off a plan gen  -- maybe add a max as well--60s?
+                time.sleep(1)
+                print('.',end='',flush=True)
+                rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
+                    {
+                        "req_type" : 'updateWindows',
+                        "payload" : None
+                    }
+                ) )
+
+                dta = pkl.loads(rec_str)
+
+            self.all_windows_dict = dta['payload']['all_windows_dict']
+
 
     def _run_planner(self,gp_wrapper,new_time_dt):
         #  see superclass for docs
@@ -65,8 +162,41 @@ class GroundNetworkPS(PlannerScheduler):
 
         #  run the global planner
         # debug_tools.debug_breakpt()
-        new_rt_conts, latest_gp_route_indx = gp_wrapper.run_gp(self._curr_time_dt,existing_rt_conts,self.sim_gsn.ID,self.latest_gp_route_indx,sat_state_by_id)
 
+        if self.outsource:
+
+            msg = {
+                "req_type" : 'regenPlan',
+                "payload"  : 
+                    [
+                        self._curr_time_dt         
+                    ]
+            }
+
+            rec_str = self.gp_client.transmit( "cgp", pkl.dumps(msg) )
+
+            dta = pkl.loads(rec_str)
+            while ( dta['payload']['pending'] or dta['payload']['plan'] is None): # 5 seconds to kick off a plan gen  -- maybe add a max as well--60s?
+                time.sleep(1)
+                print('.',end='',flush=True)
+                rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
+                    {
+                        "req_type" : 'reqPlan',
+                        "payload"  : None
+                    }
+                ) )
+
+                dta = pkl.loads(rec_str)
+
+            # if dta payload is not none, but it should not be none
+            new_rt_conts         = dta['payload']['plan'][0]
+            latest_gp_route_indx = dta['payload']['plan'][1]
+
+        else:
+            new_rt_conts, latest_gp_route_indx = gp_wrapper.run_gp(self._curr_time_dt,existing_rt_conts,self.sim_gsn.ID,self.latest_gp_route_indx,sat_state_by_id, self.all_windows_dict)
+
+
+        
         #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
         self.latest_gp_route_indx = latest_gp_route_indx
 

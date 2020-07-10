@@ -21,8 +21,11 @@ from .sim_agent_components import StateSimulator,Executive,ExecutiveAgentPlanner
 from .sim_routing_objects import SimDataContainer,ExecutableDataContainer
 from .schedule_tools  import synthesize_executable_acts, ExecutableActivity
 from .lp_wrapper import LocalPlannerWrapper 
+from sprint_tools.Sprint_Types import AgentType #from .sim_agents import AgentType
 
 from circinus_tools import debug_tools
+import copy
+import logging 
 
 class SatStateSimulator(StateSimulator):
     """Simulates satellite system state, holding internally any state variables needed for the process. This state includes things like energy storage, ADCS modes/pointing state (future work)"""
@@ -42,8 +45,7 @@ class SatStateSimulator(StateSimulator):
         #  data storage is assumed to be in Mb
         #  assume we start out with zero data stored on board
         self.DS_state = 0
-        storage_opt = sat_data_storage_params['storage_option']
-        self.DS_max = sat_data_storage_params['data_storage_Gbit']['d_max'][storage_opt] * 1000  # convert to megabits
+        self.DS_max = sat_data_storage_params['d_max'] * 1000  # convert to megabits
         # note:  assuming no minimum data storage limit - it's just 0!
         self.DS_min = 0
 
@@ -167,6 +169,8 @@ class SatStateSimulator(StateSimulator):
 
         if len(curr_ecl_winds) == 1:
             return True
+        else:
+            return False
 
     def get_available_data_storage(self,time_dt,dv_desired=None):
         # note: for the satellite we don't care about dv_desired
@@ -175,7 +179,11 @@ class SatStateSimulator(StateSimulator):
             raise RuntimeWarning('Attempting to get available data volume from state sim off-timestep')
 
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
-        assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
+        # TODO: so dv_epsilon for creating a new data container is a 1 Mb threshold, but the dv_epislon for validating 
+        # data storage against collected data containers is a 0.01 Mb threshold.  
+        # I'm going to raise the data storage threshold up to 0.1 Mb, but I think an overall 
+        # thresholding re-work is in order, maybe something that scales with sim timescale
+        assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon*10)
 
         return self.DS_max - self.DS_state
 
@@ -198,7 +206,11 @@ class SatStateSimulator(StateSimulator):
         self.DS_state = new_DS_state
 
         # sanity check to make sure we are recording the same amount of dv as is actually in the data store
-        assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon)
+        # TODO: so dv_epsilon for creating a new data container is a 1 Mb threshold, but the dv_epislon for validating 
+        # data storage against collected data containers is a 0.01 Mb threshold.  
+        # I'm going to raise the data storage threshold up to 0.1 Mb, but I think an overall 
+        # thresholding re-work is in order, maybe something that scales with sim timescale
+        assert(abs(self.DS_state - self.data_store.get_total_dv()) < self.dv_epsilon*10)
 
     def cleanup_empty_data_conts(self,data_conts,time_dt,dv_epsilon=0.001):
         if not time_dt == self._curr_time_dt:
@@ -241,14 +253,32 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         # see superclass for documentation
         self.replan_release_wait_time_s = sat_arbiter_params['replan_release_wait_time_s']
 
-        #  can be used to disable running of the LP
-        self.allow_lp_execution = sat_arbiter_params['allow_lp_execution']
+        #  can be used to disable running of the LP 
+        # TODO: curently sat_arbiter_params is specified in the satellite model, should move somewhere else
+        self.allow_lp_execution = sat_arbiter_params['allow_lp_execution'] 
 
         #  time to wait since last plans were released before rerunning planning
         self.replan_interval_s = sat_arbiter_params['replan_interval_s']
 
+        # threshold for activity failur - triggers schedule disruption replanner (TODO: should this be a property of the exec instead?)
+        self.frac_dv_lost_for_activity_failure_threshold = sat_arbiter_params["frac_dv_lost_for_activity_failure_threshold"]
         # override the None that this was initialized to in superclass
         self._last_replan_time_dt = sim_start_dt
+
+        # Addd state for schedule disruption (failed activity execution)
+        self.schedule_disruption_occurred = False
+        self.schedule_disruption_context = None
+        self.schedule_disruption_replan_communicated = True
+        self.SRP_runs = 0 # counter for number of times the SRP ran
+        self.SRP_successes = 0 # counter for number of times the SRP was successful
+        self.SRP_matches_MILP = 0 # counter for number of times the SRP matches the milp solution
+
+        # satellites to which we've shared the current consensed plan
+        self.cur_sats_propped_to = []   # only the latest planning info, refreshed once planning info updated
+        sats_propped_to = {}
+        for sat_id in self.sim_sat.GlobalSim.sat_id_order:
+            sats_propped_to[sat_id] = [] 
+        self.sats_propped_to = sats_propped_to
 
     def _check_internal_planning_update_req(self):
 
@@ -264,10 +294,11 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #     ...
 
         replan_required = False
-
+        replan_type = 'nominal'
         if self.act_was_injected:
             replan_required = True
 
+        
         # todo: removed for now. should add back in sometime
         # if (self._curr_time_dt - self._last_replan_time_dt).total_seconds() >= self.replan_interval_s:
         #     replan_required = True
@@ -281,7 +312,14 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         if not self.allow_lp_execution:
             replan_required = False
 
-        return replan_required
+        # TODO: Generalize mods here into LP
+        # this test implementation assumes that allow_lp_execution has been set to False, so only way this will be true is from schedule disruptions
+        # TODO: this sets priority of replanning to schedule disruptions, should be able to run both
+        if self.schedule_disruption_occurred:
+            replan_required = True
+            replan_type = 'disruption'
+
+        return (replan_required,replan_type)
 
     def _clear_replan_reqs(self):
         """Clear all of the flags that require a replan"""
@@ -301,9 +339,64 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
         executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',sat_indx=self.sim_sat.sat_indx,act_timing_helper=self.act_timing_helper)
 
-        return executable_acts
+        # TODO: functionalize this - get_impossible_acts
+        # get past actions that the satellite has completed:
+        act_hist_dict = self.sim_sat.state_recorder.get_act_hist()
+        past_obs = act_hist_dict['obs']
+        past_xlnks = act_hist_dict['xlnk']
+        past_dlnks = act_hist_dict['dlnk']
+        all_past_acts =past_obs + past_xlnks + past_dlnks
+        wind_frac_failed = {} # for tracking upstream failures
+        # Implement a "failed_dict" that contains a list actions that failed / will fail for the following keys
+        # ['Planning info received after action end time'] : (self-explanatory)
+        # [Action relies on another action that failed']: (for upcoming crosslinks and downlinks that are no longer physically possible because their routes have broken upstream dependencies in the first field)
+        for rt_cont in rt_conts:
+            for dmr in rt_cont.dmrs_by_id.values():
+                all_winds_in_dmr = list(dmr.get_winds())
+                # need to sort winds in chronological order for logic below to work
+                all_winds_in_dmr.sort(key=lambda x: x.end)
+                upstream_wind_failed = False
+                for wind in all_winds_in_dmr:
+                    # only care about windows that have this satellite as a participant
+                    if wind.sat_indx != self.sim_sat.index:
+                        continue
+                    if isinstance(wind, XlnkWindow):
+                        if wind.tx_sat != self.sim_sat.index and wind.rx_sat != self.sim_sat.index:
+                            continue
+                    
+                    if upstream_wind_failed:
+                        # all remaining winds 
+                        # ONLY add to failed list if the data volume is 100% accounted for by the DMR, otherwise need to check other routes that use this window
+                        
+                        # note: sometimes the windows have 0 scheduled dv
+                        if wind.scheduled_data_vol > 0:
+                            if wind not in wind_frac_failed:
+                                wind_frac_failed[wind] = dmr.scheduled_dv / wind.scheduled_data_vol
+                            else:
+                                wind_frac_failed[wind] += dmr.scheduled_dv / wind.scheduled_data_vol
+
+                    if wind.end < self._curr_time_dt and wind not in all_past_acts:
+                        self.sim_sat.state_recorder.failed_dict['non-exec']['Planning info received after action end time'].add(wind)
+                        upstream_wind_failed = True
+                        # Note: an act could appear here AND also fail because the upstream window(s) failed
+                        
         
-    def _run_planner(self,lp_wrapper,new_time_dt):
+        # check wind_frac_failed dict
+        for wind in wind_frac_failed.keys():
+            if wind_frac_failed[wind] >= .99:
+                # add to failure dictionary
+                self.sim_sat.state_recorder.failed_dict['non-exec']['Action relies on another action that occurs in the past'].add(wind)
+                
+                # remove from executable acts
+                # TODO: it is debateable if we should do this, or if we leave it as an executable act with no data volume flowing across,
+                # we should add logic to allow the satellite to send other data containers over the downlink if the planned data containers don't exist
+                # see issue #13 on SPRINT repo
+                if wind in executable_acts:
+                    executable_acts.remove(wind)
+
+        return executable_acts
+
+    def _run_planner(self,lp_wrapper,new_time_dt,replan_type = 'nominal'):
         #  see superclass for docs
 
         # first clean out any basically empty routes - don't want to consider them in planning
@@ -332,11 +425,13 @@ class SatScheduleArbiter(ExecutiveAgentPlannerScheduler):
         #  get the satellite states at the beginning of the planning window
         # sat_state_by_id = self.plan_db.get_sat_states(self._curr_time_dt)
         sat_state = None
+        sat_schedule_arb = self
 
         #  run the global planner
         # debug_tools.debug_breakpt()
         temp = self.latest_lp_route_indx
-        new_rt_conts, dc_id_by_new_src_id, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_state)
+        new_rt_conts, dc_id_by_new_src_id, latest_lp_route_indx = lp_wrapper.run_lp(self._curr_time_dt,self.sim_sat.sat_indx,self.sim_sat.sat_id,self.sim_sat.lp_agent_id,existing_rt_conts,existing_data_conts,self.latest_lp_route_indx,sat_schedule_arb,replan_type,sat_state)
+
 
         #####
         # do any required cleanup
@@ -432,6 +527,13 @@ class SatExecutive(Executive):
     def __init__(self,sim_sat,sim_start_dt,dv_epsilon=0.01):
         # holds ref to the containing sim sat
         self.sim_sat = sim_sat
+
+        # info sharing radius
+        self.k_neigh = 2    # TODO - to config!
+
+        # State saving and propagation
+        self.states_by_satsID           = {} # ex: 'sat3':{'ES':80, 'DS': 55, 'hop_count':1, 'last_update':timestamp}
+        self.last_time_shared_to_satsID = {} # ex: 'sat5':timestamp
 
         super().__init__(sim_sat,sim_start_dt,dv_epsilon)
 
@@ -564,6 +666,87 @@ class SatExecutive(Executive):
             #  need to use the new time here because the state sim has already advanced in timestep ( shouldn't be a problem)
             self.state_sim.update_data_storage(obs_dv_collected,collected_dcs,new_time_dt)
 
+        # failures are only tracked and addressed for satellites, not GS agents, so code is here 
+        # Check the curr_activity_window was successful or not
+        data_disruption_vol = curr_act_wind.executable_data_vol - curr_exec_context['dv_used']
+        
+        if data_disruption_vol >= curr_act_wind.executable_data_vol * self.sim_sat.arbiter.frac_dv_lost_for_activity_failure_threshold: 
+            print('================= ACTIVITY FAILED =================')
+            print('Current Time is %s' %self._curr_time_dt)
+            print('Expected %d data to be executed, but only %d was!' %(curr_act_wind.executable_data_vol,curr_exec_context['dv_used']))
+            # But only trigger a " schedule disruption " if it was a downlink AND transmission failed 
+            # otherwise, things can fail because the route doesn't have all the data that was originally executable (due to other in route failures)
+            print(curr_act_wind)
+            if isinstance(curr_act_wind,DlnkWindow) and not curr_exec_context['tx_success']:
+                self.scheduler.schedule_disruption_occurred = True
+                self.scheduler.schedule_disruption_context = curr_exec_context
+                # add to failure dictionary (if a satelli
+                if curr_act_wind in self.state_recorder.anamoly_dict['Invalid geometry at transmission time']:
+                    self.state_recorder.failed_dict['exec']['Invalid geometry at transmission time'].add(curr_act_wind)
+                    print('Downlink Activity Execution Failed Due invalid geometry at transmission time')
+                elif curr_act_wind in self.state_recorder.anamoly_dict['No tx data containers associated with route']:
+                    # log to failure dict
+                    self.state_recorder.failed_dict['exec']['No tx data containers associated with route'].add(curr_act_wind)
+                    print('Downlink Activity Execution Failed Due no tx data containers') # NOTE: schedule disruption replanner will not fix this
+                else:
+                    # TODO: THIS CAN OCCUR IF THE ACTIVITY IS NOT ONE OF THE EXECUTABLE ACTIVITIES FOR THE GS!
+                    # this should only occur if there is an actual disruption event (not just Dlnk failed because of no access for other reasons)
+                    print('Downlink Activity Execution Failed Due to schedule disruption')
+                    self.state_recorder.failed_dict['exec']['Schedule disruption at receiving end'].add(curr_act_wind)
+            elif isinstance(curr_act_wind,ObsWindow):
+                obs_fail_str = 'Obs Activity Execution Failed from: '
+                # ObsWindows can fail because   
+                # - Obs window received in plan after execution period (logged when new schedule brought in)
+                # - receiving satellite does not have room (logged below)
+                if self.state_sim.DS_state >= self.state_sim.DS_max - self.state_sim.dv_epsilon:
+                    self.state_recorder.failed_dict['exec']['Actual Data state does not support activity'].add(curr_act_wind)
+                    obs_fail_str += 'DATA STORAGE FULL'
+                else:
+                    self.state_recorder.failed_dict['exec']['Unknown'].add(curr_act_wind)
+                    obs_fail_str += 'UNKNOWN'
+                print(obs_fail_str)
+            elif isinstance(curr_act_wind,XlnkWindow):
+                xlnk_fail_str = 'Xlnk Activity Execution Failed from: '
+                # crosslinks can fail because:
+                # - receiving satellite does not have room (logged below)
+                # - receiving OR transmitting satellite does not have the crosslink in their current plan, but the other does
+                #   NOTE: to check condition #2, we have to break abstraction and access the global sim info otherwise it is unknowable by the sat
+                # check receiving sat failure modes:
+                
+                if curr_act_wind.rx_sat == self.sim_sat.index: 
+                    rx_sat = self.sim_sat
+                    tx_sat = self.sim_executive_agent.all_sim_sats[curr_act_wind.tx_sat]
+                else:
+                    rx_sat = self.sim_executive_agent.all_sim_sats[curr_act_wind.rx_sat]
+                    tx_sat = self.sim_sat
+
+                if rx_sat.state_sim.DS_state >= rx_sat.state_sim.DS_max - rx_sat.state_sim.dv_epsilon:
+                    # not enough data onboard at rx
+                    self.state_recorder.failed_dict['exec']['Actual Data state does not support activity'].add(curr_act_wind)
+                    xlnk_fail_str += 'DATA STORAGE FULL AT RX'
+                elif curr_act_wind not in tx_sat.exec._scheduled_exec_acts:
+                    # transmission of crosslink not in current plan
+                    self.state_recorder.failed_dict['exec']['Not in plan at execution time for transmitter'].add(curr_act_wind)
+                    xlnk_fail_str += 'NOT IN PLAN AT TX'
+                elif curr_act_wind not in rx_sat.exec._scheduled_exec_acts:
+                    # reception of crosslink not in current plan
+                    self.state_recorder.failed_dict['exec']['Not in plan at execution time for receiver'].add(curr_act_wind)
+                    xlnk_fail_str += 'NOT IN PLAN AT RX'
+                elif curr_act_wind in tx_sat.state_recorder.anamoly_dict['Invalid geometry at transmission time']:
+                    tx_sat.state_recorder.failed_dict['exec']['Invalid geometry at transmission time'].add(curr_act_wind)
+                    # transmission failed because of invalid geometry 
+                    xlnk_fail_str += 'INVALID GEOMETRY AT TRANSMISSION TIME'
+                elif curr_act_wind in tx_sat.state_recorder.anamoly_dict['No tx data containers associated with route']:
+                    tx_sat.state_recorder.failed_dict['exec']['No tx data containers associated with route'].add(curr_act_wind)
+                    xlnk_fail_str += 'NO TX DATA CONTAINERS'
+                else:
+                    xlnk_fail_str += 'UNKNOWN'
+                    self.state_recorder.failed_dict['exec']['Unknown'].add(curr_act_wind)
+                print(xlnk_fail_str)
+            else:
+                print('Dlnk failed from other in-route failure')
+                self.state_recorder.failed_dict['exec']['Unknown'].add(curr_act_wind)
+
         #  need to call this last because it has final takedown responsibilities
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
 
@@ -615,7 +798,6 @@ class SatExecutive(Executive):
         """ Execute the executable activity input, taking any actions that this satellite is responsible for initiating """
 
         #  this execution code assumes constant average data rate for every activity, which is not necessarily true. In general this should be all right because the planner schedules from the center of every activity, but in future this code should probably be adapted to use the actual data rate at a given time
-
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
 
         curr_act_wind = exec_act.act
@@ -679,14 +861,30 @@ class SatExecutive(Executive):
 
                     # if we don't have anything to tx
                     if tx_dc is None:
+                        # add to failure history
+                        self.state_recorder.anamoly_dict['No tx data containers associated with route'].add(curr_act_wind)
                         break
 
                     # Add the planned route container to the data container's history
                     tx_dc.add_to_plan_hist(tx_rc)
 
+
+                    tx_payload = {                              # TODO - Rolled & unrolled in different classes, why? (see sim_agent_components)
+                        'type':'BDT',   # Bulk data transfer
+
+                        'tx_ts_start_dt'    : ts_start_dt,
+                        'tx_ts_end_dt'      : ts_end_dt,
+                        'new_time_dt'       : new_time_dt,
+                        'proposed_act'      : curr_act_wind,
+                        'tx_sat_indx'       : self.sim_sat.sat_indx,  # TODO - Validate or correct this use of index
+                        'txsat_data_cont'   : tx_dc,
+                        'proposed_dv'       : dv_to_send
+                    }
+
                     # send data to receiving satellite
                     #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
-                    dv_txed,tx_success = xsat_exec.xlnk_receive_poll(ts_start_dt,ts_end_dt,new_time_dt,curr_act_wind,self.sim_sat.sat_indx,tx_dc,dv_to_send)
+
+                    dv_txed,tx_success = self.sim_sat.fst.transmit(xsat.ID, tx_payload)
 
                     #  if there was a successful reception of the data,
                     if tx_success:
@@ -695,10 +893,14 @@ class SatExecutive(Executive):
                             curr_exec_context['tx_data_conts'].append(tx_dc)
 
                         planning_info_send_option = 'all' if not curr_exec_context['tx_success'] else 'ttc_only'
-
+                        
+                        # mark your own tt&C as updated before sending
+                        self.sim_sat.get_plan_db().update_self_ttc_time(new_time_dt)  
                         # this is where we do planning info update 
                         self.sim_sat.send_planning_info(xsat,planning_info_send_option)
+
                         # go ahead and assume bidirectional planning update....todo: this is hacky, should we actually explicitly model an activity for this?
+                        xsat.get_plan_db().update_self_ttc_time(new_time_dt)  
                         xsat.send_planning_info(self.sim_sat,planning_info_send_option)
 
                         curr_exec_context['tx_success'] = True
@@ -717,9 +919,10 @@ class SatExecutive(Executive):
 
         # transmitting over dlnks
         elif type(curr_act_wind) == DlnkWindow:
-
-
+            
             gs_indx = curr_act_wind.gs_indx
+
+            # Check if gs is available during this dlnk window:
             gs = self.sim_sat.get_gs_from_indx(gs_indx)
             gs_exec = gs.get_exec()
 
@@ -734,14 +937,29 @@ class SatExecutive(Executive):
 
                 # if we don't have anything to tx
                 if tx_dc is None:
+                    self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','No data container onboard for this route to GS %s during dlnk activity %s'%(gs_exec.sim_gs.ID,curr_act_wind))
+                    # add to failure history
+                    self.state_recorder.anamoly_dict['No tx data containers associated with route'].add(curr_act_wind)
                     break
 
                 # Add the planned route container to the data container's history
                 tx_dc.add_to_plan_hist(tx_rc)
 
+                tx_payload = {
+                    'type':'BDT',   # Bulk data transfer
+
+                    'tx_ts_start_dt'    : ts_start_dt,
+                    'tx_ts_end_dt'      : ts_end_dt,
+                    'new_time_dt'       : new_time_dt,
+                    'proposed_act'      : curr_act_wind,
+                    'tx_sat_indx'       : self.sim_sat.sat_indx,  # TODO - Validate or correct this use of index
+                    'txsat_data_cont'   : tx_dc,
+                    'proposed_dv'       : dv_to_send
+                }
+
                 # send data to receiving satellite
                 #  note that once this receive poll returns a failure, we should not attempt to continue transmitting to the satellite ( subsequent attempts will not succeed in sending data)
-                dv_txed,tx_success = gs_exec.dlnk_receive_poll(ts_start_dt,ts_end_dt,new_time_dt,curr_act_wind,self.sim_sat.sat_indx,tx_dc,dv_to_send)
+                dv_txed,tx_success = self.sim_sat.fst.transmit(gs.ID, tx_payload)
 
                 #  if there was a successful reception of the data,
                 if tx_success:
@@ -751,14 +969,21 @@ class SatExecutive(Executive):
 
                     planning_info_send_option = 'all' if not curr_exec_context['tx_success'] else 'ttc_only'
 
+                    # mark your own tt&C as updated before sending
+                    self.sim_sat.get_plan_db().update_self_ttc_time(new_time_dt)  
+
                     # this is where we do planning info update. Order doesn't matter. Notice we assume an uplink is present, so we can get data from gs as well
                     self.sim_sat.send_planning_info(gs)
+
+                    gs.get_plan_db().update_self_ttc_time(new_time_dt) # this is needed for the cmd_aoi plot metrics
                     gs.send_planning_info(self.sim_sat)
 
                     curr_exec_context['tx_success'] = True
 
                 #  if we did not successfully transmit, the receiving satellite is unable to accept more data at this time
                 else:
+                    # WG - ADDED THIS HERE
+                    curr_exec_context['tx_success'] = False 
                     self.state_recorder.log_event(self._curr_time_dt,'sim_sat_components.py','act execution anomaly','failure to transmit to gs %s during dlnk activity %s'%(gs_exec.sim_gs.gs_indx,curr_act_wind))
                     break
 
@@ -814,29 +1039,69 @@ class SatExecutive(Executive):
         return exec_dc_choice.data_cont,dv_to_send,rt_cont_choice
 
 
-    def xlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):
-        """Called by a transmitting satellite to see if we can receive data over a crosslink and if yes, handles the received data"""
-        
-        # See documentation in receive_poll in sim_agent_components.py
-
-        # note: do not modify txsat_data_cont in here!
-
-        #  verify of the right type
-        if not type(proposed_act) == XlnkWindow:
-            raise RuntimeWarning('saw a non-xlnk window')
-
-        #  sanity check that we're actually a receiver during this activity
-        if not proposed_act.is_rx(self.sim_sat.sat_indx):
-            raise RuntimeWarning('cross-link attempt with non-receiver satellite')
-            
-        return self.receive_poll(tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv)
-
     def get_acts_at_time(self,time_dt):
 
         if abs(time_dt - self._curr_time_dt) < self.sim_sat.time_epsilon_td:
             return [exec_act.act for exec_act in self._curr_exec_acts]
         else:
             raise NotImplementedError
+
+    # Sender and receiver for sharing propagated data (including self)
+    # TODO - consider downlinking as well (only xlink prop right now)
+    def state_x_prop(self,global_time):
+        self_record = {     # always add 0-th order self-state
+            'state' : {
+                'ES' : self.sim_sat.state_sim.ES_state,         # Can arbitrarily add more states here.
+                'DS' : self.sim_sat.state_sim.DS_state, 
+            },
+            'sch' : self.sim_sat.arbiter._schedule_cache,       # A mask/schedule of a sat, to be used for forming candidate plans.
+            'api' : '',                                         # a-priori plan-info
+            'hop_count' : 0,   # generated here!
+            'timestamp' : global_time
+        }
+
+        xlnks_completed = 0
+        xlinkable_sats = self.sim_sat.local_stn_knowledge.get_graph_neighbors(self.sim_sat.ID, time=global_time, neigh_type=AgentType.SAT) # TODO - enforce getting sats only
+        for neigh_sat_ID in xlinkable_sats:                             # For all sats we can see right now
+            records_to_send = { self.sim_sat.ID : self_record }             # Always share own state
+            for rec_id, record in self.states_by_satsID.items():            # sift records for which to share
+                if ( (record['hop_count'] < self.k_neigh)                      # share if record is newer than last share to this neighbor, and it hasn't made too many hops
+                        and ( (neigh_sat_ID not in self.last_time_shared_to_satsID)
+                                or (self.last_time_shared_to_satsID[neigh_sat_ID] < record['timestamp']) )
+                        ):
+                    records_to_send[rec_id] = record        # add to record to send
+                    self.last_time_shared_to_satsID[neigh_sat_ID] = record['timestamp']
+            msg = {
+                'type'          : 'STATES',
+                'state_records' : records_to_send
+            }
+
+            if(self.sim_sat.fst.transmit(neigh_sat_ID, msg)):   # count if at least one completed
+                xlnks_completed += 1
+
+        if len(xlinkable_sats)==xlnks_completed:  # count the effort if there's nothing to send
+            return True                             # TODO - clumsy, b/c causes resending to all if one doesn't make it
+        else:
+            return False
+
+
+    def state_x_rec(self,state_data_msg):
+        records_rec = state_data_msg['state_records']
+        for sat_ID in records_rec.keys():
+            if ( (sat_ID not in self.states_by_satsID) # This condition first!
+                    or (records_rec[sat_ID]['timestamp'] > self.states_by_satsID[sat_ID]['timestamp']) ):
+                records_rec[sat_ID]['hop_count'] += 1
+                if( (records_rec[sat_ID]['hop_count'] <= self.k_neigh) and
+                        (sat_ID != self.sim_sat.ID) ):
+                    self.states_by_satsID[sat_ID] = records_rec[sat_ID]
+                else:
+                    self.states_by_satsID.pop(sat_ID, None)   # if it's too far, stop tracking (e.g., saw it on an inter-plane xlink, then your neighbor saw it and passed it along, but you don't care anymore...depending on your k_neigh setting)
+
+        # TODO - if older than [1 planning horizon?] discard?
+        # TODO - immediate propagation if newer info than last propagated?
+        return True
+
+
 
 class SatStateRecorder(ExecutiveAgentStateRecorder):
     """Convenient interface for storing state history for satellites"""

@@ -34,7 +34,7 @@ class LPProcessing:
         self.existing_utilization_epsilon = lp_general_params['existing_utilization_epsilon']
         self.inflow_dv_minimum = lp_general_params['inflow_dv_minimum_Mb']
 
-        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],lp_params['orbit_prop_params']['version'])
+        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],None) #lp_params['orbit_prop_params']['version']) # TODO - drop the version stuff
 
 
     def determine_flows(self,existing_route_data):

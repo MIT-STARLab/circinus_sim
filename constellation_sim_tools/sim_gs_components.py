@@ -101,14 +101,15 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
     def __init__(self,sim_gs,sim_start_dt,sim_end_dt,act_timing_helper):
         super().__init__(sim_gs,sim_start_dt,sim_end_dt,act_timing_helper)
 
-        # holds ref to the containing sim sat
+        # holds ref to the containing sim gs
         self.sim_gs = sim_gs
 
     def _check_internal_planning_update_req(self):
         #  don't need to do an internal planning update, because currently ground stations do not do any of their own planning ( they get all of their plans from the ground station network)
-        return False
+        # returns two things : (replan_required_bool, replan_type_str)
+        return (False, 'nominal')
 
-    def _internal_planning_update(self,replan_required,planner_wrapper,new_time_dt):
+    def _internal_planning_update(self,replan_required,replan_type,planner_wrapper,new_time_dt):
         #  we don't do any internal planning updates for the ground station planner. ( including this for clarity of intent, not because things wouldn't run if it weren't present)
 
         #  explicitly raise an error if a planner wrapper was provided ( none should exist for the ground stations)
@@ -166,17 +167,3 @@ class GSExecutive(Executive):
         #  note that currently the ground station is not responsible for initiating any activities
 
         pass
-
-
-    def dlnk_receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):
-        """Called by a transmitting satellite to see if we can receive data over a downlink and if yes, handles the received data"""
-        
-        # See documentation in receive_poll in sim_agent_components.py
-
-        # note: do not modify txsat_data_cont in here!
-
-        #  verify of the right type
-        if not type(proposed_act) == DlnkWindow:
-            raise RuntimeWarning('saw a non-dlnk window')
-
-        return self.receive_poll(tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv)

@@ -1,20 +1,27 @@
 #  Contains objects for different software components running on agents. these are intended to be components that are used across both satellites and ground stations
 #
 # @author Kit Kennedy
+import pickle as pkl
 
 from collections import namedtuple
 from datetime import timedelta
 from copy import deepcopy
 
-from circinus_tools import io_tools
+from circinus_tools import io_tools, time_tools
 from circinus_tools.sat_state_tools import propagate_sat_ES
 from circinus_tools.scheduling.base_window  import find_windows_in_wind_list
 from circinus_tools.other_tools import index_from_key
-from circinus_tools.scheduling.custom_window import  DlnkWindow
+from circinus_tools.scheduling.custom_window import  DlnkWindow, ObsWindow, XlnkWindow
 from circinus_tools.metrics.metrics_utils import  UpdateHistory
 from .schedule_tools  import synthesize_executable_acts,check_temporal_overlap
 
 from circinus_tools import debug_tools
+from enum import Enum
+# from .sim_agents import AgentType
+class AgentType(Enum):  # TODO - wtf is up with this imort issue; To be used for type-based behavior in generalized functions
+    GS      = 'GS'
+    SAT     = 'SAT'
+    GSNET   = 'GSNET'
 
 class StateSimulator:
     """Simulates agent state, holding internally any state variables needed for the process"""
@@ -43,7 +50,7 @@ class PlannerScheduler:
 
     def __init__(self,sim_start_dt,sim_end_dt,sim_agent,act_timing_helper):
 
-        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sim_agent,act_timing_helper)
+        self.plan_db = PlanningInfoDB(sim_start_dt,sim_end_dt,sim_agent.ID,act_timing_helper)
 
         #  this is the FIFO waiting list for newly produced plans.  when current time reaches the time for the first entry, that entry will be popped and the planning info database will be updated with those plans (each entry is a ReplanQEntry named tuple). this too should always stay sorted in ascending order of entry add time
         self._replan_release_q = []
@@ -91,9 +98,9 @@ class PlannerScheduler:
             if new_time_dt != self._curr_time_dt:
                 raise RuntimeWarning('Saw wrong initial time')
 
-        replan_required = self._check_internal_planning_update_req()
+        (replan_required, replan_type) = self._check_internal_planning_update_req()
 
-        self._internal_planning_update(replan_required,planner_wrapper,new_time_dt)
+        self._internal_planning_update(replan_required,replan_type,planner_wrapper,new_time_dt)
 
         self._schedule_cache_update()
 
@@ -117,45 +124,94 @@ class PlannerScheduler:
         #  intended to be implemented in the subclass
         raise NotImplementedError
 
-    def _internal_planning_update(self,replan_required,planner_wrapper,new_time_dt):
+    def _internal_planning_update(self,replan_required,replan_type,planner_wrapper,new_time_dt):
         """ check and release any plans from the re-plan queue, and run planner to update plans if necessary"""
 
-        # note:  this function can be overloaded in a subclass, if no planning actually needs take place (e.g.  ground station)
+        # NOTE:  this function can be overloaded in a subclass, if no planning actually needs take place (e.g.  ground station)
 
         # note: This code calls the planner for this agent. It deals with the fact that in reality it takes time to run the planner. For this reason we add the output of the planner to a queue, and only release those new plans once enough simulation time is past for those plans to be 'available'. We do this primarily because agents can talk to each other at any time, so we don't want to do an instantaneous plan update and share those plans immediately if in reality it would take time to compute them
         # note: that this uses the internal planner ( global planner or local planner) to update planning information. planning information can also be updated through reception of planning info from other agents. 
 
         #  perform re-plan if required, and release or add to queue as appropriate
         if replan_required:
+            # check replan_type (TODO: we can remove this one schedule disruption replanning is integrated into LP)
+            if replan_type == 'disruption':
+                # DO MY PLANNER QUEUE APPROACH:
+                # TODO: If we made it here, then we know the subclass is SatScheduleArbiter, but we should do an assertion check or something (not sure how to check correctly)
+                SRP_rt_conts = self._run_planner(planner_wrapper,new_time_dt,replan_type = 'disruption')
+                # TODO: need to make a way to check if self or neighborhood replanning was successfully
+                self.SRP_runs += 1
+                # the schedule disruption has now been "resolved", might not be solved (may be no solutions), BUT has not been communicated to ground yet
+                # TODO: these are only properties of the subclass, so kind of weird referencing here
+                self.schedule_disruption_occurred = False
+                self.schedule_disruption_context = None
+                if SRP_rt_conts:
+                    print('Appending schedule disruption recovery to the queue')
+                    self.SRP_successes += 1
+                    # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
+                    self.schedule_disruption_replan_communicated = False
+                    #TODO: implement a setter method in the sim_sat_components scheduler for this isntead of setting directly here (since this super class doesn't have it)
+                    # get setting (under LP settings) for "run_lp_milp_ater_SRP"
+                    if planner_wrapper.const_sim_inst_params['lp_general_params']['run_lp_milp_after_SRP']:
+                        self._process_updated_routes(SRP_rt_conts,self._curr_time_dt)
+                        # new routes from SRP need to be processed immediately so they are made into activities that the
+                        # lp MILP can use for inflows and outflows
+                        # to do this, we also need to update the schedule cache (makes new executable activites)
+                        self._schedule_cache_update()
+                        print('Running MILP after SRP expanded downlink activities')
+                        new_rt_conts = self._run_planner(planner_wrapper,new_time_dt)
+                        # then return through normal flow with 'new' new_rt_conts
+                        # there may not be nay new_rt_conts if SRP found optimal already
+                        if not new_rt_conts:
+                            print('MILP returned same solution as SRP or no model constructed') # TODO: need to figure out why "no model constructed" comes up sometimes
+                            self.SRP_matches_MILP += 1
+                            new_rt_conts = SRP_rt_conts # use original SRP plan if MILP doesn't find different soln, need to trigger for external share
+                            # TODO: refactor to account for replan release wait time somehow, because technically this sat has already incorporated the SRP plan into it's schedule
+                    else:
+                        new_rt_conts = SRP_rt_conts
 
-            if len(self._replan_release_q) > 0:
-                # note:  may need to add some better handling here... maybe sometimes we want to replan, but we should wait to we get the newest plans first?  why do we have a q if we can't put Multiple items on it?
-                raise RuntimeWarning('Trying to rerun planner while there are already plan results waiting for release.')
+                    if self.replan_release_wait_time_s == 0:
+                        self._process_updated_routes(new_rt_conts,self._curr_time_dt)
+                        #  update replan time
+                        self._last_replan_time_dt = self._curr_time_dt
+                        self._planning_info_updated = True
+                        self._planning_info_updated_for_external_share = True
+                        self._planning_info_updated_internal_hist.append(self._curr_time_dt)
+                        
+                    else:
+                        self._replan_release_q.append(ReplanQEntry(time_dt=self._curr_time_dt,rt_conts=new_rt_conts)) # immediate release
+                # RESET schedule disruption contexts (Do this after planning data is pushed to ground!)
+                else:
+                    print('Schedule disruption unable to be resolved')
+            else: # DO KITS STUFF
+                if len(self._replan_release_q) > 0:
+                    # note:  may need to add some better handling here... maybe sometimes we want to replan, but we should wait to we get the newest plans first?  why do we have a q if we can't put Multiple items on it?
+                    raise RuntimeWarning('Trying to rerun planner while there are already plan results waiting for release.')
 
-            new_rt_conts = self._run_planner(planner_wrapper,new_time_dt)
+                new_rt_conts = self._run_planner(planner_wrapper,new_time_dt)
 
-            #  if we don't have to wait to release new plans
-            if self.replan_release_wait_time_s == 0:
-                self._process_updated_routes(new_rt_conts,self._curr_time_dt)
-                #  update replan time
-                self._last_replan_time_dt = self._curr_time_dt
-                self._planning_info_updated = True
-                self._planning_info_updated_for_external_share = True
-                self._planning_info_updated_internal_hist.append(self._curr_time_dt)
+                #  if we don't have to wait to release new plans
+                if self.replan_release_wait_time_s == 0:
+                    self._process_updated_routes(new_rt_conts,self._curr_time_dt)
+                    #  update replan time
+                    self._last_replan_time_dt = self._curr_time_dt
+                    self._planning_info_updated = True
+                    self._planning_info_updated_for_external_share = True
+                    self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
-            #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
-            #  note: this is intended for the global planner
-            elif self._first_step and self.release_first_plans_immediately:
-                self._process_updated_routes(new_rt_conts,self._curr_time_dt)
-                self._last_replan_time_dt = self._curr_time_dt
-                self._planning_info_updated = True
-                self._planning_info_updated_for_external_share = True
-                self._planning_info_updated_internal_hist.append(self._curr_time_dt)
+                #  if this is the first plan cycle (beginning of simulation), there's an option to release immediately
+                #  note: this is intended for the global planner
+                elif self._first_step and self.release_first_plans_immediately:
+                    self._process_updated_routes(new_rt_conts,self._curr_time_dt)
+                    self._last_replan_time_dt = self._curr_time_dt
+                    self._planning_info_updated = True
+                    self._planning_info_updated_for_external_share = True
+                    self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
-            #  if it's not the first time and there is a wait required
-            else:
-                # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
-                self._replan_release_q.append(ReplanQEntry(time_dt=self._curr_time_dt+timedelta(seconds=self.replan_release_wait_time_s),rt_conts=new_rt_conts))
+                #  if it's not the first time and there is a wait required
+                else:
+                    # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
+                    self._replan_release_q.append(ReplanQEntry(time_dt=self._curr_time_dt+timedelta(seconds=self.replan_release_wait_time_s),rt_conts=new_rt_conts))
 
         #  release any ripe plans from the queue
         while len(self._replan_release_q)>0 and self._replan_release_q[0].time_dt <= self._curr_time_dt:
@@ -167,7 +223,7 @@ class PlannerScheduler:
             self._planning_info_updated_for_external_share = True
             self._planning_info_updated_internal_hist.append(self._curr_time_dt)
 
-    def _run_planner(self,planner_wrapper,new_time_dt):
+    def _run_planner(self,planner_wrapper,new_time_dt,replan_type = 'nominal'):
         """Run the planner contained within planner_wrapper"""
 
         #  intended to be implemented in the subclass
@@ -282,6 +338,9 @@ class Executive:
         # holds ref to StateRecorder
         self.state_recorder = None
 
+        # hold reference to schedule disruptions
+
+
         # keeps track of which data container (data packet) we're on
         self._curr_dc_indx = 0
 
@@ -299,14 +358,15 @@ class Executive:
     def _pull_schedule(self):
 
         scheduled_exec_acts_copy = self._scheduled_exec_acts
-
+        
         # if schedule updates are available, blow away what we had previously (assumption is that scheduler handles changes to schedule gracefully)
         if self.scheduler.schedule_updated:
             self._scheduled_exec_acts = self.scheduler.get_scheduled_executable_acts()
-
             #  this will only report an event if the route containers actually changed ( so the global planner updated route containers, or satellite did - not just if a planning information update happened)
             schedule_changed,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added = self.scheduler.check_schedule_changes()
             if schedule_changed:
+                if hasattr(self.sim_executive_agent,'arbiter'):
+                    self.sim_executive_agent.arbiter.cur_sats_propped_to = [] # reset sats propped to list only after updating actual activities
                 self._schedule_changed_hist.append((self._curr_time_dt,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added))
                 self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','schedule update','route containers changed in plan_db: %d modified, %d added'%(num_sim_rt_conts_existing_changed,num_sim_rt_conts_added))
         else:
@@ -323,7 +383,7 @@ class Executive:
             if latest_sched_exec_act in self._curr_exec_acts:
                 currently_scheduled_act_found = True
 
-
+        exec_act_has_been_updated = False
         if currently_scheduled_act_found:
             try:
                 # search for current act in the scheduled acts
@@ -343,7 +403,6 @@ class Executive:
 
                         if exec_act_has_been_updated:
                             self._update_act_execution_context(exec_act,updated_exec_act)
-                            
 
                 # record any activites that were previously planned for the future, but are no longer present
                 for exec_act in scheduled_exec_acts_copy[self._last_scheduled_exec_act_windex:]:
@@ -375,6 +434,8 @@ class Executive:
 
         self._scheduled_exec_acts_updated_hist.append(self._curr_time_dt)
 
+        return exec_act_has_been_updated
+
     def inject_acts(self,acts):
         #  meant to be implemented in subclass
         raise NotImplementedError
@@ -405,7 +466,20 @@ class Executive:
         # determine next activity
 
         # update schedule if need be
-        self._pull_schedule()
+        
+        # get prev "current" exec act
+        if len(self._curr_exec_acts) == 1:
+            prev_exec_act = self._curr_exec_acts[:][0]
+        exec_act_has_been_updated = self._pull_schedule()
+
+        allow_window_restart = False
+        if exec_act_has_been_updated:
+            # get new "current" exec act, if current exec_act_has_been_update
+            curr_exec_act = self._scheduled_exec_acts[:][0]
+            if curr_exec_act == prev_exec_act: # same ID, same activity, this should always be true
+                if curr_exec_act.act.executable_start > new_time_dt:
+                    # then the NEW activity, with the same ID hasn't actually started yet, even though we are in the same context, so cleanup old context, but allow new context
+                    allow_window_restart = True
 
         next_exec_acts = []
         # figure out next activities, index of that act in schedule
@@ -455,7 +529,16 @@ class Executive:
 
         # Deal with any activities that have stopped
         for exec_act in removed_exec_acts:
-            self._cleanup_act_execution_context(exec_act,new_time_dt)
+            if allow_window_restart:
+                self._execution_context_by_exec_act.pop(prev_exec_act)
+                # remove from execution context, which will allow it to be restarted in the future.
+            else:
+                self._cleanup_act_execution_context(exec_act,new_time_dt)
+                # this will add the last execution to the state_recorder activity history 
+                # this will also trigger the check for schedule disruption planning (if failed)
+
+         
+            
 
         #  set up execution context for any activities that are just beginning
         #  note that we want to clean up before we initialize, because during initialization data structures are set up that may be dependent on an activity that ends in the time step for this new one. If at some point in the future we want to allow two ongoing activities to handle the same data (i.e. second activity grabs data from a first activity while the first is still ongoing), this initialization and cleanup approach will have to be changed. for the time being though, we assume that activities that execute at the same time handle mutually exclusive data
@@ -539,8 +622,9 @@ class Executive:
         #  this function is called when we choose to stop the activity. if we stop before the actual end of the activity, then we need to record that new end time.  for now we assume that the activity ends at the new time (as opposed to self._curr_time_dt), because the state simulator update step runs before the executive update step, and has already propagated state to new_time_dt assuming the activity executes until then. See SatStateSimulator.update().  if the state simulator is not run before the executive, this will need to be changed
         curr_exec_context['end_dt'] = new_time_dt
         curr_act_wind.set_executed_properties(curr_exec_context['start_dt'],curr_exec_context['end_dt'],curr_exec_context['dv_used'],dv_epsilon=0.1)
+        
         self.state_recorder.add_act_hist(curr_act_wind)
-
+        
         # delete the current exec context, for safety
         self._execution_context_by_exec_act[exec_act] = None
 
@@ -570,37 +654,65 @@ class Executive:
         #  intended to be implemented in subclass
         raise NotImplementedError
 
+    ## Unwraps the received message to pass into existing receiver
+    #  
+    #  @param   self      Executive which belongs to receiving sat
+    #  @param   payload   The payload received from transmission to break out and hand to receive_poll
+    #  @return  pass back the return of receive_poll
+    def receive_poll_unroll(self, payload):             # TODO - Rolled & unrolled in different classes, why? (see sim_sat_components)
+        return self.receive_poll(
+            payload['tx_ts_start_dt'],
+            payload['tx_ts_end_dt'],
+            payload['new_time_dt'],
+            payload['proposed_act'],
+            payload['tx_sat_indx'],
+            payload['txsat_data_cont'],
+            payload['proposed_dv']
+        )
+
+    ## Called by receiving agent's receiving device to process parameters of the receive messager
+    #
+    #  TODO - move judgement of whether we "can" receive to the transceiver receive function, let this just be parsing/handling  
+    #  @param ts_start_dt           (datetime) the start time for this transmission, as calculated by the transmitting satellite
+    #  @param ts_end_dt             (datetime) the end time for this transmission, as calculated by the transmitting satellite
+    #  @param proposed_act          (XlnkWindow) the activity which the transmitting satellite is executing
+    #  @param tx_sat_indx           (int) the index of the transmitting satellite
+    #  @param txsat_data_cont       (SimDataContainer) the data container that the transmitting satellite is sending ( with route only up to the transmitting satellite)
+    #  @param proposed_dv           (float) the data volume that the transmitting satellite is trying to send
+    #  @returns                     ({int,bool}) data volume received, success flag
     def receive_poll(self,tx_ts_start_dt,tx_ts_end_dt,new_time_dt,proposed_act,tx_sat_indx,txsat_data_cont,proposed_dv):
-        """Called by a transmitting satellite to see if we can receive data and if yes, handles the received data
+        """See if we can receive data and if yes, handles the received data
         
         [description]
-        :param ts_start_dt: the start time for this transmission, as calculated by the transmitting satellite
-        :type ts_start_dt: datetime
-        :param ts_end_dt: the end time for this transmission, as calculated by the transmitting satellite
-        :type ts_end_dt: datetime
-        :param proposed_act:  the activity which the transmitting satellite is executing
-        :type proposed_act: XlnkWindow
-        :param tx_sat_indx:  the index of the transmitting satellite
-        :type tx_sat_indx: int
-        :param txsat_data_cont:  the data container that the transmitting satellite is sending ( with route only up to the transmitting satellite)
-        :type txsat_data_cont: SimDataContainer
-        :param proposed_dv:  the data volume that the transmitting satellite is trying to send
-        :type proposed_dv: float
-        :returns:  data volume received, success flag
-        :rtype: {int,bool}
         :raises: RuntimeWarning, RuntimeWarning, RuntimeWarning
         """
 
         # note: do not modify txsat_data_cont in here!
         #  note that a key assumption about this function is that once it indicates a failure to receive data, subsequent calls at the current time step will not be successful ( and therefore the transmitter does not have to continue trying)
 
-        #  if this ground station is not actually executing the activity, then it can't receive data
+        #  if this AGENT is not actually executing the activity, then it can't receive data // TODO - move this to receiver (refuse to RX)
         # note that both agents have to be referring to the same activity 
+
         if not proposed_act in [exec_act.act for exec_act in self._curr_exec_acts]:
             received_dv = 0
             rx_success = False
             self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','act execution anomaly','receive poll: proposed act %s not in self current exec acts (%s)'%(proposed_act,self._curr_exec_acts))
             return received_dv,rx_success
+
+        
+        schedule_disruptions = self.sim_executive_agent.schedule_disruptions
+        # check if the execute doing the poll is in a "schedule disruption" (if exists)
+        if schedule_disruptions:
+            if self.sim_executive_agent.ID in schedule_disruptions.keys():
+                # check time windows
+                for time_window in schedule_disruptions[self.sim_executive_agent.ID]:
+                    dt_start = time_tools.iso_string_to_dt(time_window[0])
+                    dt_end = time_tools.iso_string_to_dt(time_window[1])
+                    if tx_ts_start_dt >= dt_start and tx_ts_start_dt <= dt_end:
+                        received_dv = 0
+                        rx_success = False
+                        self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','schedule disruption','receive poll: proposed act %s failed because %s is being disrupted'%(proposed_act, self.sim_executive_agent.ID))
+                        return received_dv,rx_success
 
         #############
         # Figure out time window for reception execution, determine how much data can be received
@@ -753,6 +865,32 @@ class ExecutiveAgentStateRecorder(StateRecorder):
     def __init__(self,sim_start_dt):
         self.act_hist = []
 
+        # dictionary for recording failed events and the reason:
+        # seperate into executed actions that failed and non-executed actions that "failed" because they were non-executable
+        self.failed_dict = {
+            'non-exec': {
+                'Planning info received after action end time': set(),
+                'Action relies on another action that occurs in the past': set(),
+            },
+            'exec': {
+                'Not in plan at execution time for transmitter': set(),
+                'Not in plan at execution time for receiver': set(),
+                'Schedule disruption at receiving end': set(),
+                'Schedule disruption at transmission end': set(),
+                'Actual Data state does not support activity': set(),
+                'Actual Energy state does not support activity': set(),
+                'Invalid geometry at transmission time': set(),
+                'No tx data containers associated with route': set(),
+                'Unknown': set()
+            }
+        }
+
+        # dictionary for recording anamolous events (MAY be failures if they persist long enough)
+        self.anamoly_dict = {
+            'Invalid geometry at transmission time': set(),
+            'No tx data containers associated with route': set(),
+            'Unknown': set()
+        }
         super().__init__(sim_start_dt)
 
     def add_act_hist(self,act):
@@ -829,7 +967,7 @@ class PlanningInfoDB:
     expected_state_info = {'batt_e_Wh'}  #  this is set notation
 
 
-    def __init__(self,sim_start_dt,sim_end_dt,sim_agent,act_timing_helper):
+    def __init__(self,sim_start_dt,sim_end_dt,sim_agent_ID,act_timing_helper):
         # todo: should add distinction between active and old routes
         self.sim_rt_conts_by_id = {}  # The id here is the Sim route container 
         # stores the times at which rt conts were updated
@@ -863,7 +1001,7 @@ class PlanningInfoDB:
         self.num_sim_rt_conts_existing_changed = 0
         self.num_sim_rt_conts_added = 0
 
-        self.sim_agent = sim_agent
+        self.sim_agent_ID = sim_agent_ID
 
     def check_and_reset_sim_rt_conts_changed(self):
         changed = self.sim_rt_conts_changed
@@ -965,7 +1103,7 @@ class PlanningInfoDB:
             update_entry = SRCUpdateHistEntry(update_time_dt,rt_cont_utilization,rt_cont.creator_agent_ID)
 
             if rt_cont.ID in self.sim_rt_conts_by_id.keys():
-                if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt:
+                if rt_cont.update_dt > self.sim_rt_conts_by_id[rt_cont.ID].update_dt: # TODO - what if different agents attempt different changes on the same route in ignorance of each other, at slightly offset times, then attempt to share? Should the second always win? Hopefully arbitration and consensus will be more sensible
                     self.sim_rt_conts_changed = True
                     self.num_sim_rt_conts_existing_changed += 1
                     self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
@@ -976,25 +1114,25 @@ class PlanningInfoDB:
                 self.sim_rt_conts_by_id[rt_cont.ID] = rt_cont
                 self.sim_rt_cont_update_hist_by_id.setdefault(rt_cont.ID,[update_entry])
 
-    def pull_agent_ttc(self,curr_time_dt,other):
+
+    def ingest_agent_ttc(self,curr_time_dt,sender_last_ttc_hist_by_agent_id):
         """pull any more recent tt&c update history from other planning info db"""
 
         for agent_id, update_hist in self.ttc_update_hist_by_agent_id.items():
 
-            other_update_hist = other.ttc_update_hist_by_agent_id[agent_id]
-
             last_ut =  update_hist.last_update_time[-1]
-            other_last_ut =  other_update_hist.last_update_time[-1]
-            
+            other_last_ut =  sender_last_ttc_hist_by_agent_id[agent_id] 
+
             #  if our last update time is before the others last update time for this index, then we should add that more recent update time to our history
             #  note that this should never end up updating the history for self's sat or gs indx
             if  last_ut <  other_last_ut:
-                update_hist.t.append ( curr_time_dt)
-                update_hist.last_update_time.append (other_last_ut)
+                update_hist.t.append(curr_time_dt)
+                update_hist.last_update_time.append(other_last_ut)
+
 
 
     def update_self_ttc_time(self,curr_time_dt):
-        ag_id = self.sim_agent.ID
+        ag_id = self.sim_agent_ID
         ag_update_hist = self.ttc_update_hist_by_agent_id[ag_id]
 
         ag_update_hist.t.append ( curr_time_dt)
@@ -1008,31 +1146,33 @@ class PlanningInfoDB:
         self.planning_info_update_hist['ttc'].append(curr_time_dt)
 
 
-    def push_planning_info(self,other,curr_time_dt,info_option):
+    # Expanded message payload, expects message to be "parsed" into parameters before getting here
+    def ingest_planning_info(self,sndr_SRC_vals,last_state_hists_by_ID,sndr_last_ttc_hist_by_agent_id,curr_time_dt,info_option):  
         """ Update other with planning information from self"""
 
         if not info_option in ['all','ttc_only','routes_only']:
             raise RuntimeWarning('unknown info sharing option: %s'%(info_option))
 
         if info_option in ['all','routes_only']:
-            other.update_routes(self.sim_rt_conts_by_id.values(),curr_time_dt)
-            other.mark_routes_update_time(curr_time_dt)
+            self.update_routes(sndr_SRC_vals,curr_time_dt)
+            self.mark_routes_update_time(curr_time_dt)
+
 
         # allows for separate updates of ttc data only (it's mildy computationaly expensive to update routes as the planning info DB gets large)
         if info_option in ['all','ttc_only']:
-
             #  also update satellite state history record
-            for sat_id in self.sat_id_order:
-                if len(self.sat_state_hist_by_id[sat_id]) > 0:
-                    other.update_sat_state_hist(sat_id,self.sat_state_hist_by_id[sat_id][-1])
-
+            for sat_id in last_state_hists_by_ID.keys(): 
+                self.update_sat_state_hist(sat_id,last_state_hists_by_ID[sat_id])
 
             # update tt&c times on self agent before sharing ttc data to other
-            self.update_self_ttc_time(curr_time_dt)
+            # self.update_self_ttc_time(curr_time_dt)  
+            # NOTE: Moved to crosslink execute act step, so each sat updates self tt&C before sharing 
+            # NOTE: also moved to downlinking step, so each sat updates it's own tt&C time before sharing with GS
+            # TODO: Need to fix for ground stations "uplinking" to sats for cmd AOI
+            self.ingest_agent_ttc(curr_time_dt,sndr_last_ttc_hist_by_agent_id) 
 
-            other.pull_agent_ttc(curr_time_dt,self)
+            self.mark_ttc_update_time(curr_time_dt)
 
-            other.mark_ttc_update_time(curr_time_dt)
 
     def update_sat_state_hist(self,sat_id,sat_state_entry):
         """ update the latest satellite state entry for given satellite ID, if necessary"""
