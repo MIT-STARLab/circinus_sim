@@ -12,7 +12,6 @@ from .schedule_tools  import synthesize_executable_acts
 from circinus_tools import debug_tools
 
 import pickle as pkl
-from datetime import datetime
 import time
 
 from central_global_planner.IP_Client import IP_Client
@@ -31,7 +30,8 @@ class GroundNetworkPS(PlannerScheduler):
         self.replan_interval_s = gsn_ps_params['replan_interval_s']
 
 
-        # This keeps track of the latest data route index created. (along with the agent ID, the DR "uid" in the GP algorithm)
+        # This keeps track of the latest data route index created. (along with the agent ID,
+        # the DR "uid" in the GP algorithm)
         self.latest_gp_route_indx = 0
 
         # holds ref to GroundNetworkStateRecorder
@@ -46,7 +46,11 @@ class GroundNetworkPS(PlannerScheduler):
 
         self.outsource = simulation.params['sim_gen_config']['use_standalone_gp']  # False
         if self.outsource:
-            self.gp_client = IP_Client({"cgp":"localhost"},54202,".")  # Perhaps if connection fails, attempt to spin one up here.
+            # default removed server is in localhost, else follow IP address
+            address = simulation.params['sim_gen_config']['rem_gp_server_address'] or "localhost"
+            
+            self.gp_client = IP_Client({"cgp":address},54202,".")  # Perhaps if connection fails,
+                                                                   # attempt to spin one up here.
 
             scenario_params = {
                 'sim_case_config'   : { 
@@ -64,16 +68,13 @@ class GroundNetworkPS(PlannerScheduler):
                 'sim_gen_config'    : simulation.params['sim_gen_config'],
                 'gp_general_params' : simulation.params['gp_general_params']
             }
-            scenario_params['orbit_prop_params']['gs_params']['elevation_cutoff_deg'] = simulation.const_sim_inst_params["sim_gs_params"]["elevation_cutoff_deg"]
+            scenario_params['orbit_prop_params']['gs_params']['elevation_cutoff_deg'] = \
+                simulation.const_sim_inst_params["sim_gs_params"]["elevation_cutoff_deg"]
 
             msg = {
                 "req_type" : 'updateParams',
                 "payload"  : {
                     'scenario_params' : scenario_params             # To start based on what is loaded here
-                    # 'scenario_params' : {
-                    #     # 'LOCAL_LOAD_PATH' : 'orig_circinus_zhou'    # To start based on a particular case
-                    #     # 'LOCAL_LOAD_PATH' : None                    # To start live, based on config files in ONLINE_OPS case
-                    # }
                 }
             }
 
@@ -109,7 +110,8 @@ class GroundNetworkPS(PlannerScheduler):
     def _check_internal_planning_update_req(self):
 
          #  see if we need to replan at this time step
-        # add in consideration for lots of received updated planning information from satellites causing a need to rerun global planner?
+        # add in consideration for lots of received updated planning information from satellites causing a need to
+         # rerun global planner?
         replan_required = False
         if self._last_replan_time_dt is None:
             replan_required = True
@@ -122,7 +124,8 @@ class GroundNetworkPS(PlannerScheduler):
         return (replan_required, 'nominal')
 
     def _schedule_cache_update(self):
-        #  don't need to do anything with generating a schedule cache because the ground station network is not an executive planner ( it doesn't execute activities)
+        #  don't need to do anything with generating a schedule cache because the ground station network is
+        #  not an executive planner ( it doesn't execute activities)
         pass
 
     def retrieve_updated_all_windows_dict(self):  # TODO, add second param to allow for LP feedback to windows
@@ -136,7 +139,8 @@ class GroundNetworkPS(PlannerScheduler):
 
             dta = pkl.loads(rec_str)
 
-            while ( dta['payload']['pending'] or dta['payload']['all_windows_dict'] is None): # 5 seconds to kick off a plan gen  -- maybe add a max as well--60s?
+            while ( dta['payload']['pending'] or dta['payload']['all_windows_dict'] is None): # 5 seconds to kick off a
+                # plan gen  -- maybe add a max as well--60s?
                 time.sleep(1)
                 print('.',end='',flush=True)
                 rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
@@ -176,7 +180,8 @@ class GroundNetworkPS(PlannerScheduler):
             rec_str = self.gp_client.transmit( "cgp", pkl.dumps(msg) )
 
             dta = pkl.loads(rec_str)
-            while ( dta['payload']['pending'] or dta['payload']['plan'] is None): # 5 seconds to kick off a plan gen  -- maybe add a max as well--60s?
+            while ( dta['payload']['pending'] or dta['payload']['plan'] is None): # 5 seconds to kick off a plan gen
+                # -- maybe add a max as well--60s?
                 time.sleep(1)
                 print('.',end='',flush=True)
                 rec_str = self.gp_client.transmit( "cgp", pkl.dumps(
@@ -193,11 +198,14 @@ class GroundNetworkPS(PlannerScheduler):
             latest_gp_route_indx = dta['payload']['plan'][1]
 
         else:
-            new_rt_conts, latest_gp_route_indx = gp_wrapper.run_gp(self._curr_time_dt,existing_rt_conts,self.sim_gsn.ID,self.latest_gp_route_indx,sat_state_by_id, self.all_windows_dict)
+            new_rt_conts, latest_gp_route_indx = gp_wrapper.run_gp(self._curr_time_dt,existing_rt_conts,self.sim_gsn.ID,
+                                                                   self.latest_gp_route_indx,sat_state_by_id,
+                                                                   self.all_windows_dict)
 
 
         
-        #  I figure this can be done immediately and it's okay -  immediately updating the latest route index shouldn't be bad. todo:  confirm this is okay
+        #  I figure this can be done immediately and it's okay -  immediately updating the latest route index
+        #  shouldn't be bad. todo:  confirm this is okay
         self.latest_gp_route_indx = latest_gp_route_indx
 
         return new_rt_conts
@@ -217,10 +225,15 @@ class GroundNetworkPS(PlannerScheduler):
         rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within')
 
         # distill the activities out of the route containers
-        #  filter rationale:  only want windows that are completely past the start time, because we don't want to update our planned activity history with activities from the past
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='totally_within',act_timing_helper=self.act_timing_helper)
+        #  filter rationale:  only want windows that are completely past the start time, because we don't want to
+        #  update our planned activity history with activities from the past
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,
+                                                     filter_opt='totally_within',
+                                                     act_timing_helper=self.act_timing_helper)
 
-        # update any acts that have changed within our plans (note: activity plans CAN change up to right before they get executed, though the GP is incentivized to keep planned activities the same once it chooses them)
+        # update any acts that have changed within our plans (note: activity plans CAN change up to right
+        # before they get executed, though the GP is incentivized to keep planned activities the same once it
+        # chooses them)
         for exec_act in executable_acts:        
             self.state_recorder.add_planned_act_hist(exec_act.act)
 
@@ -239,7 +252,8 @@ class GroundNetworkStateRecorder(StateRecorder):
 
     def add_planned_act_hist(self,act):
         #  note: implicitly update any entry that might've been in this dictionary before for this activity
-        # deepcopy the act though so that no changes to any of its attributes elsewhere can affect this history (though it can still be updatd by calling this function again)
+        # deepcopy the act though so that no changes to any of its attributes elsewhere can affect this history
+        # (though it can still be updatd by calling this function again)
         self.act_hist_by_wind_id[act.window_ID] = deepcopy(act)
 
     def get_all_sats_planned_act_hists(self):

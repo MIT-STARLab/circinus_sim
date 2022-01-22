@@ -24,7 +24,8 @@ class SimPlotting():
         self.parsed_power_params_by_sat_id = {}
         for sat_id in self.sat_id_order:
             self.parsed_power_params_by_sat_id[sat_id] = {}
-            sat_edot_by_mode,sat_batt_storage,power_units,_,_ = io_tools.parse_power_consumption_params(sat_params['power_params_by_sat_id'][sat_id])
+            sat_edot_by_mode,sat_batt_storage,power_units,_,_ = \
+                io_tools.parse_power_consumption_params(sat_params['power_params_by_sat_id'][sat_id])
             self.parsed_power_params_by_sat_id[sat_id] = {
                 "sat_edot_by_mode": sat_edot_by_mode,
                 "sat_batt_storage": sat_batt_storage,

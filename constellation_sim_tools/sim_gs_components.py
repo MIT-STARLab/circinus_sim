@@ -2,7 +2,6 @@
 #
 # @author Kit Kennedy
 
-from collections import namedtuple
 from datetime import timedelta
 
 from circinus_tools.scheduling.custom_window import   ObsWindow,  DlnkWindow, XlnkWindow
@@ -10,7 +9,7 @@ from .sim_agent_components import StateSimulator,Executive,ExecutiveAgentPlanner
 from .schedule_tools  import synthesize_executable_acts
 
 from circinus_tools import debug_tools
-
+import logging
 class GSStateSimulator(StateSimulator):
     """Simulates gs system state. Mostly """
 
@@ -23,19 +22,23 @@ class GSStateSimulator(StateSimulator):
         ################
         #  Data storage stuff
 
-        #  note that data generated is not really simulated here; the state simulator just provides a coherent API for storage ( the executive handles data generation)
+        #  note that data generated is not really simulated here; the state simulator just provides a coherent API for
+        #  storage ( the executive handles data generation)
 
         #  data storage is assumed to be in Mb
         #  assume we start out with zero data stored on board
         self.DS_state = 0
 
-        # current time for this component. we store the sim start time as the current time, but note that we still need to run the update step once at the sim start time
+        # current time for this component. we store the sim start time as the current time, but note that we still
+        # need to run the update step once at the sim start time
         self._curr_time_dt = sim_start_dt
 
         # holds ref to StateRecorder
         self.state_recorder = None
         # holds ref to SatDataStore
-        # note that we include the data_store in the simulator because we may want, in future, to simulate data corruptions or various other time dependent phenomena in the data store. So, we wrap it within this sim layer. Also it's convenient to be able to store DS_state here alongside ES_state
+        # note that we include the data_store in the simulator because we may want, in future, to simulate data
+        # corruptions or various other time dependent phenomena in the data store. So, we wrap it within this sim layer.
+        # Also it's convenient to be able to store DS_state here alongside ES_state
         self.data_store = DataStore()
 
         # the "effectively zero" data volume number
@@ -46,7 +49,10 @@ class GSStateSimulator(StateSimulator):
 
 
     def update(self,new_time_dt):
-        """ Update state to new time by propagating state forward from last time to new time. Note that we use state at self._curr_time_dt to propagate forward to new_time_dt"""
+        """
+        Update state to new time by propagating state forward from last time to new time. Note that we use state at
+        self._curr_time_dt to propagate forward to new_time_dt
+        """
 
         # If first step, just record state then return
         if self._first_step:
@@ -96,7 +102,10 @@ class GSStateSimulator(StateSimulator):
         self.data_store.remove_empty_dcs(data_conts)        
 
 class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
-    """Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the ground station. Does not make scheduling decisions"""
+    """
+    Handles ingestion of new schedule artifacts from ground planner and distilling out the relevant details for the
+    ground station. Does not make scheduling decisions
+    """
 
     def __init__(self,sim_gs,sim_start_dt,sim_end_dt,act_timing_helper):
         super().__init__(sim_gs,sim_start_dt,sim_end_dt,act_timing_helper)
@@ -105,12 +114,14 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
         self.sim_gs = sim_gs
 
     def _check_internal_planning_update_req(self):
-        #  don't need to do an internal planning update, because currently ground stations do not do any of their own planning ( they get all of their plans from the ground station network)
+        #  don't need to do an internal planning update, because currently ground stations do not do any of their
+        #  own planning ( they get all of their plans from the ground station network)
         # returns two things : (replan_required_bool, replan_type_str)
         return (False, 'nominal')
 
     def _internal_planning_update(self,replan_required,replan_type,planner_wrapper,new_time_dt):
-        #  we don't do any internal planning updates for the ground station planner. ( including this for clarity of intent, not because things wouldn't run if it weren't present)
+        #  we don't do any internal planning updates for the ground station planner. ( including this for clarity of
+        #  intent, not because things wouldn't run if it weren't present)
 
         #  explicitly raise an error if a planner wrapper was provided ( none should exist for the ground stations)
         if planner_wrapper:
@@ -118,12 +129,18 @@ class GSSchedulePassThru(ExecutiveAgentPlannerScheduler):
 
     def get_executable_acts(self):
         #  get relevant sim route containers for deriving a schedule
-        rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,filter_opt='partially_within',gs_id=self.sim_gs.gs_id)
+        rt_conts = self.plan_db.get_filtered_sim_routes(filter_start_dt=self._curr_time_dt,
+                                                        filter_opt='partially_within',gs_id=self.sim_gs.gs_id)
 
-        #  synthesizes the list of unique activities to execute, with the correct execution times and data volumes on them
-        #  the list elements are of type ExecutableActivity
-        #  filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that that activity is in the schedule. so if a window is partially for current time, but ends after current time, we still want to consider it an executable act
-        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,filter_opt='partially_within',gs_indx=self.sim_gs.gs_indx,act_timing_helper=self.act_timing_helper)
+        #  Synthesizes the list of unique activities to execute, with the correct execution times
+        #  and data volumes on them.
+        #  The list elements are of type ExecutableActivity.
+        #  Filter rationale:  we may be in the middle of executing an activity, and we want to preserve the fact that
+        #  that activity is in the schedule. so if a window is partially for current time, but ends after current time,
+        #  we still want to consider it an executable act.
+        executable_acts = synthesize_executable_acts(rt_conts,filter_start_dt=self._curr_time_dt,
+                                                     filter_opt='partially_within',gs_indx=self.sim_gs.gs_indx,
+                                                     act_timing_helper=self.act_timing_helper)
 
         return executable_acts
     
@@ -150,19 +167,22 @@ class GSExecutive(Executive):
         return curr_exec_context
 
     def _cleanup_act_execution_context(self,exec_act,new_time_dt):
-
         curr_exec_context = self._execution_context_by_exec_act[exec_act]
 
         # if successfully received data, want to update the gs network with new planning info
         if curr_exec_context['rx_success']:
+            print("Sending plan info to GSN as exec act {} has rx success".format(exec_act.wind.window_ID))
             # todo: note assumption that we only are looking at routes for now - should be changed to "all" in future
-            self.sim_gs.send_planning_info(self.sim_gs.gs_network,info_option='routes_only')
+            self.sim_gs.send_planning_info(self.sim_gs.gs_network.ID,info_option='routes_only')
 
         
         super()._cleanup_act_execution_context(exec_act,new_time_dt)
 
     def _execute_act(self,exec_act,new_time_dt):
-        """ Execute the executable activity input, taking any actions that this ground stations is responsible for initiating """
+        """
+        Execute the executable activity input, taking any actions that
+        this ground stations is responsible for initiating
+        """
 
         #  note that currently the ground station is not responsible for initiating any activities
 

@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timedelta
 import sys
 import argparse
-
+from threading import Thread
 #  local repo includes. todo:  make this less hackey
 sys.path.append ('..')
 
@@ -31,8 +31,8 @@ except ImportError:
         print("Neither local nor parent-level circinus_tools found.")
 
 from constellation_sim_tools import constellation_sim as const_sim
-
-
+from Ground_Sim import Ground_Sim
+from Removed_Satellite import Removed_Satellite
 
 REPO_BASE = os.path.abspath(os.pardir)  # os.pardir aka '..'
 
@@ -195,9 +195,24 @@ class PipelineRunner:
         sim_params["sat_config"] = {
             'sat_model_definition' : data['sat_ref_model']['sat_model_definition']
         }
+        sim_params["ground_sim"] = data["ground_sim"]
+        
+        if data["satellite"] == 'true':
+            import multiprocessing as mp
+            Removed_Satellite.RemovedSatellite(sim_gen_config)
+            # time.sleep(10000)
+            return
 
-        sim_runner = const_sim.ConstellationSim(sim_params)
-        sim_runner.run()
+
+        if data['ground_sim'] == 'true':
+            print("Running ground simulation only")
+            sim_runner = Ground_Sim.GroundSim(sim_params)
+            print("RUNNING SIM")
+            sim_runner.run()
+
+        else:
+            sim_runner = const_sim.ConstellationSim(sim_params)
+            sim_runner.run()
         output = sim_runner.post_run(data['output_path'])
 
         # define orbit prop outputs json
@@ -228,8 +243,17 @@ def main():
                     type=str,
                     default=False,
                     help='Indicates to use a standalone GP, presumed started prior to the sim launching.')
-
-
+                    
+    ap.add_argument('--ground_sim',
+                    type=str,
+                    default=False,
+                    help='Indicates to start only ground simulation (GP, Ground Stations).')
+                    
+    ap.add_argument('--satellite',
+                    type = str,
+                    default = False,
+                    help='Indicates to start satellite simulation only.')
+                    
     ap.add_argument('--restore_pickle',
                     type=str,
                     default="",
@@ -241,7 +265,7 @@ def main():
                     help="attach based debugger for VScode")
 
     args = ap.parse_args()
-
+    
     if args.remote_debug == "true":
         try:
             import ptvsd
@@ -304,8 +328,9 @@ def main():
         gs_ref_model = json.load(f)
 
     # Constellation Config points us to the satellite models being used - # Todo: handle multiple sat models
-    sat_ref_model_name = constellation_config["constellation_definition"]["default_sat_ref_model_name"] # Only handling default at the moment
+    sat_ref_model_name = constellation_config["constellation_definition"]["sat_ref_model_name"] # Only handling default at the moment
     sat_ref_model_FILENAME = args.inputs_location+'/reference_model_definitions/sat_refs/'+sat_ref_model_name+'.json'
+    print("SAT_REF_MODEL_FILENAME:", sat_ref_model_FILENAME)
     with open(sat_ref_model_FILENAME,'r') as f:
         sat_ref_model = json.load(f)
 
@@ -315,7 +340,7 @@ def main():
     with open(payload_ref_model_FILENAME,'r') as f:
         payload_ref_model = json.load(f)
 
-    sim_gen_config['general_sim_params']['use_standalone_gp'] = args.rem_gp.lower()=='true' or sim_gen_config['general_sim_params']['use_standalone_gp']
+    sim_gen_config['general_sim_params']['use_standalone_gp'] = args.rem_gp.lower() =='true' or sim_gen_config['general_sim_params']['use_standalone_gp']
 
     data = {
         "sim_case_config"       : sim_case_config,
@@ -335,7 +360,9 @@ def main():
         "gp_general_params"     : gp_general_params, # This is legacy
         "lp_general_params"     : lp_general_params,  # This is a copy of legacy
 
-        "output_path"   : args.inputs_location+'/cases/'+args.case_name+'/output_files/'
+        "output_path"           : args.inputs_location+'/cases/'+args.case_name+'/output_files/',
+        "ground_sim"            : args.ground_sim,
+        "satellite"             : args.satellite.lower()
     }
 
     a = time.time()

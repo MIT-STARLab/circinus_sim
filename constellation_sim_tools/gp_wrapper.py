@@ -9,9 +9,7 @@ import os.path
 import sys
 import json
 import pickle
-# from multiprocessing import Process, Queue
 from copy import copy
-# import pickle
 from datetime import datetime,timedelta
 
 from .sim_routing_objects import SimRouteContainer
@@ -23,12 +21,16 @@ EXPECTED_GP_OUTPUT_VER = '0.2'
 
 def datetime_to_iso8601(dt):
     """ Converts a Python datetime object into an ISO8601 string. (including trailing Z)"""
-    #  better than datetime's built-in isoformat() function, because sometimes that leaves off the microseconds ( which of course, is stupid)
+    #  better than datetime's built-in isoformat() function, because sometimes that leaves off the microseconds
+    #  ( which of course, is stupid)
 
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 class GlobalPlannerWrapper:
-    """wraps the global planner scheduling algorithm, providing required inputs and converting outputs from/to constellation simulation"""
+    """
+    wraps the global planner scheduling algorithm, providing required inputs and converting outputs from/to
+    constellation simulation
+    """
 
     def __init__(self, sim_params):
 
@@ -48,6 +50,7 @@ class GlobalPlannerWrapper:
         self.first_iter = True
 
     def run_gp(self,curr_time_dt,existing_rt_conts,gp_agent_ID,latest_gp_route_indx,sat_state_by_id, all_windows_dict, update_on_run=None):
+
         if update_on_run is not None: # is none in default sim, where it is set up fully in the constructor
             self.orbit_prop_params      = update_on_run['orbit_prop_params']
             self.orbit_link_params      = update_on_run['orbit_link_params']
@@ -73,10 +76,17 @@ class GlobalPlannerWrapper:
             "version": "0.7",
             "planning_params": {
                 "planning_start" :  datetime_to_iso8601(get_inp_time(curr_time_dt,self.gp_params['planning_past_horizon_mins'])),
-                "planning_fixed_end" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_fixed_mins']))),
-                "planning_end_obs" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_obs_mins']))),
-                "planning_end_xlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_xlnk_mins']))),
-                "planning_end_dlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.gp_params['planning_horizon_dlnk_mins']))),
+                "planning_fixed_end" :  datetime_to_iso8601(min(self.sim_end_utc_dt,
+                                                                get_inp_time(curr_time_dt,
+                                                                             self.gp_params['planning_horizon_fixed_mins']))),
+                "planning_end_obs" :  datetime_to_iso8601(min(self.sim_end_utc_dt,
+                                                              get_inp_time(curr_time_dt,
+                                                                           self.gp_params['planning_horizon_obs_mins']))),
+                "planning_end_xlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,
+                                                               get_inp_time(curr_time_dt,
+                                                                            self.gp_params['planning_horizon_xlnk_mins']))),
+                "planning_end_dlnk" :  datetime_to_iso8601(min(self.sim_end_utc_dt,
+                                                               get_inp_time(curr_time_dt,self.gp_params['planning_horizon_dlnk_mins']))),
                 "max_num_dlnks_allowed_after_planning_end_xlnk": self.gp_params['max_num_dlnks_allowed_after_planning_end_xlnk']
             },
             "activity_scheduling_params": {
@@ -91,16 +101,23 @@ class GlobalPlannerWrapper:
         esrcs_by_id = {rt_cont.ID:rt_cont for rt_cont in existing_rt_conts}
         existing_route_data = {}
         existing_routes = [dmr for esrc in esrcs for dmr in esrc.get_routes()]
-        #  we need to copy all of the existing routes here, because we update the schedule data volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the data route objects that satellites have in their Sim route containers ( and effectively propagating information instantaneously to the satellites - double plus ungood!). 
-        # We don't deepcopy because we don't want to make copise of the (many!) window objects contained within the routes. This is just to save memory, not because we are dependent on the objects staying the same (note: this is at least the intent - any behavior not conforming is a bug, as of June 3 2018)
+        #  we need to copy all of the existing routes here, because we update the schedule data volume attributes
+        #  for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the
+        #  data route objects that satellites have in their Sim route containers ( and effectively propagating
+        #  information instantaneously to the satellites - double plus ungood!).
+        # We don't deepcopy because we don't want to make copise of the (many!) window objects contained within the
+        # routes. This is just to save memory, not because we are dependent on the objects staying the same (note:
+        # this is at least the intent - any behavior not conforming is a bug, as of June 3 2018)
         existing_routes_copy = []
         for existing_route in existing_routes:
             existing_routes_copy.append(copy(existing_route))
 
         existing_route_data['existing_routes'] = existing_routes_copy
 
-        #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
-        existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
+        #  utilization by DMR ID. We use data volume utilization here, but for current version of global
+        #  planner this should be the same as time utilization
+        existing_route_data['utilization_by_existing_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr)
+                                                                   for esrc in esrcs for dmr in esrc.get_routes()}
         
         # get relevant activity windows based on all_windows_dict (from gsn) and time horizons (calculated above)
 
@@ -132,7 +149,8 @@ class GlobalPlannerWrapper:
         ##############################
         #  run the GP
 
-        #  Note: the GP is the only place in the whole sim, currently, where scheduled data volume attributes for data routes and windows are allowed to be updated
+        #  Note: the GP is the only place in the whole sim, currently, where scheduled data volume attributes for
+        #  data routes and windows are allowed to be updated
 
         #  do some funny business to get access to the global planner code
         # path to runner_gp
@@ -148,7 +166,8 @@ class GlobalPlannerWrapper:
 
         print('==Run GP==')
         print('note: running with local circinus_tools, not circinus_tools within GP repo')
-        # NOTE: moved this from within GP pipeline runner, so we can still see this, but rest is suppressed if verbose_milp = false
+        # NOTE: moved this from within GP pipeline runner, so we can still see this, but rest is suppressed
+        # if verbose_milp = false
         print('planning_start_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_start'])))
         print('planning_end_obs_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_end_obs'])))
         print('planning_end_xlnk_dt: %s'%(tt.iso_string_to_dt(gp_instance_params['planning_params']['planning_end_xlnk'])))
@@ -156,8 +175,10 @@ class GlobalPlannerWrapper:
 
         gp_pr = GPPipelineRunner()
         gp_output = gp_pr.run(gp_inputs,verbose=self.verbose_gp)
-        print('==GP DONE==')
-
+        print("===========================================")
+        print('================= GP DONE =================')
+        print("===========================================")
+        
         ##############################
         # handle output
 
@@ -172,20 +193,30 @@ class GlobalPlannerWrapper:
         existing_routes_set = set(existing_routes)
         sim_routes = []
         for dmr in all_updated_routes:
-            #  we only want to consider this route if it was actually scheduled (delivers real data volume) or is an existing route.  any new routes that were constructed in the global planner that don't get scheduled we can ignore ( there's no point in keeping track of them because they're useless -  and we haven't yet told any of the satellites about them so we can discard them now).  this is in contrast to existing routes which, even if they get unscheduled by the global planner, we have to keep track of because we could've already told the satellites about them after a previous global planning session ( so now we you tell them that decisions have changed)
+            #  we only want to consider this route if it was actually scheduled (delivers real data volume)
+            #  or is an existing route.  any new routes that were constructed in the global planner that
+            #  don't get scheduled we can ignore ( there's no point in keeping track of them because
+            #  they're useless -  and we haven't yet told any of the satellites about them so we can discard them now).
+            #  this is in contrast to existing routes which, even if they get unscheduled by the global planner,
+            #  we have to keep track of because we could've already told the satellites about them after a previous
+            #  global planning session ( so now we you tell them that decisions have changed)
             if not (dmr in scheduled_routes_set or dmr in existing_routes_set):
                 continue
 
             dmr_dv_util = dmr.get_sched_utilization()
 
 
-            # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
-            # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
+            # check if this sim route container already existed (and the data multi route already existed), and if so,
+            # grab the original creation time as well as determine if we have actually updated the simroutecontainer
+            # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we
+            # release the plans
             old_esrc = esrcs_by_id.get(dmr.ID,None)
             creation_dt = old_esrc.creation_dt if old_esrc else None
             update_dt = old_esrc.update_dt if (old_esrc and not old_esrc.updated_check(dmr,dmr_dv_util)) else None
 
-            # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
+            # we make an entirely new Sim route container for the route because that way we have a unique, new object,
+            # and we don't risk information sharing by inadvertantly updating the same object across satellites and
+            # ground network
             #   note only one Sim route container per DMR
             # honestly we probably could just use a copy() here...
             sim_routes.append(
@@ -193,21 +224,28 @@ class GlobalPlannerWrapper:
             )
 
         num_existing_routes_scheduled = len([dmr for dmr in scheduled_routes if dmr in existing_routes])
-        existing_routes_scheduled_utilization = sum([dmr.get_sched_utilization() for dmr in scheduled_routes if dmr in existing_routes])
-        existing_routes_utilization = sum(util for util in existing_route_data['utilization_by_existing_route_id'].values())
+        existing_routes_scheduled_utilization = sum([dmr.get_sched_utilization() for dmr in scheduled_routes
+                                                     if dmr in existing_routes])
+        existing_routes_utilization = sum(util
+                                          for util in existing_route_data['utilization_by_existing_route_id'].values())
 
-        print('fraction of existing routes kept in schedule: %d / %d '%(num_existing_routes_scheduled,len(existing_routes)))
-        print('fraction of existing utilization kept in schedule: %f / %f '%(existing_routes_scheduled_utilization,existing_routes_utilization))
-        print('to ease those copypasta blues:')
-        print('%d %d '%(len(existing_routes),num_existing_routes_scheduled))
-        print('%f %f '%(existing_routes_utilization,existing_routes_scheduled_utilization))
+        print('fraction of existing routes kept in schedule: %d / %d '%(num_existing_routes_scheduled,
+                                                                        len(existing_routes)))
+        print('fraction of existing utilization kept in schedule: %f / %f '%(existing_routes_scheduled_utilization,
+                                                                             existing_routes_utilization))
+
+#        print('to ease those copypasta blues:')
+#        print('%d %d '%(len(existing_routes),num_existing_routes_scheduled))
+#        print('%f %f '%(existing_routes_utilization,existing_routes_scheduled_utilization))
 
         self.first_iter = False
 
         return sim_routes, latest_gp_route_indx
 
         # if I want to make calling the GP a separate process at some point...
-        # note the use of multiprocessing's Process means (I think) that we'll be making a copy of all the data in gp_inputs every time we call this, including the large (and unchanging!) data rates inputs. Not super great, but I don't think it'll be problematic.
+        # note the use of multiprocessing's Process means (I think) that we'll be making a copy of all the data in gp_
+        # inputs every time we call this, including the large (and unchanging!) data rates inputs. Not super great, but
+        # I don't think it'll be problematic.
         # todo: figure out a way to avoid this, possibly with mp Pool that can keep a persistent worker
         # import runner_gp
         # queue = Queue()
@@ -241,25 +279,33 @@ def get_relevant_activity_windows(all_windows_dict,planning_params):
                 # append one list for each satellite
                 if 'obs' in key:
                     # Use obs end time
-                    relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_obs_dt])
+                    relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt
+                                                           and x.original_start <= planning_end_obs_dt])
                 elif 'dlnk' in key:
                     # Use dlnk end time
                     if 'flat' in key:
-                        relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_dlnk_dt])
+                        relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt
+                                                               and x.original_start <= planning_end_dlnk_dt])
                     else:
                         relevant_activity_windows[key].append([])
                         for gs_winds in sat_winds:
                             # need to filter by ground station as well
-                            relevant_activity_windows[key][sat_idx].append([x for x in gs_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_dlnk_dt])
+                            relevant_activity_windows[key][sat_idx].append([x for x in gs_winds
+                                                                            if x.original_end >= planning_start_dt and
+                                                                            x.original_start <= planning_end_dlnk_dt])
                 elif 'xlnk' in key:
                     # Use xlnk end time
                     if 'flat' in key:
-                        relevant_activity_windows[key].append([x for x in sat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_xlnk_dt])
+                        relevant_activity_windows[key].append([x for x in sat_winds
+                                                               if x.original_end >= planning_start_dt
+                                                               and x.original_start <= planning_end_xlnk_dt])
                     else:
                         relevant_activity_windows[key].append([])
                         for xsat_winds in sat_winds:
                             # need to filter by next sat as well
-                            relevant_activity_windows[key][sat_idx].append([x for x in xsat_winds if x.original_end >= planning_start_dt and x.original_start <= planning_end_xlnk_dt])
+                            relevant_activity_windows[key][sat_idx].append([x for x in xsat_winds
+                                                                            if x.original_end >= planning_start_dt
+                                                                            and x.original_start <= planning_end_xlnk_dt])
                 elif 'ecl' in key:
                     # Include all with an ending time greater than start time
                     relevant_activity_windows[key].append([x for x in sat_winds if x.end >= planning_start_dt])

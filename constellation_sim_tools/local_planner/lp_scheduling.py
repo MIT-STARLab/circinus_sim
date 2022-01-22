@@ -331,7 +331,7 @@ class LPScheduling(AgentScheduling):
         # model.obs_windids = pe.Set(initialize= all_obs_windids)
         # model.lnk_windids = pe.Set(initialize= all_lnk_windids)
 
-        if self.solver_name == 'gurobi' or self.solver_name == 'cplex':
+        if self.solver_name in {'gurobi','cplex','cbc','glpk'}:
             int_feas_tol = self.solver_params['integer_feasibility_tolerance']
         elif self.solver_name == 'glpk':
             # raise an error, because it could be misleading if someone changes the int feas tol in the inputs...

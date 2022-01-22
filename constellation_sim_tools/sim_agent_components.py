@@ -14,10 +14,11 @@ from circinus_tools.other_tools import index_from_key
 from circinus_tools.scheduling.custom_window import  DlnkWindow, ObsWindow, XlnkWindow
 from circinus_tools.metrics.metrics_utils import  UpdateHistory
 from .schedule_tools  import synthesize_executable_acts,check_temporal_overlap
-
+from threading import Thread
 from circinus_tools import debug_tools
 from enum import Enum
-# from .sim_agents import AgentType
+from threading import Thread
+import logging
 class AgentType(Enum):  # TODO - wtf is up with this imort issue; To be used for type-based behavior in generalized functions
     GS      = 'GS'
     SAT     = 'SAT'
@@ -146,24 +147,23 @@ class PlannerScheduler:
                 self.schedule_disruption_occurred = False
                 self.schedule_disruption_context = None
                 if SRP_rt_conts:
-                    print('Appending schedule disruption recovery to the queue')
                     self.SRP_successes += 1
                     # append a new set of plans, with their release/availaibility time as after replan_release_wait_time_s
                     self.schedule_disruption_replan_communicated = False
                     #TODO: implement a setter method in the sim_sat_components scheduler for this isntead of setting directly here (since this super class doesn't have it)
-                    # get setting (under LP settings) for "run_lp_milp_ater_SRP"
+                    # get setting (under LP settings) for "run_lp_milp_after_SRP"
                     if planner_wrapper.const_sim_inst_params['lp_general_params']['run_lp_milp_after_SRP']:
                         self._process_updated_routes(SRP_rt_conts,self._curr_time_dt)
                         # new routes from SRP need to be processed immediately so they are made into activities that the
                         # lp MILP can use for inflows and outflows
                         # to do this, we also need to update the schedule cache (makes new executable activites)
                         self._schedule_cache_update()
-                        print('Running MILP after SRP expanded downlink activities')
+
                         new_rt_conts = self._run_planner(planner_wrapper,new_time_dt)
                         # then return through normal flow with 'new' new_rt_conts
                         # there may not be nay new_rt_conts if SRP found optimal already
                         if not new_rt_conts:
-                            print('MILP returned same solution as SRP or no model constructed') # TODO: need to figure out why "no model constructed" comes up sometimes
+                            # print('MILP returned same solution as SRP or no model constructed') # TODO: need to figure out why "no model constructed" comes up sometimes
                             self.SRP_matches_MILP += 1
                             new_rt_conts = SRP_rt_conts # use original SRP plan if MILP doesn't find different soln, need to trigger for external share
                             # TODO: refactor to account for replan release wait time somehow, because technically this sat has already incorporated the SRP plan into it's schedule
@@ -287,7 +287,6 @@ class ExecutiveAgentPlannerScheduler(PlannerScheduler):
             return
 
         executable_acts = self.get_executable_acts()
-
         # sort executable activities by start time
         executable_acts.sort(key = lambda ex_act: ex_act.act.executable_start)
 
@@ -344,7 +343,8 @@ class Executive:
         # keeps track of which data container (data packet) we're on
         self._curr_dc_indx = 0
 
-        #  holds data structures that keep track of execution context for a given activity.  these are all of the data structures that keep track of what has been accomplished in the course of executing a given activity
+        #  holds data structures that keep track of execution context for a given activity.  these are all of the data
+        #  structures that keep track of what has been accomplished in the course of executing a given activity
         self._execution_context_by_exec_act = {}
 
         self._schedule_changed_hist = []
@@ -356,9 +356,8 @@ class Executive:
         self.dv_epsilon = dv_epsilon # Mb
 
     def _pull_schedule(self):
-
         scheduled_exec_acts_copy = self._scheduled_exec_acts
-        
+
         # if schedule updates are available, blow away what we had previously (assumption is that scheduler handles changes to schedule gracefully)
         if self.scheduler.schedule_updated:
             self._scheduled_exec_acts = self.scheduler.get_scheduled_executable_acts()
@@ -366,6 +365,7 @@ class Executive:
             schedule_changed,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added = self.scheduler.check_schedule_changes()
             if schedule_changed:
                 if hasattr(self.sim_executive_agent,'arbiter'):
+                    print(f"{type(self.sim_executive_agent)}: Setting current sats propped to as []")
                     self.sim_executive_agent.arbiter.cur_sats_propped_to = [] # reset sats propped to list only after updating actual activities
                 self._schedule_changed_hist.append((self._curr_time_dt,num_sim_rt_conts_existing_changed,num_sim_rt_conts_added))
                 self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','schedule update','route containers changed in plan_db: %d modified, %d added'%(num_sim_rt_conts_existing_changed,num_sim_rt_conts_added))
@@ -390,17 +390,21 @@ class Executive:
                 # curr_act_indx = index_from_key(self._scheduled_exec_acts,key= ea: ea.act,value=latest_sched_exec_act.act)
                 # note that this searches by the activity window itself (the hash of the exec act)
                 curr_act_indx = self._scheduled_exec_acts.index(latest_sched_exec_act)
-
                 #  test if the routing plans for the current activities being executed have changed. If so, we need to do something about that
                 for exec_act in self._curr_exec_acts:
                     if exec_act in self._scheduled_exec_acts:
                         #  we're looking for the same simulation activity, but not the same object. grab a reference to that object
                         updated_exec_act = self._scheduled_exec_acts[self._scheduled_exec_acts.index(exec_act)]
-
+                        print("updated exec act:", updated_exec_act)
+                        print("__all of these must be true:...")
+                        print("exec act plan matches updated exec act:", exec_act.plans_match(updated_exec_act))
+                        print("exec act starts match:", updated_exec_act.act.executable_start ==exec_act.act.executable_start )
+                        print("exec act ends match:", updated_exec_act.act.executable_end == exec_act.act.executable_end)
                         exec_act_has_been_updated = not (exec_act.plans_match(updated_exec_act) and
                             updated_exec_act.act.executable_start == exec_act.act.executable_start and
                             updated_exec_act.act.executable_end == exec_act.act.executable_end)
 
+                        print("exec_act_has_been_updated:", exec_act_has_been_updated)
                         if exec_act_has_been_updated:
                             self._update_act_execution_context(exec_act,updated_exec_act)
 
@@ -486,7 +490,6 @@ class Executive:
         regular_exec_acts,exec_act_windices = find_windows_in_wind_list(new_time_dt,self._last_scheduled_exec_act_windex,self._scheduled_exec_acts,self.executable_time_accessor)
         self._last_scheduled_exec_act_windex = exec_act_windices[1]
         next_exec_acts += regular_exec_acts
-
         # NOTE: for time being, assume that injected acts just wholesale replace whatever other activity might have been going on. Note that we don't account for transition times before or after injects. ¯\_(ツ)_/¯
 
         #  also consider injected activities ("spontaneous", unplanned activities)
@@ -494,9 +497,10 @@ class Executive:
         self._last_injected_exec_act_windex = exec_act_windices[1]
         if len(injected_exec_acts) > 0:
             # mark any supposed-to-be scheduled acts as cancelled, they'll be filtered below
-            for exec_act in next_exec_acts: self._cancelled_acts.add(exec_act)
-        next_exec_acts += injected_exec_acts
+            for exec_act in next_exec_acts:
+                self._cancelled_acts.add(exec_act)
 
+        next_exec_acts += injected_exec_acts
         # sanity check that state sim has advanced to next timestep (new_time_dt) already
         assert(self.state_sim._curr_time_dt == new_time_dt)
         # if satellite state is not nominal at next timestep (new_time_dt), then that means the activities we are currently executing ( at current time step, self._curr_time_dt) have pushed our state over the edge. for that reason, we should not perform any activities at the next time step
@@ -512,34 +516,34 @@ class Executive:
         for exec_act in next_exec_acts:
             # if new time is within epsilon of act end, call it done
             if self.executable_time_accessor(exec_act,'end') <= new_time_dt + self.sim_executive_agent.time_epsilon_td:
+
                 continue
             else:
                 next_exec_acts_corner_cuss.append(exec_act)
         next_exec_acts = next_exec_acts_corner_cuss
 
-
         # remove cancelled acts from next exec acts
         next_exec_acts = [exec_act for exec_act in next_exec_acts if not exec_act in self._cancelled_acts]
-
 
         # handle execution context setup/takedown
         
         added_exec_acts = set(next_exec_acts) - set(self._curr_exec_acts)
         removed_exec_acts = set(self._curr_exec_acts) - set(next_exec_acts)
 
+        if self.sim_executive_agent.is_removed():self.sim_executive_agent.lock.release()
         # Deal with any activities that have stopped
+
         for exec_act in removed_exec_acts:
             if allow_window_restart:
                 self._execution_context_by_exec_act.pop(prev_exec_act)
-                # remove from execution context, which will allow it to be restarted in the future.
+                    # remove from execution context, which will allow it to be restarted in the future.
             else:
-                self._cleanup_act_execution_context(exec_act,new_time_dt)
-                # this will add the last execution to the state_recorder activity history 
+                # this will add the last execution to the state_recorder activity history
                 # this will also trigger the check for schedule disruption planning (if failed)
+                self._cleanup_act_execution_context(exec_act, new_time_dt)
 
-         
-            
 
+        if self.sim_executive_agent.is_removed(): self.sim_executive_agent.lock.acquire()
         #  set up execution context for any activities that are just beginning
         #  note that we want to clean up before we initialize, because during initialization data structures are set up that may be dependent on an activity that ends in the time step for this new one. If at some point in the future we want to allow two ongoing activities to handle the same data (i.e. second activity grabs data from a first activity while the first is still ongoing), this initialization and cleanup approach will have to be changed. for the time being though, we assume that activities that execute at the same time handle mutually exclusive data
         for exec_act in added_exec_acts:
@@ -560,6 +564,7 @@ class Executive:
         # mark no longer first step
         if self._first_step:
             self._first_step = False
+
 
     def _initialize_act_execution_context(self,exec_act,new_time_dt):
         """ Sets up the context dictionary used for the execution of a given activity. Should be run before starting to execute it"""
@@ -597,8 +602,8 @@ class Executive:
 
     def _update_act_execution_context(self,old_exec_act,new_exec_act):
 
-        curr_exec_context = self._execution_context_by_exec_act[new_exec_act]
 
+        curr_exec_context = self._execution_context_by_exec_act[new_exec_act]
         #  go ahead and update with the new act window.  this will have all the information about execution time
         curr_exec_context['act'] = new_exec_act.act
 
@@ -608,7 +613,6 @@ class Executive:
         # Note that we really should update curr_exec_context['rt_conts'] to reflect the new route containers within exec_act. it could be that more data volume got scheduled for the route, for example. however, for now let's just assume that the change is not important enough to deal with
         # todo: add code to take care of this at some point?
         self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','plan change','Saw updated plans for current ExecutableActivity; current: %s, new: %s; old executable times %s,%s, new executable times %s,%s'%(old_exec_act,new_exec_act,old_exec_act.act.executable_start,old_exec_act.act.executable_end,new_exec_act.act.executable_start,new_exec_act.act.executable_end))
-
 
     def _cleanup_act_execution_context(self,exec_act,new_time_dt):
 
@@ -629,7 +633,11 @@ class Executive:
         self._execution_context_by_exec_act[exec_act] = None
 
     def execute_acts(self,new_time_dt):
-        """ execute current activities that the update step has chosen """
+        """
+        execute current activities that the update step has chosen
+
+        NOTE: Assumes (and asserts) that the agent only has one current exec act
+        """
 
         #  sanity check that if we're executing activities, we do so with a finite time delta for consistency
         if not self._first_step and not new_time_dt > self._last_act_execution_time_dt:
@@ -638,15 +646,16 @@ class Executive:
         #  advance the activity execution time high-water mark
         self._last_act_execution_time_dt = new_time_dt
 
-                
-        # if self.sim_executive_agent.ID == 'sat1':
-        #     print(self._curr_exec_acts)
-        #     debug_tools.debug_breakpt()
 
         # if it's not the first step, then we can execute current activities
-        if not self._first_step:
-            for exec_act in self._curr_exec_acts:
-                self._execute_act(exec_act,new_time_dt)
+
+        numExec = len(self._curr_exec_acts)
+
+        if not self._first_step and numExec > 0:
+            for act in self._curr_exec_acts:
+
+                self._execute_act(act,new_time_dt)
+
 
     def _execute_act(self,exec_act,new_time_dt):
         """ Execute the executable activity input, taking any actions that this agent is responsible for initiating """
@@ -693,13 +702,42 @@ class Executive:
         #  if this AGENT is not actually executing the activity, then it can't receive data // TODO - move this to receiver (refuse to RX)
         # note that both agents have to be referring to the same activity 
 
+        if self.sim_executive_agent.is_removed():
+            if self.sim_executive_agent.no_more_bdt: return 0,False
+
         if not proposed_act in [exec_act.act for exec_act in self._curr_exec_acts]:
+
             received_dv = 0
             rx_success = False
             self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','act execution anomaly','receive poll: proposed act %s not in self current exec acts (%s)'%(proposed_act,self._curr_exec_acts))
             return received_dv,rx_success
+            # TODO: send if:
+            #  - data storage full (stat_sim.DS_state >= state_sim.DS_max - state_sim.dv_epsilon
+            #  - if plan in rx ( curr_act_wind in exec._scheduled_exec_acts)
+            #  ALSO record in own dictionary?
 
-        
+            # TODO: During update:
+            #  - For each act to clean up:
+            #       - Send request in payload format:
+            #           - req_type: 'XLINK_FAILURE'
+            #           - window: act_window
+            #           - If was tx:
+            #               - 'IN_TX_PLAN': bool
+            #               - 'GEOMETRY_VALID': bool
+            #               - 'HAS_DATA_CONTAINER': bool
+            #           - If was rx:
+            #               - 'DATA_STORAGE_FULL': bool
+            #               - 'IN_RX_PLAN': bool
+            #       - Response should be an ACK with matching information
+            #       - If need to check for rx satellite stuff, ask for information
+            #           - Is rx sat full?
+            #           - Was the exec act scheduled?
+            #       - If need to check for tx sat stuff, ask for information:
+            #           - Was geometry ok?
+            #           - Were there data containers?
+            #           - Was exec act scheduled?
+            #       - Wait for message, KEYED ON PICKLED WINDOW
+
         schedule_disruptions = self.sim_executive_agent.schedule_disruptions
         # check if the execute doing the poll is in a "schedule disruption" (if exists)
         if schedule_disruptions:
@@ -720,6 +758,8 @@ class Executive:
         # get this sat's version of the executable activity
         self_exec_act = self._curr_exec_acts[index_from_key(self._curr_exec_acts,key=lambda ea:ea.act,value=proposed_act)]
         curr_exec_context = self._execution_context_by_exec_act[self_exec_act]
+        if 'rx_data_conts_map' not in curr_exec_context:
+            curr_exec_context['rx_data_conts_map'] = {}
 
         act_start_dt = curr_exec_context['start_dt']
         act_end_dt = curr_exec_context['end_dt'] 
@@ -748,7 +788,8 @@ class Executive:
             self.state_recorder.log_event(self._curr_time_dt,'sim_agent_components.py','act execution anomaly','receive poll: insufficient dv availability (%s) to rx proposed dv (%s)'%(self.state_sim.get_available_data_storage(self._curr_time_dt,rx_delta_dv),proposed_dv))
 
             rx_success = False
-            return received_dv,rx_success
+            self.sim_executive_agent.no_more_bdt = True
+            return received_dv,rx_success # TODO: Send DATA STORAGE FULL AT RX
 
         #############
         # Store the incoming data in the appropriate place
@@ -757,18 +798,17 @@ class Executive:
         tx_data_cont_changed = False
         if not txsat_data_cont == curr_exec_context['curr_txsat_data_cont']:
             curr_exec_context['curr_txsat_data_cont'] = txsat_data_cont
-            tx_data_cont_changed = True
 
         #  ingest the data received into the appropriate destination
         self._curr_dc_indx = self.ingest_rx_data(
             curr_exec_context['rx_data_conts'],
+            curr_exec_context['rx_data_conts_map'],
             proposed_act,
             txsat_data_cont,
             received_dv,
             self.sim_executive_agent.dc_agent_id,
             tx_sat_indx,
-            self._curr_dc_indx,
-            tx_data_cont_changed
+            self._curr_dc_indx
         )
 
 
@@ -782,20 +822,21 @@ class Executive:
         return received_dv,True
 
     @staticmethod
-    def ingest_rx_data(rx_data_conts_list,act,txsat_data_cont,received_dv,rx_agent_id,tx_sat_indx,dc_indx,tx_data_cont_changed):
+    def ingest_rx_data(rx_data_conts_list,rx_data_conts_map,act,txsat_data_cont,received_dv,rx_agent_id,tx_sat_indx,dc_indx):
         """Ingest received data, and do the process of putting that data into its proper data container destination"""
 
-        #  if we've already been receiving data from this transmitted data container, then we should still receive into the same reception data container
-        if not tx_data_cont_changed:
-            rx_dc = rx_data_conts_list[-1]
-        #  if the transmitted data container has changed, then we can make a new reception data container
-        else:
+        # Check if we are looking at a new data container
+        if txsat_data_cont not in rx_data_conts_map:
             #  start out with zero data volume
             new_rx_dc = txsat_data_cont.fork(rx_agent_id,new_dc_indx=dc_indx,dv=0)
-            dc_indx += 1
             new_rx_dc.add_to_route(act,tx_sat_indx)
             rx_data_conts_list.append(new_rx_dc)
             rx_dc = new_rx_dc
+            rx_data_conts_map[txsat_data_cont] = rx_dc
+            dc_indx += 1
+        else:
+            # Access rx container
+            rx_dc = rx_data_conts_map[txsat_data_cont]
 
         rx_dc.add_dv(received_dv)
 
@@ -1121,7 +1162,7 @@ class PlanningInfoDB:
         for agent_id, update_hist in self.ttc_update_hist_by_agent_id.items():
 
             last_ut =  update_hist.last_update_time[-1]
-            other_last_ut =  sender_last_ttc_hist_by_agent_id[agent_id] 
+            other_last_ut =  sender_last_ttc_hist_by_agent_id[agent_id]
 
             #  if our last update time is before the others last update time for this index, then we should add that more recent update time to our history
             #  note that this should never end up updating the history for self's sat or gs indx

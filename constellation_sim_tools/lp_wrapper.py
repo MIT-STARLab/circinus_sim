@@ -3,13 +3,17 @@
 # @author Kit Kennedy
 #
 # Notes:  
-# - currently, satellites' current data storage is not passed explicitly to the global planner. rather, it is passed in the form of existing data routes, which themselves levy a requirement that the data volume that they are storing on the satellites must be below the maximum buffer value for the satellite. I.e.,  we don't consider data volume in the same way as energy storage, a big pool of nameless data volume chunks, but rather a set of discrete routes that all have their own data volume. this works well for the current global planner/local planner paradigm, but may be too restrictive for future development. in that case, data storage should be passed to the global planner,  and somehow it will need to be clarified the global planner how the data storage number for each satellite relates to the data routes that it has planned
+# - currently, satellites' current data storage is not passed explicitly to the global planner. rather, it is
+# passed in the form of existing data routes, which themselves levy a requirement that the data volume that
+# they are storing on the satellites must be below the maximum buffer value for the satellite. I.e.,
+# we don't consider data volume in the same way as energy storage, a big pool of nameless data volume chunks,
+# but rather a set of discrete routes that all have their own data volume. this works well for the current
+# global planner/local planner paradigm, but may be too restrictive for future development. in that case,
+# data storage should be passed to the global planner,  and somehow it will need to be clarified the global
+# planner how the data storage number for each satellite relates to the data routes that it has planned
 
-import os.path
-import sys
 from copy import copy, deepcopy
-# import pickle
-from datetime import datetime,timedelta
+from datetime import timedelta
 
 from .sim_routing_objects import SimRouteContainer
 from constellation_sim_tools.local_planner.runner_lp import PipelineRunner as LPPipelineRunner
@@ -23,12 +27,16 @@ EXPECTED_LP_OUTPUT_VER = '0.1'
 
 def datetime_to_iso8601(dt):
     """ Converts a Python datetime object into an ISO8601 string. (including trailing Z)"""
-    #  better than datetime's built-in isoformat() function, because sometimes that leaves off the microseconds ( which of course, is stupid)
+    #  better than datetime's built-in isoformat() function, because sometimes that leaves off the
+    #  microseconds ( which of course, is stupid)
 
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 class LocalPlannerWrapper:
-    """wraps the global planner scheduling algorithm, providing required inputs and converting outputs from/to constellation simulation"""
+    """
+    wraps the global planner scheduling algorithm, providing required inputs and converting outputs from/to
+    constellation simulation
+    """
 
     def __init__(self, sim_params, metrics_calcs_obj):
 
@@ -54,13 +62,15 @@ class LocalPlannerWrapper:
         sat_params = self.orbit_prop_params['sat_params']
         orbit_params = self.orbit_prop_params['orbit_params']
         # this is only imported for the SRP
-        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],None)
+        self.act_timing_helper = ActivityTimingHelper(sat_params['activity_params'],
+                                                      orbit_params['sat_ids_by_orbit_name'],sat_params['sat_id_order'],None)
 
     @property
     def lp_dv_epsilon(self):
         return self._lp_dv_epsilon
 
-    def run_lp(self,curr_time_dt,sat_indx,sat_id,lp_agent_id,existing_rt_conts,existing_data_conts,latest_lp_route_indx,sat_schedule_arb,replan_type='nominal',sat_state=None):
+    def run_lp(self,curr_time_dt,sat_indx,sat_id,lp_agent_id,existing_rt_conts,existing_data_conts,
+               latest_lp_route_indx,sat_schedule_arb,replan_type='nominal',sat_state=None):
 
         def get_inp_time(time_dt,param_mins):
             new_time = curr_time_dt + timedelta(minutes=param_mins)
@@ -78,7 +88,8 @@ class LocalPlannerWrapper:
             "version": "0.1", # will need to add version checking at some point in the local planner code 
             "planning_params": {
                 "planning_start_dt" :  curr_time_dt,
-                "planning_leaving_flow_start_dt" :  min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.lp_params['planning_leaving_flow_start_mins'])),
+                "planning_leaving_flow_start_dt" :  min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,
+                                                                                         self.lp_params['planning_leaving_flow_start_mins'])),
                 "planning_end_dt" :  min(self.sim_end_utc_dt,get_inp_time(curr_time_dt,self.lp_params['planning_horizon_mins']))
             },
             "sat_indx": sat_indx,
@@ -97,8 +108,15 @@ class LocalPlannerWrapper:
 
         existing_route_data['injected_route_ids'] = []
 
-        # a note on copying below: we need to copy all of the existing routes here, because we update the schedule data volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be modifying the data route objects that satellites have in their Sim route containers ( and effectively propagating information instantaneously to the satellites - double plus ungood!). We don't deepcopy because we DO want to retain the same window objects contained within the routes.  
-        # TODO:  note that this passing around of the original window objects is not necessarily the best idea. We do it for now because it saves memory. note that this should not interfere with checking equality/comparing of data routes and windows later, because all of that is done using the ID for the routes and windows ( which is the same when copied)
+        # a note on copying below: we need to copy all of the existing routes here, because we update the schedule data
+        # volume attributes for routes and windows in the global planner.  if we don't copy the routes, then we will be
+        # modifying the data route objects that satellites have in their Sim route containers ( and effectively
+        # propagating information instantaneously to the satellites - double plus ungood!). We don't deepcopy because
+        # we DO want to retain the same window objects contained within the routes.
+        # TODO:  note that this passing around of the original window objects is not necessarily the best idea. We do
+        #  it for now because it saves memory. note that this should not interfere with checking equality/comparing of
+        #  data routes and windows later, because all of that is done using the ID for the routes and windows ( which
+        #  is the same when copied)
         # planned routes are the currently planned routes -  anything that has an activity window occurring after curr_time_dt
         existing_route_data['planned_routes'] = [copy(existing_route) for existing_route in existing_routes]
 
@@ -107,18 +125,24 @@ class LocalPlannerWrapper:
                 existing_route_data['injected_route_ids'].append(rt.ID)
 
 
-        #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this should be the same as time utilization
+        #  utilization by DMR ID. We use data volume utilization here, but for current version of global planner this
+        #  should be the same as time utilization
         existing_route_data['utilization_by_planned_route_id'] = {dmr.ID:esrc.get_dmr_utilization(dmr) for esrc in esrcs for dmr in esrc.get_routes()}
 
         # deal with data containers (packets) on sat
         existing_route_data['utilization_by_executed_route_id'] = {}
-        #  partial routes include all of those data containers on the satellite that are currently present. in the nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has happened, it could be that there is less or more data represented in these partial routes than was planned for in existing routes
+        #  partial routes include all of those data containers on the satellite that are currently present. in the
+        #  nominal situation, these routes are a subset of existing routes.  however, when off nominal behavior has
+        #  happened, it could be that there is less or more data represented in these partial routes than was planned
+        #  for in existing routes
         # NOTE! these are tuples
         executed_routes = []
 
-        # BIG FAT NOTE: technically, this is mildly broken due to DC forking. Even if two DCs actually orginated from the same obs, they will be accounted for as two different executed routes here. The negative effect of this should be small in practice.
+        # BIG FAT NOTE: technically, this is mildly broken due to DC forking. Even if two DCs actually orginated from
+        # the same obs, they will be accounted for as two different executed routes here. The negative effect of this should be small in practice.
         for dc in existing_data_conts:
-            # if there is currently a planned route for this data container, grab that ( note that the planned route should contain the executed route for the data container. we want to grab the planned route because it has the correct routing object ID)
+            # if there is currently a planned route for this data container, grab that ( note that the planned route
+            # should contain the executed route for the data container. we want to grab the planned route because it has the correct routing object ID)
             if dc.latest_planned_rt_cont:
                 esrc = dc.latest_planned_rt_cont
                 for dmr in esrc.get_routes():
@@ -152,7 +176,8 @@ class LocalPlannerWrapper:
         #  run the LP
 
         #  is this still true?
-        #  Note: the GP is the only place in the whole sim, currently, where scheduled data volume attributes for data routes and windows are allowed to be updated
+        #  Note: the GP is the only place in the whole sim, currently, where scheduled data volume attributes for
+        #  data routes and windows are allowed to be updated
 
 
         
@@ -163,14 +188,16 @@ class LocalPlannerWrapper:
                 print('Running schedule disruption replanning')
                 lp_output = run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,self.act_timing_helper)
             else:
-                # NOTE: sometimes running Kit's LP with no injected obs can cause problems downstream (oversubscribing windows)
+                # NOTE: sometimes running Kit's LP with no injected obs can cause problems downstream (oversubscribing
+                # windows)
                 """ print('Self-Replanner not enabled, using just original LP, check lp_general_params')
                 print('Run LP for schedule disruptions')
 
                 lp_pr = LPPipelineRunner()
                 lp_output = lp_pr.run(lp_inputs,verbose=self.verbose_milp)
                 if not lp_output['version'] == EXPECTED_LP_OUTPUT_VER:
-                    raise RuntimeWarning("Saw gp output version %s, expected %s"%(lp_output['version'],EXPECTED_LP_OUTPUT_VER)) """
+                    raise RuntimeWarning("Saw gp output version %s, expected %s"%(lp_output['version'],EXPECTED_LP_OUTPUT_VER)) 
+                    """
                 print('Self-Replanner not enabled, making no changes')
                 lp_output = {
                     'scheduled_routes':lp_inputs['existing_route_data']['planned_routes'],
@@ -195,7 +222,8 @@ class LocalPlannerWrapper:
         updated_utilization_by_route_id = lp_output['updated_utilization_by_route_id']
         latest_lp_route_indx = lp_output['latest_dr_uid']
         dc_id_by_scheduled_rt_id = lp_output['dc_id_by_scheduled_rt_id']
-        next_window_id = lp_output.get('next_window_uid',None)   # technically, this doesn't need to be an output since it directly written to the sat_schedule_arb.plan_db.sat_windows_dict
+        next_window_id = lp_output.get('next_window_uid',None)   # technically, this doesn't need to be an output since
+                                                                 # it directly written to the sat_schedule_arb.plan_db.sat_windows_dict
 
         # sim_routes is only the updated SRCs
         sim_routes = []
@@ -209,10 +237,14 @@ class LocalPlannerWrapper:
             dmr_dv_util = min(updated_utilization_by_route_id[dmr.ID],1.0)
 
 
-            # check if this sim route container already existed (and the data multi route already existed), and if so, grab the original creation time as well as determine if we have actually updated the simroutecontainer
-            # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we release the plans
+            # check if this sim route container already existed (and the data multi route already existed), and if so,
+            # grab the original creation time as well as determine if we have actually updated the simroutecontainer
+            # Leave these times as None if (newly created,not updated) - in this case we'll update the times when we
+            # release the plans
             old_esrc = esrcs_by_id.get(dmr.ID,None)
-            # the *2 factor in the below is because the LP allows up to (but really a tiny bit more than) self.existing_utilization_epsilon variation greater than existing utilization. So should check for a change bigger than that. 2 times thi small number should be safe
+            # the *2 factor in the below is because the LP allows up to (but really a tiny bit more than)
+            # self.existing_utilization_epsilon variation greater than existing utilization. So should check for a
+            # change bigger than that. 2 times thi small number should be safe
             updated = True if not old_esrc else old_esrc.updated_check(dmr,dmr_dv_util,2*self.existing_utilization_epsilon)
 
             # don't make a new SRC if we're not updating anything 
@@ -223,7 +255,9 @@ class LocalPlannerWrapper:
             creation_dt = old_esrc.creation_dt if old_esrc else None
             update_dt = None
 
-            # we make an entirely new Sim route container for the route because that way we have a unique, new object, and we don't risk information sharing by inadvertantly updating the same object across satellites and ground network
+            # we make an entirely new Sim route container for the route because that way we have a unique, new object,
+            # and we don't risk information sharing by inadvertantly updating the same object across satellites and
+            # ground network
             #   note only one Sim route container per DMR
             # honestly we probably could just use a copy() here...
             new_src = SimRouteContainer(dmr.ID,dmr,dmr_dv_util,creation_dt,update_dt,lp_agent_id)
@@ -239,7 +273,9 @@ class LocalPlannerWrapper:
             pre_utilization_by_route_id = existing_route_data['utilization_by_planned_route_id']
             post_utilization_by_route_id = copy(updated_utilization_by_route_id)
 
-            # to deal with fact that all_routes_after_update will not actually always have all the pre-existing planned routes included in it. If not, it's because they're not added in in lp_scheduling's extract_updated_routes (the LP just straight-up ignored them)
+            # to deal with fact that all_routes_after_update will not actually always have all the pre-existing planned
+            # routes included in it. If not, it's because they're not added in in lp_scheduling's extract_updated_routes
+            # (the LP just straight-up ignored them)
             all_post_routes = copy(all_routes_after_update)
             for rt in existing_route_data['planned_routes']:
                 if not rt in all_post_routes:
@@ -248,7 +284,8 @@ class LocalPlannerWrapper:
 
             data_container_rts = [dc.executed_data_route for dc in  existing_data_conts]
 
-            self.do_post_metrics(curr_time_dt,existing_route_data['planned_routes'], all_post_routes, pre_utilization_by_route_id,post_utilization_by_route_id,data_container_rts)
+            self.do_post_metrics(curr_time_dt,existing_route_data['planned_routes'], all_post_routes,
+                                 pre_utilization_by_route_id,post_utilization_by_route_id,data_container_rts)
 
 
         # TODO: Determine how much "surprise" DV (included injected and schedule disruptions) is left over
@@ -270,13 +307,17 @@ class LocalPlannerWrapper:
 
         return sim_routes, dc_id_by_new_src_id, latest_lp_route_indx
 
-    def do_post_metrics(self,curr_time_dt,pre_planned_routes,post_planned_routes,pre_utilization_by_route_id,post_utilization_by_route_id,data_container_rts):
+    def do_post_metrics(self,curr_time_dt,pre_planned_routes,post_planned_routes,pre_utilization_by_route_id,
+                        post_utilization_by_route_id,data_container_rts):
 
         def pre_rt_dv_getter(rt):
             return rt.data_vol * pre_utilization_by_route_id[rt.ID]
 
         def post_rt_dv_getter(rt):
-            # the LP is allowed to add in some utlization fudge in order to avoid situations where route utilization is right on the edge of meeting route min DV requirement. This fudge isn't super great, but only affects route plans - it doesn't produce DV out of thin air in the sim, because dv is only created by executing obs windows
+            # the LP is allowed to add in some utlization fudge in order to avoid situations where route
+            # utilization is right on the edge of meeting route min DV requirement. This fudge isn't super
+            # great, but only affects route plans - it doesn't produce DV out of thin air in the sim,
+            # because dv is only created by executing obs windows
             pre_util = 1.0
             if rt.ID in pre_utilization_by_route_id.keys():
                 pre_util = pre_utilization_by_route_id[rt.ID]
@@ -351,7 +392,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     # apparently the state_sim is 1 timestep ahead of the planning_start_dt
     cur_time_dt = lp_inputs['lp_instance_params']['planning_params']['planning_start_dt']+timedelta(seconds=t_step)
     steps_ahead = 2 # TODO: make this a sim parameter?
-    plan_start_time_dt = lp_inputs['lp_instance_params']['planning_params']['planning_start_dt'] + timedelta(seconds=steps_ahead*t_step)
+    plan_start_time_dt = lp_inputs['lp_instance_params']['planning_params']['planning_start_dt'] + \
+                         timedelta(seconds=steps_ahead*t_step)
 
     # simulation base time
     sim_base_time = lp_inputs['const_sim_inst_params']['sim_run_params']['start_utc_dt']
@@ -368,12 +410,15 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     route_dv_failed = 0
     data_containers_dv_failed = 0
     for failed_SRC in context_SRCs:
-        failed_data_container_dv = sum(edc.data_vol for edc in failure_context['executable_tx_data_conts_by_rt_cont'][failed_SRC])
+        failed_data_container_dv = sum(edc.data_vol for edc
+                                       in failure_context['executable_tx_data_conts_by_rt_cont'][failed_SRC])
         route_dv_failed += failed_SRC.data_vol
         data_containers_dv_failed += failed_data_container_dv
         # sometimes the data vol of a DC will be greater than its allocated route container 
-        # I believe this occurs because the GP / LP is deciding not to dlnk all data in the DC because other things are higher priority in the current time horizon (such as injected obs)
-        # I should be trying to only re-allocate the activity / route failed DV, NOT The sum of undelievered DC DV, because that was not planned to be delivered in the current GP
+        # I believe this occurs because the GP / LP is deciding not to dlnk all data in the DC because other things
+        # are higher priority in the current time horizon (such as injected obs)
+        # I should be trying to only re-allocate the activity / route failed DV, NOT The sum of undelievered DC DV,
+        # because that was not planned to be delivered in the current GP
 
     print('===INFO FOR DOWNLINK DV vs. ROUTE TOTALS DV===')
     print('CUR TIME: %s' % str(cur_time_dt))
@@ -383,10 +428,12 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     print('DIFFERENCE: %f Mb' % (activity_dv_failed - route_dv_failed))
     print('SUM OF UNDELIVERED DATA CONT DV: %f Mb' % data_containers_dv_failed)
     print('==============================================')
-    dv_eps_check = lp_inputs['gp_general_params']['activity_scheduling_params']['dv_epsilon_Mb'] # the data containers can differ from the execution context by up to 1 Mb
+    # the data containers can differ from the execution context by up to 1 Mb
+    dv_eps_check = lp_inputs['gp_general_params']['activity_scheduling_params']['dv_epsilon_Mb']
 
     calc_failed_dv_from_DCs = True 
-    # NOTE: activity_dv_Failed can be less than route_dv failed IF an activity is bumped off the current executable acts for the GS
+    # NOTE: activity_dv_Failed can be less than route_dv failed IF an activity is bumped off the current
+    # executable acts for the GS
     # if this is the case, we should base the failed amount on the data_containers
     if activity_dv_failed + dv_eps_check >= route_dv_failed:
         dv_failed = data_containers_dv_failed
@@ -407,7 +454,9 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     # otherwise it should be forked into a new data container that points to a new route 
     # container).
     
-    # NOTE: calculating failed dv from DCs will allow possible more DV to be allocated than the original failed activity had planned
+    # NOTE: calculating failed dv from DCs will allow possible more DV to be allocated than the original failed
+    # activity had planned
+
     
 
     # Retrieve all currently planned actions (past and present)
@@ -435,7 +484,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     ############# ############# ############# ############# ############# ############# 
 
     ############# Find all valid future downlink windows for this satellite #############
-    # Note: we could get this from act_timing_helper, but we need to pass it a valid window .  this helper inherits from the dict below anyway, so same effect
+    # Note: we could get this from act_timing_helper, but we need to pass it a valid window .  this helper inherits
+    # from the dict below anyway, so same effect
     min_dlnk_duration = lp_inputs['orbit_prop_params']['sat_params']['activity_params']['min_duration_s']['dlnk'] # seconds   
     
     # get ALL potential downlink window for this sat from the plan_db
@@ -444,7 +494,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     # Remove "potential_activity_windows" and just use potential_downlink_winds
 
     
-    valid_candidate_windows = get_candidate_downlink_windows(potential_downlink_winds,future_planned_acts,plan_start_time_dt,self_replan_horizon_dt, min_dlnk_duration)
+    valid_candidate_windows = get_candidate_downlink_windows(potential_downlink_winds,future_planned_acts,
+                                                             plan_start_time_dt,self_replan_horizon_dt, min_dlnk_duration)
     ############# ############# ############# ############# ############# ############# 
 
     # compare valid_candidate_windows (in MJD (start, stop)) to potential_downlink_winds to cut down on potential_dlnk_winds
@@ -469,7 +520,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     # NOTE: if the route was already executed, then it is in "executed" and not "planned" existing route data
     # Setup lp_outputs values
     # NOTE that already "executed" routes do not appear in existing route data
-    # NOTE: "Self-replanner" does NOT affect existing routes in ANY way, only attemptes to create new downlink, so I need to copy existing routes here
+    # NOTE: "Self-replanner" does NOT affect existing routes in ANY way, only attemptes to create new downlink,
+    # so I need to copy existing routes here
 
     # Slice lists so that they create new objects, instead of pointing back to the same ones!
     scheduled_routes = lp_inputs['existing_route_data']['planned_routes'][:]
@@ -534,7 +586,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     if failed_dv_check == 0:
         if len(context_SRCs) > 0:
             print('Failed SRC no longer has Data Container anyway, returnning')
-            # This would happen when a satelite receives an update for a new route that contains a downlink, but has already passed the observation window for the obs
+            # This would happen when a satelite receives an update for a new route that contains a downlink, but has
+            # already passed the observation window for the obs
             print(SRC)
         else:
             print('No route container active during failure anyway')
@@ -556,8 +609,10 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     # TODO: there should be a priority mechanism for which DC is allocated "first"
     new_downlinks_dict = {} # keys are downlinks, values are a list of new_dcs
     # it is ONE downlink to 1..Many DCs, NOT the other way around.  One DataContainer can't have multiple downlinks!
-    # while that is true, it is also 1 failed DC to potentially many new DMRs (will be split into new data containers upstream)
-    # While this is technically the correct thing to do, forking takes place upstream (after LP return, so I shouldn't be forking here and only associate with previous data containers)
+    # while that is true, it is also 1 failed DC to potentially many new DMRs (will be split into new data
+    # containers upstream)
+    # While this is technically the correct thing to do, forking takes place upstream (after LP return, so I shouldn't
+    # be forking here and only associate with previous data containers)
     remaining_dcs = failed_dcs_list[:]
     overflow_dv = 0 # overflow from the previous failed_dc
     for new_downlink in new_downlinks:
@@ -572,9 +627,12 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
                 if calc_failed_dv_from_DCs:
                     dv_to_allocate = failed_dc.data_vol  
                 else:
-                    dv_to_allocate = failed_dc.data_vol if not failed_dc.latest_planned_rt_cont else failed_dc.latest_planned_rt_cont.data_vol # NOTE: we are allocating based on the last route container for the DC (if it exists), not the DC itself!
+                    dv_to_allocate = failed_dc.data_vol if not failed_dc.latest_planned_rt_cont \
+                        else failed_dc.latest_planned_rt_cont.data_vol # NOTE: we are allocating based on the last
+                    # route container for the DC (if it exists), not the DC itself!
                 # sometimes the data vol of a DC will be greater than its allocated route container (and vice versa)
-                # I believe this occurs because the GP / LP is deciding not to dlnk all data in the DC because other things are higher priority in the current time horizon (such as injected obs)
+                # I believe this occurs because the GP / LP is deciding not to dlnk all data in the DC because other
+                # things are higher priority in the current time horizon (such as injected obs)
             else:
                 # otherwise, there was a data container that has overflow DV to go to a new downlink
                 dv_to_allocate = overflow_dv
@@ -594,11 +652,13 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
             
     
     if new_downlinks_found and total_dv_in_new_downlinks >= dv_failed:
-        # Sanity check to make sure that there are no DCs remaining (only applies if new downlinks were actually found and the total DV available can handle all failed dv, otherwise can't deal with all failed DCs anyway)
+        # Sanity check to make sure that there are no DCs remaining (only applies if new downlinks were actually found
+        # and the total DV available can handle all failed dv, otherwise can't deal with all failed DCs anyway)
         assert(len(remaining_dcs) == 0)
     self_replan_success = False
     # Now, we can use the downlinks dict to build the new downlinks and associate the right DCs with the new routes
-    # loop through all of the "new_downlinks", make a single "downlink window" for them,  and make a new DMR for each unique datacontainer
+    # loop through all of the "new_downlinks", make a single "downlink window" for them,  and make a new DMR for each
+    # unique datacontainer
     # One Downlink window can have multiple data routes in it!
     for new_downlink in new_downlinks:
         dlnk = new_downlink[0]
@@ -607,7 +667,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
 
         if duration_s.total_seconds() < min_dlnk_duration:
             # don't make a new route for this downlink, it will be ignored by the GP
-            new_downlinks_found = False if not self_replan_success else True # reset this flag since now not valid, unless we already have made new DMRs
+            new_downlinks_found = False if not self_replan_success else True # reset this flag since now not valid,
+            # unless we already have made new DMRs
             continue
 
         new_downlinks_found = True # reset again if we made it here
@@ -626,7 +687,8 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
         assert(datetime_start >= dlnk.original_start) # new start should always be after physical limit of window start
         dlnk.modify_time(new_dt = datetime_start) # this sets the data_vol property!
         
-        # NOTE: the in place modification of the window changes the window itself, so it modified in the sat_windows_dict['dlnk_winds'] , but NOT the flat downlink winds, since it is a seperate deepcopy
+        # NOTE: the in place modification of the window changes the window itself, so it modified in
+        # the sat_windows_dict['dlnk_winds'] , but NOT the flat downlink winds, since it is a seperate deepcopy
         # this information will propagate to the ground station network later in the main sim loop
         # Note: some old routes still use the downlink
         dlnk.scheduled_data_vol = dlnk.data_vol # Mb
@@ -635,17 +697,20 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
 
         # replace old downlink window with new downlink window in downlink_winds_flat as well
         ID_mod = dlnk.window_ID
-        dlnk_to_replace = [x for x in sat_schedule_arb.plan_db.sat_windows_dict['dlnk_winds_flat'] if x.window_ID == ID_mod].pop()
+        dlnk_to_replace = [x for x in sat_schedule_arb.plan_db.sat_windows_dict['dlnk_winds_flat']
+                           if x.window_ID == ID_mod].pop()
         dlnk_to_replace_ind = sat_schedule_arb.plan_db.sat_windows_dict['dlnk_winds_flat'].index(dlnk_to_replace)
         sat_schedule_arb.plan_db.sat_windows_dict['dlnk_winds_flat'].remove(dlnk_to_replace)
         sat_schedule_arb.plan_db.sat_windows_dict['dlnk_winds_flat'].insert(dlnk_to_replace_ind,dlnk)
 
         # Make a new DataMultiRoute for each DataContainer associated with the downlink
-        dcs_and_dv_in_cur_downlink = new_downlinks_dict[new_downlink] # this returns a list of tuples (failed_dc, DV to allocate for this DMR)
+        dcs_and_dv_in_cur_downlink = new_downlinks_dict[new_downlink] # this returns a list of tuples (failed_dc, DV
+        # to allocate for this DMR)
         for dc_and_dv in dcs_and_dv_in_cur_downlink:
             dc = dc_and_dv[0]
             # the data volume limit is already checked above when the new DCs were created
-            dv_limit = min(dc_and_dv[1], dlnk.scheduled_data_vol) # sometimes dc_and_dv is larger by < 20 Mb (1 sec of downlinking)
+            dv_limit = min(dc_and_dv[1], dlnk.scheduled_data_vol) # sometimes dc_and_dv is larger by < 20 Mb
+            # (1 sec of downlinking)
 
             # this is probably the proper way to access the latest route container
             old_dmrs = list(dc.latest_planned_rt_cont.dmrs_by_id.values())
@@ -663,16 +728,19 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
             del window_start_sats[failure_context['act']] # delete the old downlink
             window_start_sats[dlnk] = sat_schedule_arb.sim_sat.index
 
-            new_route = DataRoute( planning_agent_id, latest_dr_uid , route =route, window_start_sats=window_start_sats,dv=dv_limit)
+            new_route = DataRoute( planning_agent_id, latest_dr_uid , route =route,
+                                   window_start_sats=window_start_sats,dv=dv_limit)
             new_route.scheduled_dv = dv_limit
             # APPARENTLY, EACH DMR ONLY HAS ONE DATA ROUTE... (might be for this example case only)
             new_ro_ID = RoutingObjectID(planning_agent_id, latest_dr_uid )
 
-            latest_dr_uid += 1   # this only increments for each new DMR, and we are only creating one new DMR (increment after new_ro_ID created!)
+            latest_dr_uid += 1   # this only increments for each new DMR, and we are only creating one new DMR
+            # (increment after new_ro_ID created!)
             fresh_DMR = DataMultiRoute(new_ro_ID,[new_route])
             drm_frac = dv_limit/fresh_DMR.data_vol
             fresh_DMR.set_scheduled_dv_frac(drm_frac) 
-            dv_utilization = fresh_DMR.scheduled_dv / fresh_DMR.data_vol # this can be a float if only one DMR is passed (typical case)
+            dv_utilization = fresh_DMR.scheduled_dv / fresh_DMR.data_vol # this can be a float if only one
+                                                                         # DMR is passed (typical case)
             
             # validate new data route
             new_route.validate(act_timing_helper)
@@ -684,12 +752,14 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
             updated_utilization_by_route_id[fresh_DMR.ID] = dv_utilization
             scheduled_rt_ids.append(fresh_DMR.ID)
             # link to data container via executed_dr
-            dc_id_by_scheduled_rt_id[fresh_DMR.ID] = dc.ID  # this dictionary means there is AT MOST 1 DC per DMR.  But two different DMRs could point to the same OLD DC (will be forked after returning)
+            dc_id_by_scheduled_rt_id[fresh_DMR.ID] = dc.ID  # this dictionary means there is AT MOST 1 DC per DMR.
+            # But two different DMRs could point to the same OLD DC (will be forked after returning)
             self_replan_success = True
 
     """ # remove last element of route history in failed DCs (failed downlink), since it didn't happen successfully
     # since I am no longer accessing the latest SRC via this method, shouldn't pop
-    # NOTE: this is not done insight the loop because the same DC can appear in multiple downlink windows, so it will cause errors for the later windows
+    # NOTE: this is not done insight the loop because the same DC can appear in multiple downlink windows, so it will 
+    cause errors for the later windows
     for dc in failed_dcs_list:
         dc._planned_rt_hist.pop()  """  
 
@@ -700,7 +770,9 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     if self_replan_success:
         print('planned downlinks developed into sim Route Containers')
         # end disruption state
-        sat_schedule_arb.sim_sat.state_recorder.log_event(cur_time_dt,'lp_wrapper.py','LP v1 success','SRP recovered from %s failing by modifing these downlinks: %s' % (failure_context['act'], new_downlinks))
+        sat_schedule_arb.sim_sat.state_recorder.log_event(cur_time_dt,'lp_wrapper.py','LP v1 success',
+                                                          'SRP recovered from %s failing by modifing these downlinks: %s'
+                                                          % (failure_context['act'], new_downlinks))
         sat_schedule_arb.latest_lp_route_indx = latest_dr_uid
 
     
@@ -708,23 +780,30 @@ def run_schedule_disruption_planner(sat_schedule_arb,lp_inputs,act_timing_helper
     if not self_replan_success:
         print('self-Replan failed, intiating local neighborhood recovery')
         # initiate neighborhood replanning
-        #you can definitely query the STN object to see if a current access between two objects exists, but you’d need to overlay that with the planning DB info if you want to work with bulk data routing plan (I assert the STN is sufficient to check for low rate plan sharing)
+        #you can definitely query the STN object to see if a current access between two objects exists, but you’d need
+        # to overlay that with the planning DB info if you want to work with bulk data routing plan (I assert the STN
+        # is sufficient to check for low rate plan sharing)
         # TODO: Implement neighborhood replan methods (BFS and DFS w/ two diff heuritics)
         
 
     if not neighborhood_replan_success and not self_replan_success:
-        sat_schedule_arb.sim_sat.state_recorder.log_event(cur_time_dt,'lp_wrapper.py','LP v1 failure','Both SRP and neighborhood RP failed to recovery from %s failing' % failure_context['act'])
+        sat_schedule_arb.sim_sat.state_recorder.log_event(cur_time_dt,'lp_wrapper.py',
+                                                          'LP v1 failure','Both SRP and neighborhood RP failed to '
+                                                                          'recovery from %s failing' % failure_context['act'])
         print('Schedule disruption recovery failed, aborting replanning')
         # Need to package output in the following way:
 
-    ''' lp_output - Dictionary Info:
+    ''' 
+    lp_output - Dictionary Info:
     schedule_routes: list of DMRs for routes that have data scheduled
     all_routes_after_update: list of all DMRs, even if they now don't have schedule data
     updated_utilization_by_route_id: dictionary with the new utilization level for each DMR, this is the same as 
         calling .get_sched_utilization() on each of the DMRs in all_routes_after_update
     latest_lp_route_indx: the new minimum index for any new local planner routes for this satellite
         this is equal to the index of the new route created + 1
-    dc_id_by_scheduled_rt_id: dictionary keys as the route id and data containers as the values for new scheduled routes only
+    dc_id_by_scheduled_rt_id: dictionary keys as the route id and data containers as the values for new scheduled routes 
+    only
+    
     '''
     lp_output = {
         'scheduled_routes':scheduled_routes,
@@ -792,7 +871,9 @@ def get_candidate_downlink_windows(potential_downlink_winds,future_planned_acts,
         for dlnk in gs_list:
             data_rate = dlnk.ave_data_rate
             window = (dlnk.original_start, dlnk.original_end)
-            available_DV = dlnk.original_data_vol # this will be overwritten & lowered if an existing downlink already has data scheduled
+            available_DV = dlnk.original_data_vol # this will be overwritten & lowered if an existing downlink already
+                                                  # has data scheduled
+
             if plan_start_time_dt > window[1]:
                 # check if plan start time is after window has ended
                 continue 
@@ -828,7 +909,8 @@ def get_candidate_downlink_windows(potential_downlink_winds,future_planned_acts,
                         candidate_window = (plan_start_time_dt, dlnk.center + start_center_delta)
 
                 available_DV = data_rate*(candidate_window[1] - candidate_window[0]).total_seconds()
-                # TIME AVAILABILITY CHECK -- need to check candidate window, it could be already scheduled, check future_planned_acts
+                # TIME AVAILABILITY CHECK -- need to check candidate window, it could be already scheduled,
+                # check future_planned_acts
                 candidate_valid = True
                 for future_act in future_planned_acts:
                     # need to be clear of actions at this time
@@ -859,6 +941,7 @@ def get_candidate_downlink_windows(potential_downlink_winds,future_planned_acts,
     return valid_candidate_windows
 
 def get_replanned_downlinks(valid_candidate_windows,dv_failed,rule, dv_eps=0.1):
+
     if rule == 'greedy':
         # change dict into a list of tuples, sorted by window start time, with 3rd lement the GS.ID
         sorted_windows = []
@@ -878,7 +961,8 @@ def get_replanned_downlinks(valid_candidate_windows,dv_failed,rule, dv_eps=0.1):
         dlnk = window[0]
         dlnk_rate = dlnk.ave_data_rate
 
-        next_dv = min(window[-1],remaining_dv) # last element of the window contains max available dv through that downlink
+        next_dv = min(window[-1],remaining_dv) # last element of the window contains max available dv
+                                               # through that downlink
 
         planned_downlinks.append((window[0],next_dv))
 

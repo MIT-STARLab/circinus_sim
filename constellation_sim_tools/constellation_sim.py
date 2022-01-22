@@ -20,7 +20,7 @@ from .sim_plotting import SimPlotting
 
 from .Transmission_Simulator import Transmission_Simulator
 from sprint_tools.Constellation_STN import Constellation_STN
-
+from sprint_tools.Sprint_Types import AgentType
 from circinus_tools import debug_tools
 import logging
 
@@ -106,7 +106,7 @@ class ConstellationSim:
         output_path = self.params['output_path']
         if not os.path.exists(output_path+'pickles'):       # /outputs/pickles
             if not os.path.exists(output_path):             # /outputs
-                os.mkdir(output_path)           
+                os.mkdir(output_path)
             os.mkdir(output_path+'pickles')
 
 
@@ -149,7 +149,7 @@ class ConstellationSim:
                 "activity_params": self.sat_params['activity_params']
             }
 
-            # assuming same for every sat. todo: make unique for each sat?
+            # assuming same for every sat.
             sat_id_sim_satellite_params = self.const_sim_inst_params['sim_satellite_params']
 
             sat = SimSatellite(
@@ -225,7 +225,6 @@ class ConstellationSim:
         self.inject_obs()
 
 
-
     def inject_obs(self):
 
         inj_obs_raw = self.sim_run_perturbations['injected_observations']
@@ -260,6 +259,26 @@ class ConstellationSim:
             self.sats_by_id[sat_id].inject_obs(inj_obs_by_sat_id.get(sat_id,[]))
 
 
+    def getReferenceByID(self,id):
+        if id in self.sats_by_id: return self.sats_by_id[id]
+        else: return self.gs_by_id.get(id,self.gs_network)
+        
+    def getAgentType(self,id):
+        if id in self.gs_by_id.keys(): return AgentType.GS
+        elif id in self.sat_id_order: return AgentType.SAT
+        return AgentType.GSNET
+        
+    def getAllSatIDs(self):
+        """
+        Gets all satellite ids, ordered by index
+        """
+        return self.sat_id_order
+        
+    def getAllGSIDs(self):
+        """
+        Gets all gs ids, ordered by index
+        """
+        return self.gs_id_order
 
     @staticmethod
     def pickle_checkpoint(output_path, global_time,gs_network,sats_by_id,gs_by_id):
@@ -304,7 +323,7 @@ class ConstellationSim:
 
         if first_iter:
             # Change from building all potential activity windows over the entire sim every time the GP is ran to instead build them once at the start of sim 
-            # and then associate the relevant windows with the relevant planning objects (GSN knows all windows, each satellite knows windows in which they can participate)
+            # and then associate the relevant windows with the relevant planning objects (N knows all windows, each satellite knows windows in which they can participate)
             # First: create the params input structure required by SchedIOProcessor
 
             if not self.gs_network.scheduler.outsource:
@@ -364,7 +383,7 @@ class ConstellationSim:
             # Parse out windows for each satellite, add them to the queue of info to be sent to that satellite
             for sat_idx,sat in enumerate(self.sats_by_id.values()):
                 # For immediate testing, just immediate set the information into their plan_db.
-                # TODO: work with Bobby to add to queue to push to each satellite
+
                 sat_plan_db = sat.get_plan_db()
                 sat_plan_db.sat_windows_dict = {}
                 for key in self.gs_network.scheduler.all_windows_dict.keys():
@@ -379,11 +398,11 @@ class ConstellationSim:
         # Simulation loop
         #######################
 
+        numLP = 0
         print_verbose('Starting sim loop',verbose)
         second_iter = False
         while global_time < sim_end_dt:
             self.CurGlobalTime = global_time
-            # print_verbose('global_time: %s'%(global_time.isoformat()),verbose)
 
             #####################
             # Checkpoint pickling
@@ -401,9 +420,9 @@ class ConstellationSim:
             # Activity execution
 
             #  execute activities at this time step before updating state to the next time step
-
             for sat in self.sats_by_id.values():
                 sat.execution_step(global_time)
+
             #  note that ground stations do not currently do anything in the execution step. including for completeness/API coherence
             for gs in self.gs_by_id.values():
                 gs.execution_step(global_time)
@@ -414,7 +433,6 @@ class ConstellationSim:
 
             #  run ground network update step so that we can immediately share plans on first iteration of this loop
             self.gs_network.state_update_step(global_time,self.gp_wrapper)
-
              # start all the satellites with a first round of GP schedules, if so desired
             if first_iter and self.GPhotstart:
                 self.Transmission_Simulator.setBackbone(True)       # Pair with set to false below
@@ -429,16 +447,16 @@ class ConstellationSim:
             # now update satellite and ground station states
             for sat in self.sats_by_id.values():
                 sat.state_update_step(global_time,self.lp_wrapper)
+
             for gs in self.gs_by_id.values():
                 gs.state_update_step(global_time)
 
-            # Share local sat info where appropriate: for downlink over time], 
+            # Share local sat info where appropriate: for downlink over time],
             for sat in self.sats_by_id.values():
                 if sat.prop_reg and ((global_time-sat.last_broadcast).seconds > sat.prop_cadence):  # Here at some regularity, elsewhere as needed
-                    success = sat.get_exec().state_x_prop(tt.datetime2mjd(global_time))       # [state of self, state of others as seen]      
+                    success = sat.get_exec().state_x_prop(tt.datetime2mjd(global_time))       # [state of self, state of others as seen]
                     if success:
                         sat.last_broadcast = global_time
-
 
 
 
@@ -456,15 +474,18 @@ class ConstellationSim:
             # self.gs_network.display_satplan_staleness(tt.datetime2mjd(global_time)) # used in in dev
 
             # Sats share with other sats if appropriate    
-            #(flag under reference_model_definitions/sat_regs/zhou_original_sat.json ["sat_model_definition"]["sim_satellite_params"]["crosslink_new_plans_only_during_BDT"])
+            #(flag under reference_model_definitions/sat_regs/zhou_original_sat.json
+            # ["sat_model_definition"]["sim_satellite_params"]["crosslink_new_plans_only_during_BDT"])
             # if this flag is set to false, then anytime there is a potential crosslink access, plans will propagate.
-            # if this flag is set to true, then plans will only propagate over existing scheduled bulk data tranfer (BDT) Xlnk activites
+            # if this flag is set to true, then plans will only propagate over existing scheduled bulk data tranfer
+            # (BDT) Xlnk activites
             if not self.params['const_sim_inst_params']['sim_satellite_params']['crosslink_new_plans_only_during_BDT']:
                 for sat in self.sats_by_id.values():
                     sat.plan_prop(self,tt.datetime2mjd(global_time))
 
             # if a sat LP has run, send that info to gs network so it can use in planning with GP
             for sat in (s for s in self.sats_by_id.values() if s.arbiter.check_external_share_plans_updated()):
+                numLP += 1
                 L_plan_flag = sat.push_down_L_plan(self,tt.datetime2mjd(global_time))
                 # if this is successful, then the gsn_network should share the new planning info, other keep previous setting
                 if L_plan_flag:
@@ -481,10 +502,10 @@ class ConstellationSim:
                             # if the sat_schedule_arbiter has a new max window ID then share that too
                             self.gs_network.scheduler.all_windows_dict['next_window_uid'] = sat.arbiter.plan_db.sat_windows_dict['next_window_uid']
 
-                            # TODO - BIG COMM FIX (BOBBY DON'T KILL ME - although this is just a sim thing): ground station needs to queue up a new message to update all sats with new next_window_uid when they get the chance
                             for other_sat in self.sats_by_id.items():
                                 if other_sat != sat:
-                                    other_sat.arbiter.plan_db.sat_windows_dict['next_window_uid'] = self.gs_network.scheduler.all_windows_dict['next_window_uid']
+                                    other_sat.arbiter.plan_db.sat_windows_dict['next_window_uid'] = \
+                                        self.gs_network.scheduler.all_windows_dict['next_window_uid']
                                     
 
                                 
@@ -499,6 +520,10 @@ class ConstellationSim:
             second_iter = True if first_iter else False
             first_iter = False
 
+            print("\n===================================================")
+            print("======= CURRENT TIME : {} ========".format(global_time))
+            print("===================================================\n")
+        print("num LP:",numLP)
 
         #### 
         # end of sim
@@ -521,8 +546,8 @@ class ConstellationSim:
     def gsn_exchange_planning_info_all_exec_agents(self):
         #  every time the ground network re-plans, want to send that updated planning information to the ground stations
         for gs in self.gs_by_id.values():
-            self.gs_network.send_planning_info(gs,info_option='routes_only')
-            gs.send_planning_info(self.gs_network,info_option='routes_only')
+            self.gs_network.send_planning_info(gs.ID,info_option='routes_only')
+            gs.send_planning_info(self.gs_network.ID,info_option='routes_only')
 
         self.gs_network.scheduler.set_external_share_plans_updated(False)
 
@@ -542,10 +567,12 @@ class ConstellationSim:
         event_logs['sats'] = OrderedDict()
         event_logs['gs'] = OrderedDict()
         for sat in sats_in_indx_order:
-            sat.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in sat.state_sim.get_curr_data_conts()])
+            sat.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',
+                                         [str(dc) for dc in sat.state_sim.get_curr_data_conts()])
             event_logs['sats'][sat.ID] = sat.state_recorder.get_events()
         for gs in gs_in_indx_order:
-            gs.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',[str(dc) for dc in gs.state_sim.get_curr_data_conts()])
+            gs.state_recorder.log_event(self.sim_end_dt,'constellation_sim.py','final_dv',
+                                        [str(dc) for dc in gs.state_sim.get_curr_data_conts()])
             event_logs['gs'][gs.ID] = gs.state_recorder.get_events()
 
         
@@ -866,6 +893,8 @@ class ConstellationSim:
             xlnk_fails = [act for act in total_exec_failures_dict[failure_type] if isinstance(act,XlnkWindow)]
             dlnk_fails = [act for act in total_exec_failures_dict[failure_type] if isinstance(act,DlnkWindow)]
             obs_fails = [act for act in total_exec_failures_dict[failure_type] if isinstance(act,ObsWindow)]
+
+            
             if num_failures > 0:
                 print('"%s": Total: %d, Obs: %d, Xlnk: %d, Dlnk: %d' %(failure_type,num_failures,len(obs_fails),len(xlnk_fails),len(dlnk_fails)))
 
@@ -893,6 +922,7 @@ class ConstellationSim:
             xlnk_fails = [act for act in total_non_exec_failures_dict[failure_type] if isinstance(act,XlnkWindow)]
             dlnk_fails = [act for act in total_non_exec_failures_dict[failure_type] if isinstance(act,DlnkWindow)]
             obs_fails = [act for act in total_non_exec_failures_dict[failure_type] if isinstance(act,ObsWindow)]
+
             if num_failures > 0:
                 print('"%s": Total: %d, Obs: %d, Xlnk: %d, Dlnk: %d' %(failure_type,num_failures,len(obs_fails),len(xlnk_fails),len(dlnk_fails)))
 
@@ -966,7 +996,10 @@ class ConstellationSim:
                 GS_disrupted = None
         try:
             setting_name = self.params['orbit_prop_params']['orbit_prop_data']['multirun_setting_name'] 
-            scenario_name = '%d_SRP_Test_SRP_%s_GS_%s_%s' % (len(self.sats_by_id.values()),SRP_setting, GS_disrupted,setting_name) if GS_disrupted else '%d_Nominal_%s' % (len(self.sats_by_id.values()),setting_name)
+            scenario_name = '%d_SRP_Test_SRP_%s_GS_%s_%s' % (len(self.sats_by_id.values()),SRP_setting,
+                                                             GS_disrupted,setting_name) if GS_disrupted else \
+                '%d_Nominal_%s' % (len(self.sats_by_id.values()),setting_name)
+
             filename_str = '../../../multirun_tests/%s.json' %scenario_name
             with open(filename_str,'w') as f:
                 json.dump(test_metrics_dump,f, indent=4, separators=(',', ': ')) 
